@@ -40,3 +40,18 @@ next-env.d.ts
 # Supabase local
 /supabase/.branches
 /supabase/.temp
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Loose design/asset files in project root (not part of the application)
+/*.png
+/*.PNG
+/*.jpg
+/*.JPG
+/*.jpeg
+/*.JPEG
+/*.svg
+/*.SVG
+/*.pdf
+/*.PDF

@@ -27,19 +27,19 @@ declare
   v_household_1a  uuid := 'a1000000-0000-0000-0000-000000000001';  -- Family 1, primary
   v_household_2a  uuid := 'a2000000-0000-0000-0000-000000000002';  -- Family 2, primary
   v_household_2b  uuid := 'b2000000-0000-0000-0000-000000000003';  -- Family 2, secondary (split)
-  v_student_1     uuid := 's1000000-0000-0000-0000-000000000001';
-  v_student_2     uuid := 's2000000-0000-0000-0000-000000000002';
-  v_student_3     uuid := 's3000000-0000-0000-0000-000000000003';
-  v_student_4     uuid := 's4000000-0000-0000-0000-000000000004';
+  v_student_1     uuid := '51000000-0000-0000-0000-000000000001';
+  v_student_2     uuid := '52000000-0000-0000-0000-000000000002';
+  v_student_3     uuid := '53000000-0000-0000-0000-000000000003';
+  v_student_4     uuid := '54000000-0000-0000-0000-000000000004';
   -- Profile IDs — these match auth.users IDs that staff create via invite
   -- In dev, create these users first via Supabase Auth → Invite User
   -- then their profiles are auto-created by the handle_new_user() trigger.
   -- The seed references them by ID; insert will fail gracefully if they don't exist yet.
-  v_guardian_1    uuid := 'g1000000-0000-0000-0000-000000000001';  -- Sandra Thompson
-  v_guardian_2    uuid := 'g2000000-0000-0000-0000-000000000002';  -- Marcus Thompson
-  v_guardian_3    uuid := 'g3000000-0000-0000-0000-000000000003';  -- Keisha Williams
-  v_guardian_4    uuid := 'g4000000-0000-0000-0000-000000000004';  -- Darnell Williams (split)
-  v_teacher_1     uuid := 't1000000-0000-0000-0000-000000000001';  -- James Rivera
+  v_guardian_1    uuid := 'e1000000-0000-0000-0000-000000000001';  -- Sandra Thompson
+  v_guardian_2    uuid := 'e2000000-0000-0000-0000-000000000002';  -- Marcus Thompson
+  v_guardian_3    uuid := 'e3000000-0000-0000-0000-000000000003';  -- Keisha Williams
+  v_guardian_4    uuid := 'e4000000-0000-0000-0000-000000000004';  -- Darnell Williams (split)
+  v_teacher_1     uuid := '71000000-0000-0000-0000-000000000001';  -- James Rivera
 begin
 
   -- ── Get the Rising Leaders Academy org ID ────────────────

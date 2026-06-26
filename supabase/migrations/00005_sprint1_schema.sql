@@ -78,7 +78,7 @@ comment on function next_org_display_id(uuid, text) is
 
 create table if not exists families (
   -- Standard SchoolCo columns
-  id               uuid         default uuid_generate_v4() primary key,
+  id               uuid         default gen_random_uuid() primary key,
   organization_id  uuid         not null references organizations(id) on delete cascade,
   created_at       timestamptz  default now() not null,
   created_by       uuid         references profiles(id),
@@ -141,7 +141,7 @@ create trigger families_display_id
 
 create table if not exists households (
   -- Standard SchoolCo columns
-  id               uuid         default uuid_generate_v4() primary key,
+  id               uuid         default gen_random_uuid() primary key,
   organization_id  uuid         not null references organizations(id) on delete cascade,
   created_at       timestamptz  default now() not null,
   created_by       uuid         references profiles(id),

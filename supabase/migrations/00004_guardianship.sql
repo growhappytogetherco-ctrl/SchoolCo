@@ -17,6 +17,15 @@
 -- NEVER in organization_members.
 -- ============================================================
 
+-- ── Shared trigger function (used by this and later migrations) ──────────
+create or replace function update_updated_at_column()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 -- ── Extensions (already enabled, idempotent) ────────────────
 create extension if not exists "uuid-ossp";
 
@@ -61,7 +70,7 @@ create type enrollment_status as enum (
 
 create table students (
   -- Standard columns
-  id                 uuid             default uuid_generate_v4() primary key,
+  id                 uuid             default gen_random_uuid() primary key,
   organization_id    uuid             not null references organizations(id) on delete cascade,
   created_at         timestamptz      default now() not null,
   created_by         uuid             references profiles(id),
@@ -111,7 +120,7 @@ create trigger students_updated_at
 
 create table guardianships (
   -- Standard columns
-  id                      uuid          default uuid_generate_v4() primary key,
+  id                      uuid          default gen_random_uuid() primary key,
   organization_id         uuid          not null references organizations(id) on delete cascade,
   created_at              timestamptz   default now() not null,
   created_by              uuid          references profiles(id),

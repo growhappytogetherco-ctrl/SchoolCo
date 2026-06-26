@@ -38,7 +38,7 @@ create type membership_status as enum (
 -- Every future operational table MUST include these columns.
 -- Document this pattern here for all future developers.
 --
--- id              uuid primary key default uuid_generate_v4()
+-- id              uuid primary key default gen_random_uuid()
 -- organization_id uuid not null references organizations(id) on delete cascade
 -- created_at      timestamptz not null default now()
 -- created_by      uuid references profiles(id) on delete set null
@@ -56,7 +56,7 @@ create type membership_status as enum (
 -- Every organization fully controls its own branding via these columns.
 
 create table organizations (
-  id                uuid         primary key default uuid_generate_v4(),
+  id                uuid         primary key default gen_random_uuid(),
   name              text         not null,
   short_name        text,                          -- Abbreviated name e.g. "RLA"
   slug              text         not null unique,  -- URL-safe e.g. "rising-leaders-academy"
@@ -120,7 +120,7 @@ comment on table profiles is
 -- Split-household permissions will be managed via metadata + a future guardianship table.
 
 create table organization_members (
-  id               uuid             primary key default uuid_generate_v4(),
+  id               uuid             primary key default gen_random_uuid(),
   organization_id  uuid             not null references organizations(id) on delete cascade,
   profile_id       uuid             not null references profiles(id) on delete cascade,
   role             user_role        not null,
@@ -156,7 +156,7 @@ create index idx_org_members_status    on organization_members(organization_id, 
 -- Only full_admin and platform_admin may view audit logs.
 
 create table audit_logs (
-  id               uuid        primary key default uuid_generate_v4(),
+  id               uuid        primary key default gen_random_uuid(),
   organization_id  uuid        references organizations(id),  -- null = platform-level action
   actor_id         uuid        not null references profiles(id),
   action           text        not null,              -- e.g. "member.invited", "record.viewed"
