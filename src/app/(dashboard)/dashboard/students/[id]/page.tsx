@@ -27,7 +27,7 @@ export default async function StudentProfilePage({
       grade_level, track, enrollment_status, enrollment_date, expected_graduation,
       date_of_birth, medical_notes, allergies, scholarship_info,
       authorized_pickup_notes, attendance_qr_token, profile_qr_token, avatar_url,
-      family_id,
+      family_id, google_drive_folder_id, google_drive_folder_url, drive_folder_status,
       families ( id, family_name, family_display_id, is_split_household )
     `)
     .eq("id", params.id)
@@ -113,6 +113,8 @@ export default async function StudentProfilePage({
     top_badge_level: topBadgeLevel,
     badge_count: badges?.length ?? 0,
     active_project_count: activeProjectCount ?? 0,
+    drive_folder_status: (student.drive_folder_status as string | null) ?? "none",
+    drive_folder_url: student.google_drive_folder_url as string | null,
   };
 
   return (

@@ -125,7 +125,7 @@ export function StudentProfile({ data, initialTab, orgId, currentUserId }: Props
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} />}
-        {activeTab === "documents"        && <DocumentsTab        studentId={data.id} />}
+        {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} />}
         {activeTab === "leadership"       && <LeadershipTab       studentId={data.id} />}
         {activeTab === "entrepreneurship" && <EntrepreneurshipTab studentId={data.id} />}
         {activeTab === "family"           && <FamilyTab           studentId={data.id} />}

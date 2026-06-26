@@ -124,7 +124,7 @@ export function StudentQuickActions({ studentId, todayAttendance, attendanceQrTo
           variant="rose"
         />
         <ActionButton
-          label="Upload Doc"
+          label="Work Sample"
           icon={<Upload className="size-4" />}
           href={`/dashboard/students/${studentId}?tab=documents&action=upload`}
           variant="default"

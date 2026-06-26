@@ -58,4 +58,6 @@ export interface StudentProfileData {
   top_badge_level: string | null;
   badge_count: number;
   active_project_count: number;
+  drive_folder_status: string;
+  drive_folder_url: string | null;
 }
