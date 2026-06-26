@@ -1,307 +1,261 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
-  UserCheck, LogOut, X, Pill, AlertTriangle,
-  Clock, CheckCircle, GraduationCap, ShieldAlert,
+  CheckCircle, LogOut, Clock, AlertTriangle,
+  Pill, ShieldAlert, RotateCcw, X,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { checkInStudent, checkOutStudent } from "@/app/actions/attendance";
+import { undoAttendanceAction } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
 
-// ── Types ─────────────────────────────────────────────────────────────────
+// ── Types (shared with scan page) ─────────────────────────────────────────
 
-interface MedicationAlert {
-  id: string;
-  medication_name: string;
-  dosage: string | null;
-  instructions: string | null;
-  is_emergency: boolean;
-  storage_location: string | null;
-}
+export type ScanAction = "checkin" | "checkout" | "already_out";
 
-interface TodayRecord {
-  id: string;
-  status: string;
-  check_in_at: string | null;
-  check_out_at: string | null;
-  is_late: boolean;
-  is_early_pickup: boolean;
-}
-
-interface ScannedStudent {
-  id: string;
-  first_name: string;
-  last_name: string;
-  preferred_name: string | null;
-  grade_level: string | null;
-  medical_notes: string | null;
+export interface ScanResultData {
+  action: ScanAction;
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  preferredName: string | null;
+  gradeLevel: string | null;
+  isLate: boolean;
+  isEarlyPickup: boolean;
+  timestamp: string; // ISO
+  medicationAlerts: {
+    id: string;
+    medication_name: string;
+    is_emergency: boolean;
+  }[];
   allergies: string[];
-  authorized_pickup_notes: string | null;
-}
-
-export interface ScanPayload {
-  student: ScannedStudent;
-  today_record: TodayRecord | null;
-  medication_alerts: MedicationAlert[];
 }
 
 interface ScanResultProps {
-  data: ScanPayload;
-  onDismiss: () => void;
-  onActionComplete: () => void;
+  data: ScanResultData;
+  onReset: () => void;
+  autoResetMs?: number;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
 
-export function ScanResult({ data, onDismiss, onActionComplete }: ScanResultProps) {
-  const { student, today_record, medication_alerts } = data;
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [resultMsg, setResultMsg] = useState<string | null>(null);
-  const [actionTaken, setActionTaken] = useState<"in" | "out" | null>(null);
+export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProps) {
+  const {
+    action, studentId, firstName, lastName, preferredName,
+    gradeLevel, isLate, isEarlyPickup, timestamp,
+    medicationAlerts, allergies,
+  } = data;
 
-  const displayName = student.preferred_name
-    ? `${student.preferred_name} ${student.last_name}`
-    : `${student.first_name} ${student.last_name}`;
+  const [undoState, setUndoState] = useState<"idle" | "confirm" | "loading" | "done" | "error">("idle");
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isCheckedIn  = !!today_record?.check_in_at;
-  const isCheckedOut = !!today_record?.check_out_at;
-  const hasEmergencyMed = medication_alerts.some((m) => m.is_emergency);
-  const hasMedAlerts = medication_alerts.length > 0;
-  const hasAllergies = (student.allergies ?? []).length > 0;
-  const hasMedical = student.medical_notes || hasMedAlerts || hasAllergies;
+  const displayName = preferredName
+    ? `${preferredName} ${lastName}`
+    : `${firstName} ${lastName}`;
 
-  async function handleCheckIn() {
-    setStatus("loading");
-    const result = await checkInStudent(student.id, "qr");
+  const time = new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit",
+  });
+
+  const hasEmergencyMed = medicationAlerts.some((m) => m.is_emergency);
+  const hasMedical = medicationAlerts.length > 0 || allergies.length > 0;
+
+  // Auto-reset after delay; pauses while admin override is open
+  useEffect(() => {
+    if (undoState !== "idle") return; // pause timer during override flow
+
+    timerRef.current = setTimeout(onReset, autoResetMs);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [onReset, autoResetMs, undoState]);
+
+  async function handleUndo() {
+    setUndoState("loading");
+    const result = await undoAttendanceAction(studentId);
     if (result.success) {
-      setStatus("success");
-      setActionTaken("in");
-      setResultMsg(`${student.first_name} checked in successfully.`);
-      setTimeout(onActionComplete, 1800);
+      setUndoState("done");
+      setTimeout(onReset, 1500);
     } else {
-      setStatus("error");
-      setResultMsg(result.error ?? "Check-in failed.");
+      setUndoError(result.error ?? "Could not undo. Try again.");
+      setUndoState("error");
     }
   }
 
-  async function handleCheckOut() {
-    setStatus("loading");
-    const result = await checkOutStudent(student.id, "qr");
-    if (result.success) {
-      setStatus("success");
-      setActionTaken("out");
-      setResultMsg(`${student.first_name} checked out successfully.`);
-      setTimeout(onActionComplete, 1800);
-    } else {
-      setStatus("error");
-      setResultMsg(result.error ?? "Check-out failed.");
-    }
-  }
+  // ── Color scheme per action ─────────────────────────────────────────────
+  const scheme = {
+    checkin:     { bg: "bg-sc-teal",    text: "text-sc-teal",    label: "CHECKED IN",  Icon: CheckCircle },
+    checkout:    { bg: "bg-sc-navy",    text: "text-sc-navy",    label: "CHECKED OUT", Icon: LogOut      },
+    already_out: { bg: "bg-sc-gray-400", text: "text-sc-gray-600", label: "ALREADY CHECKED OUT", Icon: X },
+  }[action];
 
-  // ── Success screen ──────────────────────────────────────────────────────
-  if (status === "success") {
+  // ── Undo confirmation screen ────────────────────────────────────────────
+  if (undoState === "confirm") {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-8 text-center">
-        <div className={cn(
-          "flex h-20 w-20 items-center justify-center rounded-full",
-          actionTaken === "in" ? "bg-sc-teal-50" : "bg-sc-navy-50"
-        )}>
-          <CheckCircle className={cn(
-            "size-10",
-            actionTaken === "in" ? "text-sc-teal" : "text-sc-navy"
-          )} />
+      <div className="flex flex-col items-center justify-center gap-5 py-10 text-center px-4">
+        <RotateCcw className="size-12 text-sc-navy" />
+        <div>
+          <p className="font-serif text-heading-1 text-sc-navy">Undo last action?</p>
+          <p className="text-body-md text-sc-gray mt-1">
+            This will reverse the {action === "checkout" ? "check-out" : "check-in"} for{" "}
+            <strong>{displayName}</strong>.
+          </p>
         </div>
-        <p className="font-serif text-heading-2 text-sc-navy">{resultMsg}</p>
-        <p className="text-body-sm text-sc-gray">Returning to scanner…</p>
+        <div className="flex gap-3 w-full max-w-xs">
+          <button
+            onClick={() => setUndoState("idle")}
+            className="flex-1 rounded-xl border-2 border-sc-gray-200 py-3 text-label-md font-semibold text-sc-gray"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleUndo}
+            className="flex-1 rounded-xl bg-sc-rose py-3 text-label-md font-semibold text-white"
+          >
+            Confirm Undo
+          </button>
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="space-y-4">
+  if (undoState === "loading") {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-12">
+        <div className="h-10 w-10 rounded-full border-4 border-sc-teal border-t-transparent animate-spin" />
+        <p className="text-body-md text-sc-gray">Undoing…</p>
+      </div>
+    );
+  }
 
-      {/* ── Emergency medical banner ─────────────────────────── */}
+  if (undoState === "done") {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+        <CheckCircle className="size-12 text-sc-teal" />
+        <p className="font-serif text-heading-2 text-sc-navy">Action reversed.</p>
+      </div>
+    );
+  }
+
+  // ── Main result screen ─────────────────────────────────────────────────
+  return (
+    <div className="flex flex-col gap-4">
+
+      {/* ── Emergency medication banner — shown first, always ─────── */}
       {hasEmergencyMed && (
-        <div className="flex items-start gap-3 rounded-xl bg-sc-rose border-2 border-sc-rose-700 px-4 py-3 animate-pulse">
+        <div className="flex items-start gap-3 rounded-xl bg-sc-rose border-2 border-sc-rose-700 px-4 py-3">
           <ShieldAlert className="size-6 text-white shrink-0 mt-0.5" />
           <div>
             <p className="font-bold text-white text-label-md uppercase tracking-wide">
-              ⚠ EMERGENCY MEDICATION ON FILE
+              ⚠ EMERGENCY MEDICATION
             </p>
-            {medication_alerts
+            {medicationAlerts
               .filter((m) => m.is_emergency)
               .map((m) => (
                 <p key={m.id} className="text-white/90 text-label-sm mt-0.5">
                   {m.medication_name}
-                  {m.storage_location ? ` — stored at: ${m.storage_location}` : ""}
                 </p>
               ))}
           </div>
         </div>
       )}
 
-      {/* ── Student identity card ────────────────────────────── */}
-      <div className="flex items-center gap-4 rounded-xl bg-white border border-sc-gray-100 p-4 shadow-card">
-        {/* Avatar placeholder */}
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-sc-teal text-white text-2xl font-serif font-bold">
-          {student.first_name[0]}{student.last_name[0]}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-serif text-heading-2 text-sc-navy leading-tight truncate">
-            {displayName}
-          </p>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            {student.grade_level && (
-              <span className="flex items-center gap-1 text-label-sm text-sc-gray">
-                <GraduationCap className="size-3.5" />
-                {student.grade_level}
-              </span>
-            )}
-            {today_record?.is_late && (
-              <span className="flex items-center gap-1 rounded-full bg-sc-gold-50 border border-sc-gold-200 px-2 py-0.5 text-label-sm text-sc-gold-700">
-                <Clock className="size-3" /> Late Arrival
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* ── Main action card ──────────────────────────────────────── */}
+      <div className={cn(
+        "rounded-2xl p-6 flex flex-col items-center gap-4 text-center shadow-card",
+        action === "checkin"     ? "bg-sc-teal-50 border-2 border-sc-teal/30" :
+        action === "checkout"    ? "bg-sc-navy-50 border-2 border-sc-navy/20" :
+                                   "bg-sc-gray-100 border-2 border-sc-gray-200"
+      )}>
 
-      {/* ── Today's status ───────────────────────────────────── */}
-      <div className="rounded-xl border border-sc-gray-100 bg-sc-cream/60 p-4">
-        <p className="text-label-sm font-semibold text-sc-gray uppercase tracking-wide mb-2">
-          Today's Status
-        </p>
-        {!today_record ? (
-          <p className="text-body-sm text-sc-gray">Not yet recorded today.</p>
-        ) : (
-          <div className="flex flex-wrap gap-3">
-            {isCheckedIn && (
-              <span className="flex items-center gap-1.5 text-label-sm text-sc-teal font-medium">
-                <CheckCircle className="size-4" />
-                Checked in {fmt(today_record.check_in_at)}
-              </span>
-            )}
-            {isCheckedOut && (
-              <span className="flex items-center gap-1.5 text-label-sm text-sc-navy font-medium">
-                <LogOut className="size-4" />
-                Checked out {fmt(today_record.check_out_at)}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Medical info ─────────────────────────────────────── */}
-      {hasMedical && (
+        {/* Avatar circle */}
         <div className={cn(
-          "rounded-xl border-2 p-4 space-y-2",
-          hasEmergencyMed
-            ? "border-sc-rose bg-sc-rose-50"
-            : hasMedAlerts
-            ? "border-sc-gold bg-sc-gold-50"
-            : "border-sc-gray-200 bg-white"
+          "flex h-24 w-24 items-center justify-center rounded-full text-white text-3xl font-serif font-bold shadow-md",
+          action === "checkin"  ? "bg-sc-teal" :
+          action === "checkout" ? "bg-sc-navy" : "bg-sc-gray-400"
         )}>
-          <p className={cn(
-            "flex items-center gap-2 text-label-sm font-semibold uppercase tracking-wide",
-            hasEmergencyMed ? "text-sc-rose-700" : hasMedAlerts ? "text-sc-gold-700" : "text-sc-gray"
+          {firstName[0]}{lastName[0]}
+        </div>
+
+        {/* Name */}
+        <div>
+          <p className="font-serif text-display-1 text-sc-navy leading-tight">{displayName}</p>
+          {gradeLevel && (
+            <p className="text-body-md text-sc-gray mt-0.5">{gradeLevel}</p>
+          )}
+        </div>
+
+        {/* Action label + time */}
+        <div className="flex flex-col items-center gap-1">
+          <div className={cn(
+            "flex items-center gap-2 rounded-full px-4 py-2 text-label-md font-bold tracking-widest uppercase",
+            action === "checkin"     ? "bg-sc-teal text-white" :
+            action === "checkout"    ? "bg-sc-navy text-white" :
+                                       "bg-sc-gray-300 text-sc-gray-700"
           )}>
-            <Pill className="size-4" /> Medical Information
-          </p>
-
-          {hasMedAlerts && medication_alerts.map((m) => (
-            <div key={m.id} className="flex items-start gap-2">
-              {m.is_emergency
-                ? <ShieldAlert className="size-4 text-sc-rose shrink-0 mt-0.5" />
-                : <Pill className="size-4 text-sc-gold shrink-0 mt-0.5" />
-              }
-              <div>
-                <p className="text-label-md font-semibold text-sc-navy">
-                  {m.medication_name} {m.dosage ? `— ${m.dosage}` : ""}
-                </p>
-                {m.instructions && (
-                  <p className="text-label-sm text-sc-gray">{m.instructions}</p>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {hasAllergies && (
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="size-4 text-sc-rose shrink-0 mt-0.5" />
-              <p className="text-label-sm text-sc-navy">
-                <span className="font-semibold">Allergies: </span>
-                {student.allergies.join(", ")}
-              </p>
-            </div>
-          )}
-
-          {student.medical_notes && (
-            <p className="text-label-sm text-sc-gray border-t border-sc-gray-200 pt-2 mt-2">
-              {student.medical_notes}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* ── Error message ────────────────────────────────────── */}
-      {status === "error" && (
-        <div className="rounded-lg border border-sc-rose-200 bg-sc-rose-50 px-4 py-3">
-          <p className="text-label-sm text-sc-rose-700 font-medium">{resultMsg}</p>
-        </div>
-      )}
-
-      {/* ── Action buttons ───────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 pt-1">
-        {!isCheckedOut && (
-          <Button
-            size="lg"
-            className="h-16 flex-col gap-1 text-base bg-sc-teal hover:bg-sc-teal-600"
-            onClick={handleCheckIn}
-            loading={status === "loading"}
-            disabled={isCheckedIn && !isCheckedOut}
-          >
-            <UserCheck className="size-6" />
-            {isCheckedIn ? "Already In" : "Check In"}
-          </Button>
-        )}
-
-        {isCheckedOut ? (
-          <div className="col-span-2 rounded-xl border-2 border-sc-navy-200 bg-sc-navy-50 flex items-center justify-center gap-2 py-4">
-            <CheckCircle className="size-5 text-sc-navy" />
-            <span className="text-label-md font-semibold text-sc-navy">
-              Checked out at {fmt(today_record?.check_out_at)}
-            </span>
+            <scheme.Icon className="size-5" />
+            {scheme.label}
           </div>
-        ) : (
-          <Button
-            size="lg"
-            variant="outline"
-            className="h-16 flex-col gap-1 text-base border-sc-navy text-sc-navy hover:bg-sc-navy-50"
-            onClick={handleCheckOut}
-            loading={status === "loading"}
-            disabled={!isCheckedIn}
-          >
-            <LogOut className="size-6" />
-            Check Out
-          </Button>
-        )}
+          <p className="text-body-lg font-semibold text-sc-gray">{time}</p>
+        </div>
+
+        {/* Late / early pickup badges */}
+        <div className="flex flex-wrap justify-center gap-2">
+          {isLate && (
+            <span className="flex items-center gap-1 rounded-full bg-sc-gold-100 border border-sc-gold-300 px-3 py-1 text-label-sm text-sc-gold-700 font-medium">
+              <Clock className="size-3.5" /> Late Arrival
+            </span>
+          )}
+          {isEarlyPickup && (
+            <span className="flex items-center gap-1 rounded-full bg-sc-navy-100 border border-sc-navy-200 px-3 py-1 text-label-sm text-sc-navy-600 font-medium">
+              <LogOut className="size-3.5" /> Early Pickup
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* ── Cancel ──────────────────────────────────────────── */}
-      <button
-        onClick={onDismiss}
-        disabled={status === "loading"}
-        className="flex w-full items-center justify-center gap-2 py-3 text-label-md text-sc-gray hover:text-sc-navy transition-colors"
-      >
-        <X className="size-4" />
-        Cancel — Scan Next Student
-      </button>
+      {/* ── Non-emergency medical info ─────────────────────────────── */}
+      {hasMedical && !hasEmergencyMed && (
+        <div className="rounded-xl border-2 border-sc-gold-300 bg-sc-gold-50 px-4 py-3 flex items-start gap-3">
+          {allergies.length > 0
+            ? <AlertTriangle className="size-5 text-sc-gold-600 shrink-0 mt-0.5" />
+            : <Pill className="size-5 text-sc-gold-600 shrink-0 mt-0.5" />
+          }
+          <div className="text-label-sm text-sc-gold-800">
+            {allergies.length > 0 && (
+              <p><span className="font-semibold">Allergies:</span> {allergies.join(", ")}</p>
+            )}
+            {medicationAlerts.map((m) => (
+              <p key={m.id}>{m.medication_name}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── "Already checked out" explanation ─────────────────────── */}
+      {action === "already_out" && (
+        <p className="text-center text-body-md text-sc-gray-600">
+          This student was already checked out today. No action taken.
+        </p>
+      )}
+
+      {/* ── Undo error ─────────────────────────────────────────────── */}
+      {undoState === "error" && (
+        <div className="rounded-lg border border-sc-rose-200 bg-sc-rose-50 px-4 py-2 text-center">
+          <p className="text-label-sm text-sc-rose-700">{undoError}</p>
+        </div>
+      )}
+
+      {/* ── Admin override (only for completed actions, not already_out) ── */}
+      {action !== "already_out" && undoState !== "done" && (
+        <button
+          onClick={() => setUndoState("confirm")}
+          className="flex items-center justify-center gap-2 w-full rounded-xl border-2 border-sc-gray-200 py-3 text-label-md text-sc-gray hover:border-sc-rose hover:text-sc-rose transition-colors"
+        >
+          <RotateCcw className="size-4" />
+          Admin Override — Undo Last Action
+        </button>
+      )}
     </div>
   );
-}
-
-function fmt(iso: string | null | undefined): string {
-  if (!iso) return "";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }

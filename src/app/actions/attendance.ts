@@ -224,6 +224,59 @@ export async function markAttendance(
   return { success: true };
 }
 
+// ── Undo last QR action (admin override) ─────────────────────────────────
+
+export type UndoResult =
+  | { success: true; undid: "checkin" | "checkout" }
+  | { success: false; error: string };
+
+export async function undoAttendanceAction(studentId: string): Promise<UndoResult> {
+  const user = await getUser();
+  if (!user) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  const supabase = await createClient();
+  const date = todayDate();
+
+  const { data: record } = await supabase
+    .from("attendance_records")
+    .select("id, check_in_at, check_out_at")
+    .eq("organization_id", orgId)
+    .eq("student_id", studentId)
+    .eq("date", date)
+    .single();
+
+  if (!record) return { success: false, error: "No attendance record found for today." };
+
+  if (record.check_out_at) {
+    // Undo checkout: clear check_out fields
+    const { error } = await supabase
+      .from("attendance_records")
+      .update({ check_out_at: null, check_out_by: null, check_out_method: null, is_early_pickup: false })
+      .eq("id", record.id);
+    if (error) return { success: false, error: error.message };
+    revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/home");
+    return { success: true, undid: "checkout" };
+  }
+
+  if (record.check_in_at) {
+    // Undo checkin: remove the record entirely
+    const { error } = await supabase
+      .from("attendance_records")
+      .delete()
+      .eq("id", record.id);
+    if (error) return { success: false, error: error.message };
+    revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/home");
+    return { success: true, undid: "checkin" };
+  }
+
+  return { success: false, error: "No check-in or check-out to undo." };
+}
+
 // ── Bulk load today's attendance for the list view ────────────────────────
 
 export type StudentAttendanceRow = {
