@@ -32,6 +32,7 @@ export async function middleware(request: NextRequest) {
     "/privacy",
     "/terms",
     "/auth/callback",
+    "/attendance/scan", // native-camera QR landing — handles its own auth redirect
   ];
 
   const isPublicRoute = PUBLIC_ROUTES.some(

@@ -27,7 +27,12 @@ export default function ScanPage() {
     setState({ phase: "scanning" });
   }, []);
 
-  const handleScan = useCallback(async (token: string) => {
+  const handleScan = useCallback(async (rawValue: string) => {
+    // Accept both raw token (ATT-…) and full URL (https://…/attendance/scan/ATT-…)
+    let token = rawValue;
+    if (rawValue.includes("/attendance/scan/")) {
+      token = rawValue.split("/attendance/scan/").pop() ?? rawValue;
+    }
     if (!token.startsWith("ATT-")) return;
     if (processingRef.current) return;
     processingRef.current = true;
