@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Google Fonts ─────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── CSS Custom Properties (SchoolCo Harmony) ────────────────────────── */
+@layer base {
+  :root {
+    /* ── Font Variables ───────────────────────────────────────── */
+    --font-playfair: 'Playfair Display', Georgia, serif;
+    --font-inter: 'Inter', system-ui, sans-serif;
+
+    /* ── Brand Color Tokens ───────────────────────────────────── */
+    --sc-teal:        #046264;
+    --sc-teal-light:  #C0E3E4;
+    --sc-navy:        #0B1747;
+    --sc-rose:        #E64E72;
+    --sc-green:       #436B2E;
+    --sc-gold:        #C8970A;
+    --sc-cream:       #F8F7F4;
+    --sc-gray:        #6B7280;
+
+    /* ── shadcn/ui Semantic Tokens (Light Mode) ───────────────── */
+    --background:      36 20% 97%;       /* sc-cream #F8F7F4 */
+    --foreground:      222 47% 16%;      /* sc-navy  #0B1747 */
+
+    --card:            0 0% 100%;
+    --card-foreground: 222 47% 16%;
+
+    --popover:         0 0% 100%;
+    --popover-foreground: 222 47% 16%;
+
+    --primary:         183 95% 20%;      /* sc-teal  #046264 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary:       222 47% 16%;      /* sc-navy */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted:           210 20% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent:          183 95% 94%;      /* sc-teal-50 */
+    --accent-foreground: 183 95% 20%;
+
+    --destructive:     345 77% 60%;      /* sc-rose */
+    --destructive-foreground: 0 0% 100%;
+
+    --border:          220 13% 91%;
+    --input:           220 13% 91%;
+    --ring:            183 95% 20%;      /* sc-teal */
+
+    --radius: 0.625rem;
+  }
+}
+
+/* ── Base Styles ──────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-sc-cream text-sc-navy font-sans antialiased;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif tracking-tight;
+  }
+
+  /* Smooth focus rings */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-sc-teal ring-offset-2 ring-offset-background rounded-sm;
+  }
+}
+
+/* ── Utility Classes ──────────────────────────────────────────────────── */
+@layer utilities {
+  /* Shimmer skeleton animation */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 25%,
+      hsl(var(--muted) / 0.5) 50%,
+      hsl(var(--muted)) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+  }
+
+  /* Scrollbar styling */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 3px;
+  }
+
+  /* Text balance for headings */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Gradient text */
+  .gradient-teal {
+    background: linear-gradient(135deg, var(--sc-teal) 0%, #2D9B9D 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}

@@ -1,0 +1,45 @@
+[
+  {
+    "_id": "student-001",
+    "_note": "Sample structure only. Student table is Sprint 1. No real PII used.",
+    "organization_id": "11111111-0000-0000-0000-000000000001",
+    "first_name": "Ava",
+    "last_name": "Johnson",
+    "grade_level": "5th",
+    "enrollment_status": "active",
+    "family_id": "family-001",
+    "enrollment_date": "2025-08-15",
+    "expected_graduation": "2033-05-31",
+    "track": "classical",
+    "extracurriculars": ["Student Leadership Council", "Drama Club"],
+    "badges_earned": 3
+  },
+  {
+    "_id": "student-002",
+    "organization_id": "11111111-0000-0000-0000-000000000001",
+    "first_name": "Noah",
+    "last_name": "Johnson",
+    "grade_level": "3rd",
+    "enrollment_status": "active",
+    "family_id": "family-001",
+    "enrollment_date": "2025-08-15",
+    "expected_graduation": "2035-05-31",
+    "track": "classical",
+    "extracurriculars": ["Robotics Club"],
+    "badges_earned": 1
+  },
+  {
+    "_id": "student-003",
+    "organization_id": "11111111-0000-0000-0000-000000000001",
+    "first_name": "Zoe",
+    "last_name": "Rivera",
+    "grade_level": "7th",
+    "enrollment_status": "active",
+    "family_id": "family-002",
+    "enrollment_date": "2024-08-20",
+    "expected_graduation": "2031-05-31",
+    "track": "entrepreneurship",
+    "extracurriculars": ["Student Leadership Council", "Coding Club"],
+    "badges_earned": 5
+  }
+]

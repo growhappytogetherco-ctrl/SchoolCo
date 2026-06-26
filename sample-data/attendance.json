@@ -1,0 +1,43 @@
+[
+  {
+    "_note": "Sample attendance records. Schema is Sprint 3. No real names used — all are sample personas.",
+    "organization_id": "11111111-0000-0000-0000-000000000001",
+    "records": [
+      {
+        "student_id": "student-001",
+        "date": "2026-06-02",
+        "status": "present",
+        "check_in_time": "08:45:00",
+        "check_out_time": "15:30:00",
+        "recorded_by": "aaaaaaaa-0000-0000-0000-000000000003"
+      },
+      {
+        "student_id": "student-001",
+        "date": "2026-06-03",
+        "status": "absent",
+        "check_in_time": null,
+        "check_out_time": null,
+        "reason": "sick",
+        "parent_notified": true,
+        "recorded_by": "aaaaaaaa-0000-0000-0000-000000000002"
+      },
+      {
+        "student_id": "student-002",
+        "date": "2026-06-02",
+        "status": "present",
+        "check_in_time": "08:52:00",
+        "check_out_time": "15:30:00",
+        "recorded_by": "aaaaaaaa-0000-0000-0000-000000000003"
+      },
+      {
+        "student_id": "student-003",
+        "date": "2026-06-02",
+        "status": "late",
+        "check_in_time": "09:15:00",
+        "check_out_time": "15:30:00",
+        "late_reason": "traffic",
+        "recorded_by": "aaaaaaaa-0000-0000-0000-000000000003"
+      }
+    ]
+  }
+]

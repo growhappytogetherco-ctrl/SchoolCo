@@ -1,0 +1,71 @@
+[
+  {
+    "_id": "family-001",
+    "_note": "This is sample data structure only. Actual family/guardianship table is Sprint 1.",
+    "household_label": "Johnson Family (Primary)",
+    "guardians": [
+      {
+        "profile_id": "aaaaaaaa-0000-0000-0000-000000000004",
+        "name": "Sandra Johnson",
+        "relationship": "Mother",
+        "is_primary_contact": true,
+        "custody_schedule": "primary",
+        "can_pickup": true,
+        "emergency_contact": true,
+        "visibility": {
+          "academics": true,
+          "attendance": true,
+          "communications": true,
+          "health_records": true,
+          "incidents": true
+        }
+      }
+    ],
+    "split_household": true,
+    "co_guardians": [
+      {
+        "profile_id": "aaaaaaaa-0000-0000-0000-000000000005",
+        "name": "David Johnson",
+        "relationship": "Father",
+        "household_label": "Johnson Family (Secondary)",
+        "is_primary_contact": false,
+        "custody_schedule": "alternating_weekends",
+        "can_pickup": true,
+        "emergency_contact": true,
+        "visibility": {
+          "academics": true,
+          "attendance": true,
+          "communications": true,
+          "health_records": false,
+          "incidents": false
+        },
+        "_note": "Health records and incidents restricted per custody agreement. Managed in org_members.metadata."
+      }
+    ],
+    "students": ["student-001", "student-002"]
+  },
+  {
+    "_id": "family-002",
+    "household_label": "Rivera-Okafor Family",
+    "guardians": [
+      {
+        "profile_id": "aaaaaaaa-0000-0000-0000-000000000006",
+        "name": "Grace Okafor",
+        "relationship": "Mother",
+        "is_primary_contact": true,
+        "custody_schedule": "primary",
+        "can_pickup": true,
+        "emergency_contact": true,
+        "visibility": {
+          "academics": true,
+          "attendance": true,
+          "communications": true,
+          "health_records": true,
+          "incidents": true
+        }
+      }
+    ],
+    "split_household": false,
+    "students": ["student-003"]
+  }
+]

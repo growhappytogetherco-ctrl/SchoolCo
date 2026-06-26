@@ -1,0 +1,106 @@
+[
+  {
+    "id": "11111111-0000-0000-0000-000000000001",
+    "name": "Rising Leaders Academy",
+    "short_name": "RLA",
+    "slug": "rising-leaders-academy",
+    "organization_type": "academy",
+    "tagline": "Raising the next generation of leaders with faith, character, and purpose.",
+    "logo_url": null,
+    "primary_color": "#046264",
+    "secondary_color": "#0B1747",
+    "accent_color": "#E64E72",
+    "phone": "(555) 201-0001",
+    "email": "hello@rla.schoolco.app",
+    "website": "https://risingleadersacademy.org",
+    "address": {
+      "street1": "100 Leaders Way",
+      "city": "Greenville",
+      "state": "SC",
+      "zip": "29601",
+      "country": "US"
+    },
+    "timezone": "America/New_York",
+    "is_active": true,
+    "settings_json": {
+      "features": {
+        "attendance": true,
+        "grades": true,
+        "communications": true,
+        "giving": true,
+        "badge_studio": true,
+        "qr_checkin": true,
+        "ai_assist": false
+      },
+      "enrollment": {
+        "require_approval": true,
+        "open_enrollment": false,
+        "max_students": 120
+      }
+    }
+  },
+  {
+    "id": "22222222-0000-0000-0000-000000000002",
+    "name": "Healing Through Christ Foundation",
+    "short_name": "HTCF",
+    "slug": "healing-through-christ",
+    "organization_type": "foundation",
+    "tagline": "Restoring lives, rebuilding families, reflecting Christ.",
+    "logo_url": null,
+    "primary_color": "#43672E",
+    "secondary_color": "#0B1747",
+    "accent_color": "#C8970A",
+    "phone": "(555) 202-0002",
+    "email": "info@htcf.schoolco.app",
+    "website": null,
+    "address": {
+      "street1": "200 Grace Avenue",
+      "city": "Greenville",
+      "state": "SC",
+      "zip": "29602",
+      "country": "US"
+    },
+    "timezone": "America/New_York",
+    "is_active": true,
+    "settings_json": {
+      "features": {
+        "attendance": false,
+        "grades": false,
+        "communications": true,
+        "giving": true,
+        "badge_studio": false,
+        "qr_checkin": false,
+        "ai_assist": false
+      }
+    }
+  },
+  {
+    "id": "33333333-0000-0000-0000-000000000003",
+    "name": "RLA Summer Leadership Program",
+    "short_name": "RLA Summer",
+    "slug": "rla-summer-program",
+    "organization_type": "program",
+    "tagline": "Six weeks of faith, leadership, and unforgettable growth.",
+    "logo_url": null,
+    "primary_color": "#C8970A",
+    "secondary_color": "#046264",
+    "accent_color": "#E64E72",
+    "phone": null,
+    "email": "summer@rla.schoolco.app",
+    "website": null,
+    "address": null,
+    "timezone": "America/New_York",
+    "is_active": false,
+    "settings_json": {
+      "features": {
+        "attendance": true,
+        "grades": false,
+        "communications": true,
+        "giving": false,
+        "badge_studio": true,
+        "qr_checkin": true,
+        "ai_assist": false
+      }
+    }
+  }
+]

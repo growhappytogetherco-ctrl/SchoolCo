@@ -1,0 +1,41 @@
+[
+  {
+    "_note": "Sample incident records. Full schema is Sprint 3. STAFF-ONLY fields marked. No real PII.",
+    "_security_note": "parents.visibility.incidents=false hides incident records from restricted households (see families.json family-001 co-guardian). Never expose staff_notes to parent-role sessions.",
+    "organization_id": "11111111-0000-0000-0000-000000000001",
+    "records": [
+      {
+        "id": "incident-001",
+        "student_id": "student-003",
+        "date": "2026-05-14",
+        "incident_type": "conflict",
+        "severity": "minor",
+        "location": "Cafeteria",
+        "summary": "Verbal disagreement over seat assignment. Resolved with peer mediation.",
+        "reported_by": "aaaaaaaa-0000-0000-0000-000000000003",
+        "reviewed_by": "aaaaaaaa-0000-0000-0000-000000000001",
+        "status": "resolved",
+        "parent_notified": true,
+        "parent_visible": true,
+        "staff_notes_STAFF_ONLY": "Third similar incident this month. Monitoring for pattern. Counselor informed.",
+        "action_taken": "Peer mediation session completed. Student self-reflection form submitted."
+      },
+      {
+        "id": "incident-002",
+        "student_id": "student-001",
+        "date": "2026-06-01",
+        "incident_type": "medical",
+        "severity": "minor",
+        "location": "Classroom B",
+        "summary": "Student reported headache during morning session. Parent contacted. Student rested and recovered.",
+        "reported_by": "aaaaaaaa-0000-0000-0000-000000000003",
+        "reviewed_by": "aaaaaaaa-0000-0000-0000-000000000001",
+        "status": "resolved",
+        "parent_notified": true,
+        "parent_visible": true,
+        "staff_notes_STAFF_ONLY": "Parent (Sandra) picked up and returned same day. No further action needed.",
+        "action_taken": "Student rested in office. Parent notified at 10:15 AM."
+      }
+    ]
+  }
+]

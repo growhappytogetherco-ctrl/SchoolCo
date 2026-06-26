@@ -1,0 +1,65 @@
+[
+  {
+    "id": "aaaaaaaa-0000-0000-0000-000000000001",
+    "email": "director@rla.sample",
+    "full_name": "Margaret Thompson",
+    "avatar_url": null,
+    "phone": "(555) 300-0001",
+    "memberships": [
+      { "organization_id": "11111111-0000-0000-0000-000000000001", "role": "full_admin", "status": "active" }
+    ]
+  },
+  {
+    "id": "aaaaaaaa-0000-0000-0000-000000000002",
+    "email": "registrar@rla.sample",
+    "full_name": "Denise Carter",
+    "avatar_url": null,
+    "phone": "(555) 300-0002",
+    "memberships": [
+      { "organization_id": "11111111-0000-0000-0000-000000000001", "role": "registrar", "status": "active" }
+    ]
+  },
+  {
+    "id": "aaaaaaaa-0000-0000-0000-000000000003",
+    "email": "teacher.english@rla.sample",
+    "full_name": "James Rivera",
+    "avatar_url": null,
+    "phone": "(555) 300-0003",
+    "memberships": [
+      { "organization_id": "11111111-0000-0000-0000-000000000001", "role": "teacher", "status": "active" },
+      { "organization_id": "22222222-0000-0000-0000-000000000002", "role": "volunteer", "status": "active" }
+    ]
+  },
+  {
+    "id": "aaaaaaaa-0000-0000-0000-000000000004",
+    "email": "parent.johnson@family.sample",
+    "full_name": "Sandra Johnson",
+    "avatar_url": null,
+    "phone": "(555) 400-0001",
+    "memberships": [
+      { "organization_id": "11111111-0000-0000-0000-000000000001", "role": "parent", "status": "active" }
+    ]
+  },
+  {
+    "id": "aaaaaaaa-0000-0000-0000-000000000005",
+    "email": "parent.johnson.2@family.sample",
+    "full_name": "David Johnson",
+    "avatar_url": null,
+    "phone": "(555) 400-0002",
+    "memberships": [
+      { "organization_id": "11111111-0000-0000-0000-000000000001", "role": "parent", "status": "active" }
+    ],
+    "_note": "Split household — same children as Sandra Johnson, different address. Custody metadata in organization_members.metadata."
+  },
+  {
+    "id": "aaaaaaaa-0000-0000-0000-000000000006",
+    "email": "volunteer.grace@community.sample",
+    "full_name": "Grace Okafor",
+    "avatar_url": null,
+    "phone": "(555) 500-0001",
+    "memberships": [
+      { "organization_id": "11111111-0000-0000-0000-000000000001", "role": "volunteer", "status": "active" },
+      { "organization_id": "22222222-0000-0000-0000-000000000002", "role": "volunteer", "status": "active" }
+    ]
+  }
+]

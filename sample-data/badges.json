@@ -1,0 +1,74 @@
+[
+  {
+    "_note": "Sample badge catalog. Badge Studio is Sprint 4. No real PII — student IDs are sample personas.",
+    "organization_id": "11111111-0000-0000-0000-000000000001",
+    "catalog": [
+      {
+        "id": "badge-servant-leader",
+        "name": "Servant Leader",
+        "category": "character",
+        "description": "Demonstrated consistent service to others, putting the needs of the community above personal gain.",
+        "icon": "hands-heart",
+        "color": "#046264",
+        "criteria": [
+          "Completed 10+ hours of community service",
+          "Nominated by a peer or teacher",
+          "Approved by full_admin or above"
+        ],
+        "requires_approval": true,
+        "approver_role": "admin"
+      },
+      {
+        "id": "badge-faith-in-action",
+        "name": "Faith in Action",
+        "category": "faith",
+        "description": "Lived out faith through deeds, not just words. Recognized for consistent Christ-centered character.",
+        "icon": "cross",
+        "color": "#C8970A",
+        "criteria": [
+          "Demonstrated faith-driven behavior documented by staff",
+          "Scripture memory milestone completed",
+          "Approved by full_admin or above"
+        ],
+        "requires_approval": true,
+        "approver_role": "admin"
+      },
+      {
+        "id": "badge-entrepreneur",
+        "name": "Young Entrepreneur",
+        "category": "entrepreneurship",
+        "description": "Created and launched a real product or service, demonstrating initiative and business thinking.",
+        "icon": "rocket",
+        "color": "#E64E72",
+        "criteria": [
+          "Completed Business Plan Blueprint",
+          "Launched a product, service, or brand",
+          "Presented to the Rising Leaders panel"
+        ],
+        "requires_approval": true,
+        "approver_role": "admin"
+      },
+      {
+        "id": "badge-perfect-attendance",
+        "name": "Perfect Attendance",
+        "category": "academics",
+        "description": "Attended every scheduled session in a full semester without absence.",
+        "icon": "star",
+        "color": "#436B2E",
+        "criteria": [
+          "Zero absences for the full semester",
+          "Auto-awarded by attendance system (Sprint 3)"
+        ],
+        "requires_approval": false,
+        "approver_role": null
+      }
+    ],
+    "awarded": [
+      { "student_id": "student-001", "badge_id": "badge-faith-in-action", "awarded_date": "2026-04-10", "awarded_by": "aaaaaaaa-0000-0000-0000-000000000001" },
+      { "student_id": "student-001", "badge_id": "badge-perfect-attendance", "awarded_date": "2026-01-15", "awarded_by": "system" },
+      { "student_id": "student-003", "badge_id": "badge-entrepreneur", "awarded_date": "2026-03-22", "awarded_by": "aaaaaaaa-0000-0000-0000-000000000001" },
+      { "student_id": "student-003", "badge_id": "badge-servant-leader", "awarded_date": "2026-05-01", "awarded_by": "aaaaaaaa-0000-0000-0000-000000000001" },
+      { "student_id": "student-003", "badge_id": "badge-faith-in-action", "awarded_date": "2026-06-01", "awarded_by": "aaaaaaaa-0000-0000-0000-000000000001" }
+    ]
+  }
+]
