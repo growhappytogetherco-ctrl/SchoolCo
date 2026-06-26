@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react";
 import {
   CalendarDays, Phone, ShieldAlert, AlertTriangle, Users,
-  BookOpen, Trophy, Loader2, Clock, CheckCircle,
+  BookOpen, Trophy, Clock, CheckCircle, Target, ClipboardList, Pin,
 } from "lucide-react";
 import Link from "next/link";
 import { getStudentOverviewData } from "@/app/actions/profileData";
+import { getStudentGoals, type Goal } from "@/app/actions/studentGoals";
+import { getSnapshotFlags, type SupportFlag } from "@/app/actions/supportFlags";
+import { getCurriculumEnrollments, getAssessments, type CurriculumEnrollment, type Assessment } from "@/app/actions/academics";
 import type { StudentProfileData } from "../types";
 import { cn } from "@/lib/utils";
 
@@ -55,12 +58,26 @@ interface Props {
 }
 
 export function OverviewTab({ studentId, data }: Props) {
-  const [overview, setOverview] = useState<Awaited<ReturnType<typeof getStudentOverviewData>>>(null);
-  const [loading, setLoading] = useState(true);
+  const [overview, setOverview]         = useState<Awaited<ReturnType<typeof getStudentOverviewData>>>(null);
+  const [goals, setGoals]               = useState<Goal[]>([]);
+  const [snapshotFlags, setSnapshotFlags] = useState<SupportFlag[]>([]);
+  const [curricula, setCurricula]       = useState<CurriculumEnrollment[]>([]);
+  const [latestAssessment, setLatestAssessment] = useState<Assessment | null>(null);
+  const [loading, setLoading]           = useState(true);
 
   useEffect(() => {
-    getStudentOverviewData(studentId).then((d) => {
-      setOverview(d);
+    Promise.all([
+      getStudentOverviewData(studentId),
+      getStudentGoals(studentId),
+      getSnapshotFlags(studentId),
+      getCurriculumEnrollments(studentId),
+      getAssessments(studentId),
+    ]).then(([overviewData, goalsData, flagsData, currData, assessData]) => {
+      setOverview(overviewData);
+      setGoals(goalsData.filter((g) => g.status === "active"));
+      setSnapshotFlags(flagsData);
+      setCurricula(currData.filter((c) => c.status === "active"));
+      setLatestAssessment(assessData[0] ?? null);
       setLoading(false);
     });
   }, [studentId]);
@@ -69,8 +86,146 @@ export function OverviewTab({ studentId, data }: Props) {
   const hasAllergies    = data.allergies.length > 0;
   const hasMedicalNotes = !!data.medical_notes;
 
+  // ── PERF_CFG for assessments (subset) ──────────────────
+  const PERF_CLR: Record<string, string> = {
+    advanced:   "text-sc-green",
+    proficient: "text-sc-teal",
+    approaching:"text-sc-gold-600",
+    below:      "text-sc-rose",
+    far_below:  "text-sc-rose-700",
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="space-y-6">
+
+      {/* ── STUDENT SNAPSHOT ROW ──────────────────────────────── */}
+      {!loading && (
+        <div className="rounded-2xl border border-sc-navy/10 bg-sc-navy p-5 space-y-4">
+          <p className="text-label-sm font-semibold text-white/60 uppercase tracking-wider">Student Snapshot</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* Grade */}
+            <SnapshotCard label="Grade" value={data.grade_level ?? "—"} />
+            {/* Enrollment */}
+            <SnapshotCard label="Status" value={data.enrollment_status} capitalize />
+            {/* Curricula count */}
+            <SnapshotCard label="Curricula" value={curricula.length > 0 ? `${curricula.length} active` : "None"} />
+            {/* Active goals */}
+            <SnapshotCard label="Goals" value={goals.length > 0 ? `${goals.length} active` : "None"} href={`?tab=goals`} />
+            {/* Scholarship */}
+            <SnapshotCard label="Scholarship" value={(data.scholarship_info as { type?: string } | null)?.type ?? "—"} />
+            {/* Latest assessment */}
+            <SnapshotCard
+              label="Last Assessment"
+              value={latestAssessment
+                ? (latestAssessment.score_pct != null ? `${Math.round(latestAssessment.score_pct)}%` : latestAssessment.performance_level?.replace("_", " ") ?? "On file")
+                : "None"}
+              valueClass={latestAssessment?.performance_level ? PERF_CLR[latestAssessment.performance_level] : ""}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Pinned support flags on snapshot ─────────────────── */}
+      {snapshotFlags.length > 0 && (
+        <div className="rounded-2xl border-2 border-sc-rose bg-sc-rose-50 p-4 space-y-2">
+          <p className="flex items-center gap-2 font-bold text-sc-rose text-label-md uppercase tracking-wide">
+            <Pin className="size-4" /> Staff Reminders
+          </p>
+          {snapshotFlags.map((flag) => (
+            <div key={flag.id} className="flex items-start gap-2 text-label-sm text-sc-rose-700">
+              <span className="font-semibold">{flag.title}</span>
+              {flag.description && <span>— {flag.description}</span>}
+            </div>
+          ))}
+          <Link href={`/dashboard/students/${studentId}?tab=support`}
+            className="text-label-sm text-sc-rose font-semibold hover:underline">
+            View all support flags →
+          </Link>
+        </div>
+      )}
+
+      {/* ── Current curricula strip ───────────────────────────── */}
+      {curricula.length > 0 && (
+        <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-label-md font-semibold text-sc-navy flex items-center gap-2">
+              <BookOpen className="size-4 text-sc-teal" /> Current Curriculum
+            </h3>
+            <Link href={`?tab=academics`} className="text-label-sm text-sc-teal hover:underline">View all →</Link>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {curricula.map((c) => (
+              <div key={c.id} className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2 min-w-[120px]">
+                <p className="text-label-sm font-semibold text-sc-navy capitalize">{c.subject}</p>
+                <p className="text-label-sm text-sc-gray">{c.curriculum_name}</p>
+                {c.current_level && <p className="text-label-sm text-sc-teal font-medium">Level {c.current_level}</p>}
+                {c.current_lesson && <p className="text-label-sm text-sc-gray">{c.current_lesson}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Active goals strip ────────────────────────────────── */}
+      {goals.length > 0 && (
+        <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-label-md font-semibold text-sc-navy flex items-center gap-2">
+              <Target className="size-4 text-sc-teal" /> Active Goals
+            </h3>
+            <Link href={`?tab=goals`} className="text-label-sm text-sc-teal hover:underline">View all →</Link>
+          </div>
+          <div className="space-y-2">
+            {goals.slice(0, 3).map((g) => (
+              <div key={g.id} className="flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-label-sm text-sc-navy">{g.goal_text}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="w-16 h-1.5 rounded-full bg-sc-gray-100">
+                    <div className="h-full rounded-full bg-sc-teal transition-all" style={{ width: `${g.progress_pct}%` }} />
+                  </div>
+                  <span className="text-label-sm text-sc-gray w-8 text-right">{g.progress_pct}%</span>
+                </div>
+              </div>
+            ))}
+            {goals.length > 3 && (
+              <Link href={`?tab=goals`} className="text-label-sm text-sc-teal hover:underline">
+                +{goals.length - 3} more goals →
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Latest assessment strip ───────────────────────────── */}
+      {latestAssessment && (
+        <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-label-md font-semibold text-sc-navy flex items-center gap-2">
+              <ClipboardList className="size-4 text-sc-teal" /> Most Recent Assessment
+            </h3>
+            <Link href={`?tab=academics`} className="text-label-sm text-sc-teal hover:underline">View all →</Link>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-label-sm">
+            <span className="font-semibold text-sc-navy capitalize">{latestAssessment.subject}</span>
+            <span className="text-sc-gray">·</span>
+            <span className="text-sc-gray">{latestAssessment.assessment_name}</span>
+            <span className="text-sc-gray">·</span>
+            <span className="text-sc-gray">{new Date(latestAssessment.assessment_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+            {latestAssessment.score_pct != null && (
+              <><span className="text-sc-gray">·</span><span className="font-semibold text-sc-navy">{Math.round(latestAssessment.score_pct)}%</span></>
+            )}
+            {latestAssessment.performance_level && (
+              <span className={cn("font-medium capitalize", PERF_CLR[latestAssessment.performance_level] ?? "text-sc-gray")}>
+                {latestAssessment.performance_level.replace("_", " ")}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
       {/* ── Left column (2/3 on desktop) ─────────────────────── */}
       <div className="lg:col-span-2 space-y-5">
@@ -157,7 +312,7 @@ export function OverviewTab({ studentId, data }: Props) {
               <AlertTriangle className="size-4 text-sc-rose" /> Recent Incidents
             </h2>
             <div className="divide-y divide-sc-gray-100">
-              {overview.incidents.map((inc) => (
+              {(overview.incidents as unknown as Array<{ id: string; title: string; severity: string; status: string; occurred_at: string }>).map((inc) => (
                 <div key={inc.id} className="py-2.5 flex items-center gap-3">
                   <span className={cn("rounded-full border px-2 py-0.5 text-label-sm shrink-0",
                     INCIDENT_SEVERITY[inc.severity] ?? "bg-sc-gray-50 text-sc-gray border-sc-gray-200"
@@ -192,7 +347,7 @@ export function OverviewTab({ studentId, data }: Props) {
             <h2 className="font-serif text-heading-3 text-sc-navy">Recent Activity</h2>
             <div className="relative pl-5 space-y-4">
               <div className="absolute left-2 top-2 bottom-2 w-px bg-sc-gray-100" />
-              {overview.timeline.map((entry) => {
+              {(overview.timeline as unknown as Array<{ id: string; entry_type: string; title: string; body: string | null; occurred_at: string }>).map((entry) => {
                 const cfg = TIMELINE_ICONS[entry.entry_type] ?? { icon: Clock, color: "text-sc-gray" };
                 const TIcon = cfg.icon;
                 return (
@@ -226,8 +381,8 @@ export function OverviewTab({ studentId, data }: Props) {
             <h2 className="font-serif text-heading-3 text-sc-navy flex items-center gap-2">
               <Users className="size-4 text-sc-teal" /> Family Contacts
             </h2>
-            {(overview?.guardians ?? []).slice(0, 4).map((g) => {
-              const profile = g.profiles as { full_name: string; phone: string | null; email: string | null } | null;
+            {((overview?.guardians ?? []) as unknown as Array<{ id: string; profiles: { full_name: string; phone: string | null; email: string | null } | null; relationship_type: string | null; is_primary_contact: boolean; is_emergency_contact: boolean }>).slice(0, 4).map((g) => {
+              const profile = g.profiles;
               return (
                 <div key={g.id} className="border-t border-sc-gray-100 pt-2.5 first:border-t-0 first:pt-0">
                   <p className="text-label-md font-semibold text-sc-navy">{profile?.full_name ?? "—"}</p>
@@ -289,11 +444,24 @@ export function OverviewTab({ studentId, data }: Props) {
           </div>
         )}
       </div>
+      </div>{/* end inner grid */}
     </div>
   );
 }
 
 // ── Small helpers ─────────────────────────────────────────────
+
+function SnapshotCard({ label, value, capitalize, href, valueClass }: {
+  label: string; value: string; capitalize?: boolean; href?: string; valueClass?: string;
+}) {
+  const inner = (
+    <div className={cn("rounded-xl bg-white/10 px-3 py-3 text-center", href && "hover:bg-white/20 transition-colors")}>
+      <p className="text-label-sm text-white/50">{label}</p>
+      <p className={cn("text-label-md font-bold text-white mt-0.5 truncate", capitalize && "capitalize", valueClass)}>{value}</p>
+    </div>
+  );
+  return href ? <Link href={href}>{inner}</Link> : inner;
+}
 
 function InfoRow({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
   return (

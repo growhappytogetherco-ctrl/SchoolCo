@@ -10,6 +10,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TodaysBlessing } from "@/components/shared/TodaysBlessing";
+import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -160,6 +161,9 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
 
   return (
     <div className="space-y-6 animate-fade-in">
+
+      {/* ── Student alerts (goals, assessments, curriculum) ─── */}
+      <AlertsPanel />
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">

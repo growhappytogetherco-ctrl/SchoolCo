@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, HeartPulse, CalendarCheck, StickyNote,
   AlertOctagon, FolderOpen, Award, Briefcase, Users,
-  ShieldAlert,
+  ShieldAlert, Target, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudentProfileData, TabId } from "./types";
@@ -20,14 +20,20 @@ import { DocumentsTab }       from "./tabs/DocumentsTab";
 import { LeadershipTab }      from "./tabs/LeadershipTab";
 import { EntrepreneurshipTab } from "./tabs/EntrepreneurshipTab";
 import { FamilyTab }          from "./tabs/FamilyTab";
+import { GoalsTab }           from "./tabs/GoalsTab";
+import { SupportTab }         from "./tabs/SupportTab";
+import { AcademicsTab }       from "./tabs/AcademicsTab";
 
 // ── Tab definitions ────────────────────────────────────────────
 
 const TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
-  { id: "overview",        label: "Overview",        Icon: LayoutDashboard },
+  { id: "overview",        label: "Snapshot",        Icon: LayoutDashboard },
+  { id: "goals",           label: "Goals",           Icon: Target          },
+  { id: "support",         label: "Support",         Icon: ShieldAlert     },
+  { id: "academics",       label: "Academics",       Icon: BookOpen        },
   { id: "medical",         label: "Medical",         Icon: HeartPulse      },
   { id: "attendance",      label: "Attendance",      Icon: CalendarCheck   },
-  { id: "notes",           label: "Staff Notes",     Icon: StickyNote      },
+  { id: "notes",           label: "Notes",           Icon: StickyNote      },
   { id: "incidents",       label: "Incidents",       Icon: AlertOctagon    },
   { id: "documents",       label: "Documents",       Icon: FolderOpen      },
   { id: "leadership",      label: "Leadership",      Icon: Award           },
@@ -121,6 +127,9 @@ export function StudentProfile({ data, initialTab, orgId, currentUserId }: Props
       {/* ── Tab content ───────────────────────────────────────── */}
       <div className="px-4 sm:px-6 py-6">
         {activeTab === "overview"         && <OverviewTab         studentId={data.id} data={data} />}
+        {activeTab === "goals"            && <GoalsTab            studentId={data.id} />}
+        {activeTab === "support"          && <SupportTab          studentId={data.id} />}
+        {activeTab === "academics"        && <AcademicsTab        studentId={data.id} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} />}
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} />}
