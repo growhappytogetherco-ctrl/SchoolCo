@@ -1,0 +1,154 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { CheckCircle, X, Clock, AlertTriangle, TrendingUp, Download } from "lucide-react";
+import { getStudentAttendanceData } from "@/app/actions/profileData";
+import { cn } from "@/lib/utils";
+
+interface Props { studentId: string }
+
+type AttData = Awaited<ReturnType<typeof getStudentAttendanceData>>;
+
+const STATUS_CFG: Record<string, { label: string; cls: string; dot: string }> = {
+  present:         { label: "Present",        cls: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200",  dot: "bg-sc-teal" },
+  absent:          { label: "Absent",          cls: "bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200",  dot: "bg-sc-rose" },
+  tardy:           { label: "Tardy",           cls: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200",  dot: "bg-sc-gold" },
+  excused:         { label: "Excused",         cls: "bg-sc-navy-50 text-sc-navy border-sc-navy-200",       dot: "bg-sc-navy" },
+  early_dismissal: { label: "Early Dismissal", cls: "bg-sc-gray-50 text-sc-gray border-sc-gray-200",       dot: "bg-sc-gray" },
+  checked_in:      { label: "Present",         cls: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200",  dot: "bg-sc-teal" },
+};
+
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function fmtTime(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export function AttendanceTab({ studentId }: Props) {
+  const [data, setData] = useState<AttData>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getStudentAttendanceData(studentId).then((d) => {
+      setData(d);
+      setLoading(false);
+    });
+  }, [studentId]);
+
+  if (loading) return <AttSkeleton />;
+  if (!data)   return <p className="text-body-md text-sc-gray">Could not load attendance data.</p>;
+
+  const { stats, records } = data;
+  const pctColor = stats.percentage >= 95 ? "text-sc-teal"
+    : stats.percentage >= 85 ? "text-sc-gold" : "text-sc-rose";
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: "Attendance Rate", value: `${stats.percentage}%`, color: pctColor, big: true },
+          { label: "Days Present",    value: String(stats.present),  color: "text-sc-teal" },
+          { label: "Absences",        value: String(stats.absent),   color: "text-sc-rose" },
+          { label: "Late Arrivals",   value: String(stats.tardy),    color: "text-sc-gold" },
+        ].map((s) => (
+          <div key={s.label} className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-4 text-center">
+            <p className={cn("font-serif font-bold", s.big ? "text-display-2" : "text-heading-1", s.color)}>
+              {s.value}
+            </p>
+            <p className="text-label-sm text-sc-gray mt-1">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Attendance rate bar */}
+      <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-serif text-heading-3 text-sc-navy flex items-center gap-2">
+            <TrendingUp className="size-4 text-sc-teal" /> Attendance Rate
+          </h2>
+          <span className={cn("text-heading-2 font-serif font-bold", pctColor)}>{stats.percentage}%</span>
+        </div>
+        <div className="h-3 rounded-full bg-sc-gray-100 overflow-hidden">
+          <div
+            className={cn("h-full rounded-full transition-all duration-500",
+              stats.percentage >= 95 ? "bg-sc-teal" : stats.percentage >= 85 ? "bg-sc-gold" : "bg-sc-rose"
+            )}
+            style={{ width: `${stats.percentage}%` }}
+          />
+        </div>
+        <p className="text-label-sm text-sc-gray">
+          {stats.percentage >= 95
+            ? "Excellent attendance — keep it up!"
+            : stats.percentage >= 85
+            ? "Good attendance. Aim for 95% or higher."
+            : "Attendance needs improvement. Please follow up with the family."}
+        </p>
+      </div>
+
+      {/* Records list */}
+      <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-sc-gray-100 flex items-center justify-between">
+          <h2 className="font-serif text-heading-3 text-sc-navy">Attendance History</h2>
+          <span className="text-label-sm text-sc-gray">{records.length} days this year</span>
+        </div>
+
+        {records.length === 0 ? (
+          <p className="p-5 text-body-md text-sc-gray">No attendance records this school year.</p>
+        ) : (
+          <div className="divide-y divide-sc-gray-100">
+            {records.map((r) => {
+              const cfg = STATUS_CFG[r.status] ?? STATUS_CFG.present;
+              return (
+                <div key={r.id} className="flex items-center gap-4 px-5 py-3">
+                  {/* Date */}
+                  <div className="w-32 shrink-0">
+                    <p className="text-label-md text-sc-navy font-medium">{fmtDate(r.date)}</p>
+                  </div>
+
+                  {/* Status chip */}
+                  <span className={cn("rounded-full border px-2.5 py-0.5 text-label-sm font-medium shrink-0", cfg.cls)}>
+                    {cfg.label}
+                  </span>
+
+                  {/* Check in / out times */}
+                  <div className="flex gap-4 text-label-sm text-sc-gray ml-auto">
+                    <span className="hidden sm:block">In: {fmtTime(r.check_in_at)}</span>
+                    <span className="hidden sm:block">Out: {fmtTime(r.check_out_at)}</span>
+                  </div>
+
+                  {/* Flags */}
+                  <div className="flex gap-1 shrink-0">
+                    {r.is_late && (
+                      <span title="Late arrival" className="rounded-full bg-sc-gold-50 border border-sc-gold-200 px-1.5 py-0.5 text-label-sm text-sc-gold-700">Late</span>
+                    )}
+                    {r.is_early_pickup && (
+                      <span title="Early pickup" className="rounded-full bg-sc-navy-50 border border-sc-navy-200 px-1.5 py-0.5 text-label-sm text-sc-navy">Early</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AttSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[1,2,3,4].map((i) => (
+          <div key={i} className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-4 h-24 animate-pulse" />
+        ))}
+      </div>
+      <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-5 h-32 animate-pulse" />
+    </div>
+  );
+}

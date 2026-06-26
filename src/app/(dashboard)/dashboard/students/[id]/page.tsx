@@ -1,233 +1,126 @@
-import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Shield, AlertTriangle } from "lucide-react";
-import { getUser, getStudentById } from "@/lib/supabase/server";
-import { Badge } from "@/components/ui/badge";
-import { ENROLLMENT_LABELS, RELATIONSHIP_LABELS, CUSTODY_LABELS, requiresSupervisionAlert } from "@/lib/constants";
-import type { EnrollmentStatus, RelationshipType, CustodyType } from "@/lib/constants";
+import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { StudentProfile } from "@/components/students/profile/StudentProfile";
 
-export const metadata: Metadata = { title: "Student Profile" };
-
-/**
- * Student detail page — Sprint 1.
- *
- * Shows: basic info, family, household(s), guardian list with custody summary.
- * Does NOT show: health records, incidents, grades, attendance (future sprints).
- *
- * Security: RLS ensures only staff+ can load student data.
- * Parents are redirected to /dashboard/children (their own children only).
- */
-export default async function StudentDetailPage({
+export default async function StudentProfilePage({
   params,
+  searchParams,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
+  searchParams: { tab?: string };
 }) {
-  const { id } = await params;
   const user = await getUser();
   if (!user) redirect("/login");
 
-  const student = await getStudentById(id);
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/select-mission");
+
+  const supabase = await createClient();
+  const today = new Date().toISOString().split("T")[0];
+  const tab = searchParams.tab ?? "overview";
+
+  // Core student — always needed for header
+  const { data: student } = await supabase
+    .from("students")
+    .select(`
+      id, student_display_id, first_name, last_name, preferred_name,
+      grade_level, track, enrollment_status, enrollment_date, expected_graduation,
+      date_of_birth, medical_notes, allergies, scholarship_info,
+      authorized_pickup_notes, attendance_qr_token, profile_qr_token, avatar_url,
+      family_id,
+      families ( id, family_name, family_display_id, is_split_household )
+    `)
+    .eq("id", params.id)
+    .eq("organization_id", orgId)
+    .single();
+
   if (!student) notFound();
 
-  const displayName = student.preferred_name
-    ? `${student.first_name} "${student.preferred_name}" ${student.last_name}`
-    : `${student.first_name} ${student.last_name}`;
+  // Today's attendance (header status + quick actions)
+  const { data: todayAttendance } = await supabase
+    .from("attendance_records")
+    .select("status, check_in_at, check_out_at, is_late, is_early_pickup")
+    .eq("student_id", params.id)
+    .eq("organization_id", orgId)
+    .eq("date", today)
+    .single();
 
-  const family = student.families as {
-    family_name: string;
-    family_display_id: string | null;
-    is_split_household: boolean;
-    households: Array<{
-      id: string;
-      household_label: string;
-      household_display_id: string | null;
-      address_json: { street1?: string; city?: string; state?: string; zip?: string } | null;
-      phone: string | null;
-      sort_order: number;
-    }>;
-  } | null;
+  // Active medication alerts — shown in emergency banner throughout
+  const { data: medAlerts } = await supabase
+    .from("medication_alerts")
+    .select("id, medication_name, is_emergency, dosage, storage_location, instructions")
+    .eq("student_id", params.id)
+    .eq("is_active", true)
+    .order("is_emergency", { ascending: false });
 
-  const guardianships = (student.guardianships ?? []) as Array<{
-    id: string;
-    relationship_type: string;
-    custody_type: string;
-    is_legal_guardian: boolean;
-    is_primary_contact: boolean;
-    is_emergency_contact: boolean;
-    emergency_contact_order: number | null;
-    can_pickup: boolean;
-    pickup_restrictions: string | null;
-    household_label: string | null;
-    profiles: { id: string; full_name: string; email: string; phone: string | null } | null;
-  }>;
+  // Badge summary for leadership level chip
+  const { data: badges } = await supabase
+    .from("leadership_badges")
+    .select("badge_level")
+    .eq("student_id", params.id)
+    .eq("organization_id", orgId);
+
+  // Active project count for entrepreneurship chip
+  const { count: activeProjectCount } = await supabase
+    .from("entrepreneurship_projects")
+    .select("id", { count: "exact", head: true })
+    .eq("student_id", params.id)
+    .eq("organization_id", orgId)
+    .in("status", ["active", "pitching"]);
+
+  // Derive top leadership level from badge set
+  const BADGE_RANK = ["platinum", "gold", "silver", "bronze"];
+  const earnedLevels = new Set((badges ?? []).map((b) => b.badge_level as string));
+  const topBadgeLevel = BADGE_RANK.find((l) => earnedLevels.has(l)) ?? null;
+
+  const profileData = {
+    id: student.id as string,
+    student_display_id: student.student_display_id as string | null,
+    first_name: student.first_name as string,
+    last_name: student.last_name as string,
+    preferred_name: student.preferred_name as string | null,
+    grade_level: student.grade_level as string | null,
+    track: student.track as string | null,
+    enrollment_status: student.enrollment_status as string,
+    enrollment_date: student.enrollment_date as string | null,
+    expected_graduation: student.expected_graduation as string | null,
+    date_of_birth: student.date_of_birth as string | null,
+    medical_notes: student.medical_notes as string | null,
+    allergies: (student.allergies as string[] | null) ?? [],
+    scholarship_info: student.scholarship_info as Record<string, string> | null,
+    authorized_pickup_notes: student.authorized_pickup_notes as string | null,
+    attendance_qr_token: student.attendance_qr_token as string | null,
+    profile_qr_token: student.profile_qr_token as string | null,
+    avatar_url: student.avatar_url as string | null,
+    family: student.families as {
+      id: string; family_name: string; family_display_id: string; is_split_household: boolean;
+    } | null,
+    today_attendance: todayAttendance ? {
+      status: todayAttendance.status as string,
+      check_in_at: todayAttendance.check_in_at as string | null,
+      check_out_at: todayAttendance.check_out_at as string | null,
+      is_late: todayAttendance.is_late as boolean,
+      is_early_pickup: todayAttendance.is_early_pickup as boolean,
+    } : null,
+    medication_alerts: (medAlerts ?? []).map((m) => ({
+      id: m.id as string,
+      medication_name: m.medication_name as string,
+      is_emergency: m.is_emergency as boolean,
+      dosage: m.dosage as string | null,
+      storage_location: m.storage_location as string | null,
+      instructions: m.instructions as string | null,
+    })),
+    top_badge_level: topBadgeLevel,
+    badge_count: badges?.length ?? 0,
+    active_project_count: activeProjectCount ?? 0,
+  };
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-4xl">
-
-      {/* ── Back ──────────────────────────────────────────────── */}
-      <Link
-        href="/dashboard/students"
-        className="inline-flex items-center gap-1.5 text-label-sm text-sc-gray hover:text-sc-teal transition-colors"
-      >
-        <ArrowLeft className="size-4" /> Back to Students
-      </Link>
-
-      {/* ── Header ────────────────────────────────────────────── */}
-      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="font-serif text-heading-1 text-sc-navy">{displayName}</h1>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {student.student_display_id && (
-                <span className="font-mono text-label-sm text-sc-gray bg-sc-cream px-2 py-0.5 rounded">
-                  {student.student_display_id}
-                </span>
-              )}
-              {student.grade_level && (
-                <span className="text-label-sm text-sc-gray">{student.grade_level} Grade</span>
-              )}
-              {student.track && (
-                <span className="text-label-sm text-sc-gray capitalize">· {student.track} track</span>
-              )}
-            </div>
-          </div>
-          <Badge variant={student.enrollment_status === "enrolled" ? "green" : "muted"}>
-            {ENROLLMENT_LABELS[student.enrollment_status as EnrollmentStatus] ?? student.enrollment_status}
-          </Badge>
-        </div>
-
-        {/* Family link */}
-        {family && (
-          <div className="mt-4 pt-4 border-t border-sc-gray-100 flex items-center gap-2">
-            <span className="text-label-sm text-sc-gray">Family:</span>
-            <Link
-              href={`/dashboard/families/${student.family_id}`}
-              className="text-label-sm font-medium text-sc-teal hover:underline"
-            >
-              {family.family_name}
-            </Link>
-            {family.family_display_id && (
-              <span className="font-mono text-label-sm text-sc-gray-400">({family.family_display_id})</span>
-            )}
-            {family.is_split_household && (
-              <Badge variant="gold">Split Household</Badge>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Guardians ─────────────────────────────────────────── */}
-      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
-        <h2 className="font-serif text-heading-2 text-sc-navy mb-4">Guardians & Custody</h2>
-
-        {guardianships.length === 0 ? (
-          <p className="text-body-md text-sc-gray">No guardian records found for this student.</p>
-        ) : (
-          <div className="space-y-4">
-            {guardianships.map((g) => {
-              const needsAlert = requiresSupervisionAlert(g.custody_type as CustodyType);
-              return (
-                <div key={g.id} className={`rounded-xl border p-4 ${needsAlert ? "border-sc-rose-200 bg-sc-rose-50" : "border-sc-gray-100 bg-sc-cream/50"}`}>
-                  <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-                    <div>
-                      <p className="font-serif text-heading-3 text-sc-navy">
-                        {g.profiles?.full_name ?? "Unknown Guardian"}
-                      </p>
-                      <p className="text-label-sm text-sc-gray capitalize mt-0.5">
-                        {RELATIONSHIP_LABELS[g.relationship_type as RelationshipType] ?? g.relationship_type}
-                        {g.household_label ? ` · ${g.household_label}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {g.is_legal_guardian && <Badge variant="navy">Legal Guardian</Badge>}
-                      {g.is_primary_contact && <Badge variant="green">Primary Contact</Badge>}
-                      {!g.can_pickup && <Badge variant="rose">No Pickup</Badge>}
-                    </div>
-                  </div>
-
-                  {/* Supervision alert */}
-                  {needsAlert && (
-                    <div className="flex items-start gap-2 rounded-lg bg-sc-rose-100 border border-sc-rose-200 p-3 mb-3">
-                      <AlertTriangle className="size-4 text-sc-rose shrink-0 mt-0.5" />
-                      <p className="text-label-sm text-sc-rose-700 font-medium">
-                        {CUSTODY_LABELS[g.custody_type as CustodyType]}
-                        {g.pickup_restrictions ? ` — ${g.pickup_restrictions}` : ""}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-label-sm">
-                    <div>
-                      <span className="text-sc-gray-400 block">Custody</span>
-                      <span className="text-sc-navy font-medium">
-                        {CUSTODY_LABELS[g.custody_type as CustodyType] ?? g.custody_type}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-sc-gray-400 block">Emergency Contact</span>
-                      <span className="text-sc-navy font-medium">
-                        {g.is_emergency_contact
-                          ? `Yes (#${g.emergency_contact_order ?? "–"})`
-                          : "No"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-sc-gray-400 block">Can Pickup</span>
-                      <span className={`font-medium ${g.can_pickup ? "text-sc-green" : "text-sc-rose"}`}>
-                        {g.can_pickup ? "Yes" : "No"}
-                      </span>
-                    </div>
-                    {g.profiles?.email && (
-                      <div>
-                        <span className="text-sc-gray-400 block">Email</span>
-                        <a href={`mailto:${g.profiles.email}`} className="text-sc-teal hover:underline">
-                          {g.profiles.email}
-                        </a>
-                      </div>
-                    )}
-                    {g.profiles?.phone && (
-                      <div>
-                        <span className="text-sc-gray-400 block">Phone</span>
-                        <a href={`tel:${g.profiles.phone}`} className="text-sc-navy font-medium">
-                          {g.profiles.phone}
-                        </a>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Court order flag */}
-                  {/* court_order_notes is never rendered here — staff see a flag only */}
-                  {g.pickup_restrictions && !needsAlert && (
-                    <div className="flex items-center gap-2 mt-3 text-label-sm text-sc-gray">
-                      <Shield className="size-3.5" />
-                      Pickup note: {g.pickup_restrictions}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Future Modules (clearly marked) ───────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {[
-          { title: "Attendance Record",   sprint: "Sprint 3" },
-          { title: "Academic Record",      sprint: "Sprint 3" },
-          { title: "Health & Allergies",   sprint: "Sprint 3" },
-          { title: "Incident History",     sprint: "Sprint 3" },
-          { title: "Badge Portfolio",      sprint: "Sprint 4" },
-          { title: "Communications Log",   sprint: "Sprint 2" },
-        ].map((mod) => (
-          <div key={mod.title} className="rounded-xl border border-dashed border-sc-gray-200 p-4 flex items-center justify-between">
-            <span className="text-label-md font-medium text-sc-gray">{mod.title}</span>
-            <span className="text-label-sm text-sc-gray-400">{mod.sprint}</span>
-          </div>
-        ))}
-      </div>
-
-    </div>
+    <StudentProfile
+      data={profileData}
+      initialTab={tab}
+      orgId={orgId}
+      currentUserId={user.id}
+    />
   );
 }
