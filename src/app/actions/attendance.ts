@@ -277,6 +277,76 @@ export async function undoAttendanceAction(studentId: string): Promise<UndoResul
   return { success: false, error: "No check-in or check-out to undo." };
 }
 
+// ── Admin Attendance Correction ───────────────────────────────────────────
+// Admin+ can correct a student's attendance status for any date.
+// E.g. clear an erroneous checkout, mark absent → present, etc.
+
+export type CorrectionAction =
+  | "undo_checkout"    // clear check_out_at (student is back to checked-in)
+  | "undo_checkin"     // delete the record entirely
+  | "mark_absent"      // set status = absent, clear check times
+  | "mark_present"     // set status = present (keep existing times)
+  | "mark_excused";    // set status = excused
+
+export async function correctAttendanceRecord(
+  recordId: string,
+  action: CorrectionAction,
+  adminNote?: string
+): Promise<AR> {
+  const { getActiveRole } = await import("@/lib/supabase/org-context");
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  const role  = await getActiveRole();
+  if (!user || !orgId) return { success: false, error: "Not authenticated." };
+  if (!["admin", "full_admin", "platform_admin", "registrar"].includes(role ?? "")) {
+    return { success: false, error: "Admin access required to correct attendance." };
+  }
+
+  const supabase = await createClient();
+
+  if (action === "undo_checkout") {
+    const { error } = await supabase
+      .from("attendance_records")
+      .update({
+        check_out_at:             null,
+        check_out_by:             null,
+        check_out_method:         null,
+        is_early_pickup:          false,
+        checkout_released_to:     null,
+        checkout_released_to_id:  null,
+        checkout_override_used:   false,
+        checkout_override_reason: null,
+        checkout_notes:           adminNote ? `[Admin correction] ${adminNote}` : null,
+      } as never)
+      .eq("id", recordId)
+      .eq("organization_id", orgId);
+    if (error) return { success: false, error: error.message };
+  } else if (action === "undo_checkin") {
+    const { error } = await supabase
+      .from("attendance_records")
+      .delete()
+      .eq("id", recordId)
+      .eq("organization_id", orgId);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const statusMap: Record<string, string> = {
+      mark_absent:  "absent",
+      mark_present: "present",
+      mark_excused: "excused",
+    };
+    const { error } = await supabase
+      .from("attendance_records")
+      .update({ status: statusMap[action] } as never)
+      .eq("id", recordId)
+      .eq("organization_id", orgId);
+    if (error) return { success: false, error: error.message };
+  }
+
+  revalidatePath("/dashboard/attendance");
+  revalidatePath("/dashboard/home");
+  return { success: true };
+}
+
 // ── Bulk load today's attendance for the list view ────────────────────────
 
 export type StudentAttendanceRow = {

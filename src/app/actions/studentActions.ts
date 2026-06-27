@@ -63,9 +63,13 @@ export async function checkInStudent(studentId: string): Promise<
 // ── Check Out ─────────────────────────────────────────────────────────────
 
 export interface CheckOutPayload {
-  released_to:    string;
-  released_to_id: string | null;
-  notes:          string;
+  released_to:            string;
+  released_to_id:         string | null;
+  released_to_relationship?: string | null;
+  released_to_phone?:     string | null;
+  notes:                  string;
+  override_used?:         boolean;
+  override_reason?:       string | null;
 }
 
 export async function checkOutStudent(
@@ -99,12 +103,16 @@ export async function checkOutStudent(
     const { error } = await supabase
       .from("attendance_records")
       .update({
-        check_out_at:         now,
-        status:               "present",
-        check_out_by:         user.id,
-        checkout_released_to:     payload.released_to.trim(),
-        checkout_released_to_id:  payload.released_to_id,
-        checkout_notes:           payload.notes || null,
+        check_out_at:                      now,
+        status:                            "present",
+        check_out_by:                      user.id,
+        checkout_released_to:              payload.released_to.trim(),
+        checkout_released_to_id:           payload.released_to_id,
+        checkout_released_to_relationship: payload.released_to_relationship ?? null,
+        checkout_released_to_phone:        payload.released_to_phone ?? null,
+        checkout_notes:                    payload.notes || null,
+        checkout_override_used:            payload.override_used ?? false,
+        checkout_override_reason:          payload.override_reason ?? null,
       } as never)
       .eq("id", existingRow.id);
     if (error) return { success: false, error: error.message };
@@ -117,11 +125,15 @@ export async function checkOutStudent(
         student_id:               studentId,
         date:                     today,
         status:                   "present",
-        check_out_at:             now,
-        checked_out_by:           user.id,
-        checkout_released_to:     payload.released_to.trim(),
-        checkout_released_to_id:  payload.released_to_id,
-        checkout_notes:           payload.notes || null,
+        check_out_at:                      now,
+        checked_out_by:                    user.id,
+        checkout_released_to:              payload.released_to.trim(),
+        checkout_released_to_id:           payload.released_to_id,
+        checkout_released_to_relationship: payload.released_to_relationship ?? null,
+        checkout_released_to_phone:        payload.released_to_phone ?? null,
+        checkout_notes:                    payload.notes || null,
+        checkout_override_used:            payload.override_used ?? false,
+        checkout_override_reason:          payload.override_reason ?? null,
       } as never);
     if (error) return { success: false, error: error.message };
   }

@@ -230,15 +230,22 @@ export function StudentProfile({
       )}
 
       {/* ── Profile header ────────────────────────────────────── */}
-      <StudentProfileHeader data={data} />
+      <StudentProfileHeader
+        data={data}
+        alertBannerFlags={alertBannerFlags}
+        allergies={data.allergies}
+      />
 
       {/* ── Quick actions ─────────────────────────────────────── */}
       <div className="px-4 sm:px-6 pt-4 pb-3 border-b border-sc-gray-100 bg-white">
         <StudentQuickActions
           studentId={data.id}
           studentName={data.preferred_name ? `${data.preferred_name} ${data.last_name}` : `${data.first_name} ${data.last_name}`}
+          gradeLevel={data.grade_level}
           todayAttendance={data.today_attendance}
           attendanceQrToken={data.attendance_qr_token}
+          role={role}
+          isAdmin={isAdmin}
         />
       </div>
 
@@ -263,7 +270,7 @@ export function StudentProfile({
         {activeTab === "support"          && <SupportTab          studentId={data.id} />}
         {activeTab === "academics"        && <AcademicsTab        studentId={data.id} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} />}
-        {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} />}
+        {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} />}
         {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} />}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   UserCheck, LogOut, QrCode, StickyNote, AlertOctagon,
   Upload, Printer, Loader2, X, Check, AlertTriangle, Phone,
+  ShieldCheck, ShieldOff, ShieldAlert, Eye, User,
 } from "lucide-react";
 import { checkInStudent } from "@/app/actions/attendance";
 import {
@@ -21,12 +22,12 @@ import { cn } from "@/lib/utils";
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-sc-gray-100 sticky top-0 bg-white">
           <h2 className="font-serif text-heading-3 text-sc-navy">{title}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-sc-gray-100"><X className="size-4 text-sc-gray" /></button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );
@@ -60,92 +61,349 @@ function ActionButton({
   return <button onClick={onClick} disabled={disabled || loading} className={cls}>{content}</button>;
 }
 
-// ── Checkout Modal ─────────────────────────────────────────────────────────
+// ── Pickup Person Card ─────────────────────────────────────────────────────
 
-function CheckoutModal({ studentId, studentName, onClose, onDone }: {
-  studentId: string; studentName: string; onClose: () => void; onDone: () => void;
+type PickupStatus = "authorized" | "emergency" | "supervised" | "not_authorized";
+
+function pickupStatus(p: PickupPerson): PickupStatus {
+  if (!p.is_authorized) return "not_authorized";
+  if (p.requires_supervision) return "supervised";
+  if (p.is_emergency_only) return "emergency";
+  return "authorized";
+}
+
+const STATUS_META: Record<PickupStatus, { label: string; icon: React.ElementType; cardCls: string; badgeCls: string }> = {
+  authorized:     { label: "Authorized",      icon: ShieldCheck,  cardCls: "", badgeCls: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200" },
+  emergency:      { label: "Emergency Only",  icon: ShieldAlert,  cardCls: "border-sc-gold-200 bg-sc-gold-50/40", badgeCls: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200" },
+  supervised:     { label: "Supervised Only", icon: Eye,          cardCls: "border-sc-gold-200 bg-sc-gold-50/40", badgeCls: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200" },
+  not_authorized: { label: "NOT AUTHORIZED",  icon: ShieldOff,    cardCls: "border-sc-rose-200 bg-sc-rose-50/60", badgeCls: "bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200" },
+};
+
+// ── Full Checkout Modal ────────────────────────────────────────────────────
+
+function CheckoutModal({
+  studentId, studentName, gradeLevel, checkInAt, isAdmin, onClose, onDone,
+}: {
+  studentId:  string;
+  studentName: string;
+  gradeLevel:  string | null;
+  checkInAt:   string | null;
+  isAdmin:     boolean;
+  onClose: () => void;
+  onDone:  () => void;
 }) {
   const [persons, setPersons]       = useState<PickupPerson[]>([]);
-  const [loaded,  setLoaded]        = useState(false);
-  const [releasedTo, setReleasedTo] = useState("");
-  const [releasedToId, setReleasedToId] = useState<string | null>(null);
-  const [notes, setNotes]           = useState("");
-  const [isPending, startTransition] = useTransition();
-  const [error, setError]           = useState<string | null>(null);
+  const [loaded, setLoaded]         = useState(false);
 
+  // Selection state
+  const [selectedId, setSelectedId]           = useState<string | null>(null);
+  const [manualName, setManualName]           = useState("");
+  const [manualRel, setManualRel]             = useState("");
+  const [manualPhone, setManualPhone]         = useState("");
+  const [checkoutNotes, setCheckoutNotes]     = useState("");
+  const [supervisedNote, setSupervisedNote]   = useState("");
+  const [overrideReason, setOverrideReason]   = useState("");
+  const [showManual, setShowManual]           = useState(false);
+
+  const [isPending, startTransition] = useTransition();
+  const [error, setError]            = useState<string | null>(null);
+
+  // Load pickup persons once
   if (!loaded) {
     setLoaded(true);
     getPickupPersons(studentId).then(setPersons);
   }
 
-  const authorized = persons.filter((p) => p.is_authorized && !p.requires_supervision && !p.is_emergency_only);
-  const restricted = persons.filter((p) => !p.is_authorized || p.requires_supervision);
+  const selectedPerson = persons.find((p) => p.id === selectedId) ?? null;
+  const selStatus = selectedPerson ? pickupStatus(selectedPerson) : null;
+
+  const isBlocked  = selStatus === "not_authorized" && !isAdmin;
+  const needsSupNote = selStatus === "supervised" && !supervisedNote.trim();
+  const needsOverride = selStatus === "not_authorized" && isAdmin && !overrideReason.trim();
+
+  function fmtTime(iso: string | null) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function handleSelect(p: PickupPerson) {
+    setSelectedId(p.id);
+    setShowManual(false);
+    setManualName(p.full_name);
+    setManualRel(p.relationship ?? "");
+    setManualPhone(p.phone ?? "");
+  }
 
   function handleCheckout() {
-    if (!releasedTo.trim()) { setError("Enter or select who is picking up."); return; }
+    const name = showManual ? manualName.trim() : (selectedPerson?.full_name ?? manualName.trim());
+    if (!name) { setError("Enter or select who is picking up."); return; }
+    if (isBlocked) { setError("This person is NOT AUTHORIZED. Only admins can override."); return; }
+    if (needsSupNote) { setError("Supervised-only pickup requires a confirmation note."); return; }
+    if (needsOverride) { setError("An override reason is required."); return; }
+
     startTransition(async () => {
-      const payload: CheckOutPayload = { released_to: releasedTo, released_to_id: releasedToId, notes };
+      const payload: CheckOutPayload = {
+        released_to:              name,
+        released_to_id:           showManual ? null : selectedId,
+        released_to_relationship: showManual ? manualRel || null : (selectedPerson?.relationship ?? null),
+        released_to_phone:        showManual ? manualPhone || null : (selectedPerson?.phone ?? null),
+        notes:                    [checkoutNotes, supervisedNote].filter(Boolean).join(" | "),
+        override_used:            selStatus === "not_authorized" && isAdmin,
+        override_reason:          selStatus === "not_authorized" && isAdmin ? overrideReason : null,
+      };
       const res = await checkOutStudent(studentId, payload);
       if (!res.success) { setError(res.error); return; }
       onDone();
     });
   }
 
+  const authorized   = persons.filter((p) => pickupStatus(p) === "authorized");
+  const emergency    = persons.filter((p) => pickupStatus(p) === "emergency");
+  const supervised   = persons.filter((p) => pickupStatus(p) === "supervised");
+  const notAuth      = persons.filter((p) => pickupStatus(p) === "not_authorized");
+
   return (
     <Modal title={`Check Out — ${studentName}`} onClose={onClose}>
-      <div className="space-y-4">
+      <div className="space-y-5">
+
+        {/* Student info */}
+        <div className="rounded-xl bg-sc-navy/5 border border-sc-navy-100 px-4 py-3 flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2 text-label-sm text-sc-navy">
+            <User className="size-4 text-sc-gray-400" />
+            <span className="font-semibold">{studentName}</span>
+            {gradeLevel && <span className="text-sc-gray">· {gradeLevel}</span>}
+          </div>
+          {checkInAt && (
+            <div className="flex items-center gap-1.5 text-label-sm text-sc-teal-700">
+              <Check className="size-3.5" />
+              Checked in at {fmtTime(checkInAt)}
+            </div>
+          )}
+        </div>
+
+        {/* Authorized pickup list */}
         {authorized.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-label-sm font-semibold text-sc-navy uppercase tracking-wide">Authorized Pickup</p>
-            {authorized.map((p) => (
-              <button key={p.id} onClick={() => { setReleasedTo(p.full_name); setReleasedToId(p.id); }}
-                className={cn("w-full text-left rounded-xl border px-4 py-3 transition-colors",
-                  releasedToId === p.id ? "border-sc-teal bg-sc-teal-50" : "border-sc-gray-100 hover:border-sc-teal hover:bg-sc-teal-50/40")}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-label-md font-semibold text-sc-navy">{p.full_name}</p>
-                    <p className="text-label-sm text-sc-gray capitalize flex items-center gap-1">
-                      {p.relationship}{p.phone && <><Phone className="size-3 ml-1" />{p.phone}</>}
-                    </p>
+          <section>
+            <p className="text-label-sm font-semibold text-sc-navy uppercase tracking-wide mb-2">Authorized Pickup</p>
+            <div className="space-y-2">
+              {authorized.map((p) => (
+                <button key={p.id} onClick={() => handleSelect(p)}
+                  className={cn("w-full text-left rounded-xl border px-4 py-3 transition-colors",
+                    selectedId === p.id && !showManual
+                      ? "border-sc-teal bg-sc-teal-50"
+                      : "border-sc-gray-100 hover:border-sc-teal hover:bg-sc-teal-50/30")}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-label-md font-semibold text-sc-navy">{p.full_name}</p>
+                      <p className="text-label-sm text-sc-gray capitalize flex items-center gap-2">
+                        {p.relationship}
+                        {p.phone && <><Phone className="size-3 ml-0.5" />{p.phone}</>}
+                      </p>
+                    </div>
+                    {selectedId === p.id && !showManual && <Check className="size-4 text-sc-teal shrink-0" />}
                   </div>
-                  {releasedToId === p.id && <Check className="size-4 text-sc-teal" />}
+                  {isAdmin && p.admin_only_notes && (
+                    <p className="mt-1.5 text-label-sm text-sc-rose-700 bg-sc-rose-50 rounded-lg px-2 py-1">
+                      🔒 Admin: {p.admin_only_notes}
+                    </p>
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Emergency-only list */}
+        {emergency.length > 0 && (
+          <section>
+            <p className="text-label-sm font-semibold text-sc-gold-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <ShieldAlert className="size-3.5" /> Emergency Contacts (pickup in emergency only)
+            </p>
+            <div className="space-y-2">
+              {emergency.map((p) => {
+                const meta = STATUS_META.emergency;
+                return (
+                  <button key={p.id} onClick={() => handleSelect(p)}
+                    className={cn("w-full text-left rounded-xl border px-4 py-3 transition-colors",
+                      meta.cardCls,
+                      selectedId === p.id && !showManual ? "ring-2 ring-sc-gold" : "hover:ring-1 hover:ring-sc-gold-300")}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-label-md font-semibold text-sc-navy">{p.full_name}</p>
+                        <p className="text-label-sm text-sc-gray capitalize flex items-center gap-2">
+                          {p.relationship}
+                          {p.phone && <><Phone className="size-3 ml-0.5" />{p.phone}</>}
+                        </p>
+                        <span className={cn("inline-block mt-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase", meta.badgeCls)}>
+                          {meta.label}
+                        </span>
+                      </div>
+                      {selectedId === p.id && !showManual && <Check className="size-4 text-sc-gold shrink-0" />}
+                    </div>
+                    {p.restriction_notes && (
+                      <p className="mt-1.5 text-label-sm text-sc-gold-700 bg-sc-gold-50 rounded-lg px-2 py-1">
+                        {p.restriction_notes}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Supervised-only list */}
+        {supervised.length > 0 && (
+          <section>
+            <p className="text-label-sm font-semibold text-sc-gold-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <Eye className="size-3.5" /> Supervised Only
+            </p>
+            <div className="space-y-2">
+              {supervised.map((p) => {
+                const meta = STATUS_META.supervised;
+                return (
+                  <button key={p.id} onClick={() => handleSelect(p)}
+                    className={cn("w-full text-left rounded-xl border px-4 py-3 transition-colors",
+                      meta.cardCls,
+                      selectedId === p.id && !showManual ? "ring-2 ring-sc-gold" : "hover:ring-1 hover:ring-sc-gold-300")}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-label-md font-semibold text-sc-navy">{p.full_name}</p>
+                        <p className="text-label-sm text-sc-gray capitalize flex items-center gap-2">
+                          {p.relationship}
+                          {p.phone && <><Phone className="size-3 ml-0.5" />{p.phone}</>}
+                        </p>
+                        <span className={cn("inline-block mt-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase", meta.badgeCls)}>
+                          {meta.label}
+                        </span>
+                      </div>
+                      {selectedId === p.id && !showManual && <Check className="size-4 text-sc-gold shrink-0" />}
+                    </div>
+                    {p.restriction_notes && (
+                      <p className="mt-1.5 text-label-sm text-sc-gold-700 bg-sc-gold-50 rounded-lg px-2 py-1">
+                        {p.restriction_notes}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* NOT AUTHORIZED list */}
+        {notAuth.length > 0 && (
+          <section>
+            <p className="text-label-sm font-semibold text-sc-rose-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <ShieldOff className="size-3.5" /> Not Authorized
+            </p>
+            <div className="space-y-2">
+              {notAuth.map((p) => (
+                <div key={p.id} className="rounded-xl border border-sc-rose-200 bg-sc-rose-50 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="size-4 text-sc-rose shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-label-md font-semibold text-sc-navy">{p.full_name}</p>
+                      <p className="text-label-sm text-sc-rose-700 font-semibold">DO NOT RELEASE TO THIS PERSON</p>
+                      {p.restriction_notes && (
+                        <p className="text-label-sm text-sc-rose-600 mt-0.5">{p.restriction_notes}</p>
+                      )}
+                    </div>
+                    {isAdmin && (
+                      <button onClick={() => { setSelectedId(p.id); setShowManual(false); setManualName(p.full_name); setManualRel(p.relationship ?? ""); setManualPhone(p.phone ?? ""); }}
+                        className={cn("shrink-0 px-2 py-1 rounded-lg text-label-sm border transition-colors",
+                          selectedId === p.id && !showManual
+                            ? "border-sc-rose-400 bg-sc-rose-100 text-sc-rose-800 font-semibold"
+                            : "border-sc-rose-200 text-sc-rose-700 hover:bg-sc-rose-100")}>
+                        {selectedId === p.id && !showManual ? "Selected (Override)" : "Admin Override"}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </button>
-            ))}
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Supervised-only confirmation note */}
+        {selStatus === "supervised" && (
+          <div className="rounded-xl border border-sc-gold-200 bg-sc-gold-50 px-4 py-3 space-y-2">
+            <p className="text-label-sm font-semibold text-sc-gold-700 flex items-center gap-1.5">
+              <Eye className="size-3.5" /> Supervised Only — Confirmation Required
+            </p>
+            <p className="text-label-sm text-sc-gold-700">This person must be supervised. Confirm supervision arrangement.</p>
+            <textarea rows={2} value={supervisedNote} onChange={(e) => setSupervisedNote(e.target.value)}
+              placeholder="Who is supervising? Where? (required)"
+              className="w-full rounded-lg border border-sc-gold-300 bg-white px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-gold" />
           </div>
         )}
-        {restricted.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-label-sm font-semibold text-sc-rose uppercase tracking-wide">Restricted</p>
-            {restricted.map((p) => (
-              <div key={p.id} className="rounded-xl border border-sc-rose-200 bg-sc-rose-50 px-4 py-3 flex items-center gap-2">
-                <AlertTriangle className="size-4 text-sc-rose shrink-0" />
-                <div>
-                  <p className="text-label-md font-semibold text-sc-navy">{p.full_name}</p>
-                  <p className="text-label-sm text-sc-rose font-medium">
-                    {!p.is_authorized ? "NOT AUTHORIZED" : "SUPERVISED ONLY"}
-                  </p>
+
+        {/* Admin override reason */}
+        {selStatus === "not_authorized" && isAdmin && (
+          <div className="rounded-xl border border-sc-rose-300 bg-sc-rose-50 px-4 py-3 space-y-2">
+            <p className="text-label-sm font-semibold text-sc-rose-700 flex items-center gap-1.5">
+              <AlertTriangle className="size-3.5" /> Admin Override — Override Reason Required
+            </p>
+            <p className="text-label-sm text-sc-rose-600">You are overriding a NOT AUTHORIZED restriction. This will be logged.</p>
+            <textarea rows={2} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="Reason for override (required)"
+              className="w-full rounded-lg border border-sc-rose-300 bg-white px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-rose" />
+          </div>
+        )}
+
+        {/* Block message for non-admins trying to release to NOT AUTHORIZED */}
+        {selStatus === "not_authorized" && !isAdmin && (
+          <div className="rounded-xl border border-sc-rose-400 bg-sc-rose-100 px-4 py-3">
+            <p className="text-label-sm font-semibold text-sc-rose-800 flex items-center gap-2">
+              <AlertTriangle className="size-4" /> Checkout blocked. Contact an admin to override.
+            </p>
+          </div>
+        )}
+
+        {/* Manual entry */}
+        <div>
+          <button onClick={() => { setShowManual((v) => !v); setSelectedId(null); }}
+            className="text-label-sm text-sc-teal hover:underline">
+            {showManual ? "← Back to pickup list" : "+ Enter pickup name manually"}
+          </button>
+          {showManual && (
+            <div className="mt-3 space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-label-sm font-semibold text-sc-navy">Name *</label>
+                <input value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="Full name"
+                  className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-label-sm font-semibold text-sc-navy">Relationship</label>
+                  <input value={manualRel} onChange={(e) => setManualRel(e.target.value)} placeholder="Parent, uncle…"
+                    className="w-full rounded-xl border border-sc-gray-200 px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-label-sm font-semibold text-sc-navy">Phone</label>
+                  <input type="tel" value={manualPhone} onChange={(e) => setManualPhone(e.target.value)} placeholder="(555) 000-0000"
+                    className="w-full rounded-xl border border-sc-gray-200 px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-        <div className="space-y-1.5">
-          <label className="text-label-sm font-semibold text-sc-navy">Released to *</label>
-          <input value={releasedTo} onChange={(e) => { setReleasedTo(e.target.value); setReleasedToId(null); }}
-            placeholder="Person picking up student"
-            className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+            </div>
+          )}
         </div>
+
+        {/* Checkout notes */}
         <div className="space-y-1.5">
-          <label className="text-label-sm font-semibold text-sc-navy">Notes</label>
-          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional checkout notes…"
+          <label className="text-label-sm font-semibold text-sc-navy">Checkout Notes (optional)</label>
+          <textarea rows={2} value={checkoutNotes} onChange={(e) => setCheckoutNotes(e.target.value)}
+            placeholder="Any notes for this checkout…"
             className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md resize-none focus:outline-none focus:ring-2 focus:ring-sc-teal" />
         </div>
-        {error && <p className="text-label-sm text-sc-rose">{error}</p>}
+
+        {error && (
+          <p className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">{error}</p>
+        )}
+
         <div className="flex gap-3">
-          <button onClick={handleCheckout} disabled={isPending}
-            className="flex-1 rounded-xl bg-sc-navy py-2.5 text-white text-label-md font-medium disabled:opacity-60">
+          <button onClick={handleCheckout} disabled={isPending || isBlocked || needsSupNote || needsOverride}
+            className="flex-1 rounded-xl bg-sc-navy py-2.5 text-white text-label-md font-medium disabled:opacity-50">
             {isPending ? "Checking out…" : "Confirm Checkout"}
           </button>
           <button onClick={onClose} className="rounded-xl border border-sc-gray-200 px-4 py-2.5 text-sc-gray">Cancel</button>
@@ -407,19 +665,32 @@ function WorkSampleModal({ studentId, onClose, onDone }: { studentId: string; on
 interface Props {
   studentId:         string;
   studentName?:      string;
+  gradeLevel?:       string | null;
   todayAttendance:   TodayAttendance | null;
   attendanceQrToken: string | null;
+  role?:             string;
+  isAdmin?:          boolean;
 }
 
 type ActiveModal = "checkout" | "note" | "incident" | "worksample" | null;
 
-export function StudentQuickActions({ studentId, studentName = "Student", todayAttendance, attendanceQrToken: _qr }: Props) {
+export function StudentQuickActions({
+  studentId,
+  studentName = "Student",
+  gradeLevel = null,
+  todayAttendance,
+  attendanceQrToken: _qr,
+  role = "staff",
+  isAdmin = false,
+}: Props) {
   const [pending, startTransition] = useTransition();
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [modal, setModal] = useState<ActiveModal>(null);
+  const [feedback, setFeedback]   = useState<string | null>(null);
+  const [modal, setModal]         = useState<ActiveModal>(null);
 
   const isCheckedIn  = !!todayAttendance?.check_in_at;
   const isCheckedOut = !!todayAttendance?.check_out_at;
+  const isVolunteer  = role === "volunteer";
+  const isParent     = role === "parent";
 
   function handleCheckIn() {
     startTransition(async () => {
@@ -439,6 +710,8 @@ export function StudentQuickActions({ studentId, studentName = "Student", todayA
     setTimeout(() => setFeedback(null), 2500);
   }
 
+  if (isParent) return null;
+
   return (
     <>
       <div className="space-y-2">
@@ -448,6 +721,7 @@ export function StudentQuickActions({ studentId, studentName = "Student", todayA
           </p>
         )}
         <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+          {/* Check in / check out */}
           {!isCheckedIn && !isCheckedOut ? (
             <ActionButton label="Check In" icon={<UserCheck className="size-4" />}
               onClick={handleCheckIn} loading={pending} variant="teal" />
@@ -462,21 +736,38 @@ export function StudentQuickActions({ studentId, studentName = "Student", todayA
           <ActionButton label="Scan Badge" icon={<QrCode className="size-4" />}
             href="/dashboard/attendance/scan" />
 
-          <ActionButton label="Add Note" icon={<StickyNote className="size-4" />}
-            onClick={() => setModal("note")} />
+          {/* Volunteers can't add notes or incidents */}
+          {!isVolunteer && (
+            <ActionButton label="Add Note" icon={<StickyNote className="size-4" />}
+              onClick={() => setModal("note")} />
+          )}
 
-          <ActionButton label="Incident" icon={<AlertOctagon className="size-4" />}
-            onClick={() => setModal("incident")} variant="rose" />
+          {!isVolunteer && (
+            <ActionButton label="Incident" icon={<AlertOctagon className="size-4" />}
+              onClick={() => setModal("incident")} variant="rose" />
+          )}
 
-          <ActionButton label="Work Sample" icon={<Upload className="size-4" />}
-            onClick={() => setModal("worksample")} />
+          {!isVolunteer && (
+            <ActionButton label="Work Sample" icon={<Upload className="size-4" />}
+              onClick={() => setModal("worksample")} />
+          )}
 
           <ActionButton label="Print Badge" icon={<Printer className="size-4" />}
             href={`/dashboard/students/${studentId}/badge`} />
         </div>
       </div>
 
-      {modal === "checkout"   && <CheckoutModal   studentId={studentId} studentName={studentName} onClose={() => setModal(null)} onDone={handleModalDone} />}
+      {modal === "checkout" && (
+        <CheckoutModal
+          studentId={studentId}
+          studentName={studentName}
+          gradeLevel={gradeLevel}
+          checkInAt={todayAttendance?.check_in_at ?? null}
+          isAdmin={isAdmin}
+          onClose={() => setModal(null)}
+          onDone={handleModalDone}
+        />
+      )}
       {modal === "note"       && <NoteModal       studentId={studentId} onClose={() => setModal(null)} onDone={handleModalDone} />}
       {modal === "incident"   && <IncidentModal   studentId={studentId} studentName={studentName} onClose={() => setModal(null)} onDone={handleModalDone} />}
       {modal === "worksample" && <WorkSampleModal studentId={studentId} onClose={() => setModal(null)} onDone={handleModalDone} />}

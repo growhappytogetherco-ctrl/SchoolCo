@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CheckCircle, X, Clock, AlertTriangle, TrendingUp, Download } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
+import { CheckCircle, X, Clock, AlertTriangle, TrendingUp, ShieldAlert, ChevronDown } from "lucide-react";
 import { getStudentAttendanceData } from "@/app/actions/profileData";
+import { correctAttendanceRecord, type CorrectionAction } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
 
-interface Props { studentId: string }
+interface Props { studentId: string; isAdmin?: boolean; }
 
 type AttData = Awaited<ReturnType<typeof getStudentAttendanceData>>;
 
@@ -27,9 +28,93 @@ function fmtTime(iso: string | null) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function AttendanceTab({ studentId }: Props) {
+function CorrectionMenu({ recordId, hasCkIn, hasCkOut, onCorrected }: {
+  recordId: string; hasCkIn: boolean; hasCkOut: boolean; onCorrected: () => void;
+}) {
+  const [open, setOpen]             = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [note, setNote]             = useState("");
+  const [pendingAction, setPendingAction] = useState<CorrectionAction | null>(null);
+
+  function doCorrection(action: CorrectionAction) {
+    startTransition(async () => {
+      await correctAttendanceRecord(recordId, action, note || undefined);
+      setOpen(false);
+      setNote("");
+      setPendingAction(null);
+      onCorrected();
+    });
+  }
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 rounded-lg border border-sc-gray-200 px-2 py-1 text-label-sm text-sc-gray hover:bg-sc-gray-50 transition-colors">
+        <ShieldAlert className="size-3.5 text-sc-rose-500" /> Fix
+        <ChevronDown className={cn("size-3 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-20 w-52 rounded-xl border border-sc-gray-200 bg-white shadow-lg overflow-hidden">
+          <div className="p-2 space-y-1">
+            {hasCkOut && (
+              <button onClick={() => setPendingAction("undo_checkout")}
+                className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
+                Undo checkout (restore to checked-in)
+              </button>
+            )}
+            {hasCkIn && !hasCkOut && (
+              <button onClick={() => setPendingAction("undo_checkin")}
+                className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-rose-700 hover:bg-sc-rose-50">
+                Remove check-in entirely
+              </button>
+            )}
+            <button onClick={() => setPendingAction("mark_absent")}
+              className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
+              Mark as Absent
+            </button>
+            <button onClick={() => setPendingAction("mark_excused")}
+              className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
+              Mark as Excused
+            </button>
+            <button onClick={() => setPendingAction("mark_present")}
+              className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
+              Mark as Present
+            </button>
+          </div>
+          {pendingAction && (
+            <div className="border-t border-sc-gray-100 p-2 space-y-2">
+              <input value={note} onChange={(e) => setNote(e.target.value)}
+                placeholder="Reason (optional)"
+                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+              <div className="flex gap-2">
+                <button onClick={() => doCorrection(pendingAction)} disabled={isPending}
+                  className="flex-1 rounded-lg bg-sc-navy px-2 py-1.5 text-white text-label-sm font-medium disabled:opacity-60">
+                  {isPending ? "Saving…" : "Confirm"}
+                </button>
+                <button onClick={() => { setPendingAction(null); setOpen(false); }}
+                  className="rounded-lg border border-sc-gray-200 px-2 py-1.5 text-sc-gray text-label-sm">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AttendanceTab({ studentId, isAdmin = false }: Props) {
   const [data, setData] = useState<AttData>(null);
   const [loading, setLoading] = useState(true);
+
+  function reload() {
+    setLoading(true);
+    getStudentAttendanceData(studentId).then((d) => {
+      setData(d);
+      setLoading(false);
+    });
+  }
 
   useEffect(() => {
     getStudentAttendanceData(studentId).then((d) => {
@@ -130,6 +215,16 @@ export function AttendanceTab({ studentId }: Props) {
                       <span title="Early pickup" className="rounded-full bg-sc-navy-50 border border-sc-navy-200 px-1.5 py-0.5 text-label-sm text-sc-navy">Early</span>
                     )}
                   </div>
+
+                  {/* Admin correction */}
+                  {isAdmin && (
+                    <CorrectionMenu
+                      recordId={r.id}
+                      hasCkIn={!!r.check_in_at}
+                      hasCkOut={!!r.check_out_at}
+                      onCorrected={reload}
+                    />
+                  )}
                 </div>
               );
             })}

@@ -63,6 +63,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return;
       }
 
+      // Parents go to the portal, not the staff dashboard
+      if (membership.role === "parent" || membership.role === "student_future") {
+        router.push("/portal");
+        return;
+      }
+
       const org = membership.organizations as OrgContext;
       setCtx({
         id:         user.id,
