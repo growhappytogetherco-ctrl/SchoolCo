@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getUser, getStudentById, getStudentTimelineForParent, getMyGuardianships } from "@/lib/supabase/server";
+import { getUser, getStudentById, getStudentTimelineForParent, getMyGuardianships, getActiveOrgId } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { StudentJourney, FILTER_GROUPS, type FilterGroup } from "@/components/timeline/StudentJourney";
 import { ENROLLMENT_LABELS } from "@/lib/constants";
@@ -34,8 +34,11 @@ export default async function PortalChildDetailPage({
   const user = await getUser();
   if (!user) redirect("/login");
 
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/login");
+
   // Verify this parent has a guardianship for this student
-  const guardianships = await getMyGuardianships(user.id);
+  const guardianships = await getMyGuardianships(user.id, orgId);
   const myGuardianship = guardianships.find((g) => g.student_id === id && g.status === "active");
   if (!myGuardianship) notFound();
 
@@ -43,7 +46,7 @@ export default async function PortalChildDetailPage({
   if (!student) notFound();
 
   // Parent-safe timeline (RLS-enforced: no staff_only, no unapproved entries)
-  const entries = await getStudentTimelineForParent(id);
+  const entries = await getStudentTimelineForParent(id, orgId);
 
   const filter = (FILTER_GROUPS.some((g) => g.value === rawFilter)
     ? rawFilter

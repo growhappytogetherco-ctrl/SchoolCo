@@ -132,3 +132,36 @@ export async function writeAuditLog(
 
   return true;
 }
+
+// ── Convenience wrapper ───────────────────────────────────────────────────
+// Accepts a single snake_case payload and creates its own Supabase client.
+// Used by server actions that don't pass a client to every call site.
+
+interface LogAuditParams {
+  organization_id?: string | null;
+  actor_id:         string;
+  action:           AuditAction | string;
+  resource_type?:   string;
+  resource_id?:     string;
+  previous_values?: Record<string, unknown>;
+  new_values?:      Record<string, unknown>;
+  metadata?:        Record<string, unknown>;
+  request?:         Request;
+}
+
+export async function logAudit(params: LogAuditParams): Promise<boolean> {
+  // Lazy import to avoid circular deps / client-side bundling
+  const { createClient } = await import("@/lib/supabase/server");
+  const supabase = await createClient();
+  return writeAuditLog(supabase, {
+    organizationId: params.organization_id ?? undefined,
+    actorId:        params.actor_id,
+    action:         params.action,
+    resourceType:   params.resource_type,
+    resourceId:     params.resource_id,
+    previousValues: params.previous_values,
+    newValues:      params.new_values,
+    metadata:       params.metadata,
+    request:        params.request,
+  });
+}

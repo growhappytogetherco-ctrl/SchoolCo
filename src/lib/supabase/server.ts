@@ -245,7 +245,7 @@ export async function getFamilies(
  * households, enrolled students, and guardianships with profiles.
  * Staff+ only (RLS enforced).
  */
-export async function getFamily(familyId: string) {
+export async function getFamily(familyId: string): Promise<FamilyDetail | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("families")
@@ -272,7 +272,54 @@ export async function getFamily(familyId: string) {
     .single();
 
   if (error) return null;
-  return data;
+  return data as unknown as FamilyDetail;
+}
+
+interface FamilyDetail {
+  id: string;
+  family_name: string;
+  family_display_id: string | null;
+  is_split_household: boolean;
+  notes: string | null;
+  archived_at: string | null;
+  households: {
+    id: string;
+    household_display_id: string | null;
+    household_label: string;
+    sort_order: number;
+    address_json: { street1?: string; city?: string; state?: string; zip?: string } | null;
+    phone: string | null;
+    email: string | null;
+    status: string;
+    archived_at: string | null;
+  }[];
+  students: {
+    id: string;
+    student_display_id: string | null;
+    first_name: string;
+    last_name: string;
+    preferred_name: string | null;
+    grade_level: string | null;
+    enrollment_status: string;
+    track: string | null;
+    archived_at: string | null;
+    guardianships: {
+      id: string;
+      relationship_type: string;
+      custody_type: string;
+      is_legal_guardian: boolean;
+      is_primary_contact: boolean;
+      is_emergency_contact: boolean;
+      emergency_contact_order: number | null;
+      can_pickup: boolean;
+      pickup_restrictions: string | null;
+      court_order_on_file: boolean;
+      household_id: string | null;
+      status: string;
+      archived_at: string | null;
+      profiles: { id: string; full_name: string; email: string; phone: string | null; avatar_url: string | null } | null;
+    }[] | null;
+  }[];
 }
 
 // ── Timeline Helpers ──────────────────────────────────────────────────────

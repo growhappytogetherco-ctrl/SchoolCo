@@ -14,7 +14,8 @@ export interface SwitchProps extends Omit<React.InputHTMLAttributes<HTMLInputEle
  */
 const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
   ({ className, label, description, id, ...props }, ref) => {
-    const switchId = id ?? React.useId();
+    const generatedId = React.useId();
+    const switchId = id ?? generatedId;
 
     return (
       <div className="flex items-start gap-3">

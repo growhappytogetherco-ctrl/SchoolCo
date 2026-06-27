@@ -90,7 +90,7 @@ export function MedicalTab({ studentId, data }: Props) {
       <Section title="Medical Conditions" icon={<AlertTriangle className="size-4 text-sc-gray" />}
         empty={conditions.length === 0} emptyText="No conditions on file.">
         <div className="flex flex-wrap gap-2">
-          {conditions.map((c) => (
+          {conditions.map((c: string) => (
             <span key={c} className="rounded-full border border-sc-gray-200 bg-sc-gray-50 px-3 py-1 text-label-sm text-sc-gray">
               {c}
             </span>
@@ -103,7 +103,7 @@ export function MedicalTab({ studentId, data }: Props) {
         <Section title="Special Accommodations" icon={<AlertTriangle className="size-4 text-sc-teal" />}
           empty={false} emptyText="">
           <ul className="space-y-1">
-            {accommodations.map((a) => (
+            {accommodations.map((a: string) => (
               <li key={a} className="flex items-start gap-2 text-label-sm text-sc-navy">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-sc-teal shrink-0" />
                 {a}

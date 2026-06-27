@@ -34,7 +34,7 @@ export default async function StudentJourneyPage({
   const student = await getStudentById(id);
   if (!student) notFound();
 
-  const entries = await getStudentTimeline(id);
+  const entries = await getStudentTimeline(id, orgId);
 
   const filter = (FILTER_GROUPS.some((g) => g.value === rawFilter)
     ? rawFilter

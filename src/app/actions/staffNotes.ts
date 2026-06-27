@@ -44,10 +44,11 @@ export async function getStaffNotes(studentId: string): Promise<StaffNote[]> {
     .order("is_pinned", { ascending: false })
     .order("created_at", { ascending: false });
 
-  return (data ?? []).map((n) => ({
-    ...n,
-    author_name: (n.profiles as { full_name: string } | null)?.full_name ?? "Staff",
-  }));
+  return ((data ?? []) as unknown[]).map((raw) => {
+    const n = raw as Record<string, unknown>;
+    const profiles = n.profiles as { full_name: string } | null;
+    return { ...n, author_name: profiles?.full_name ?? "Staff" } as StaffNote;
+  });
 }
 
 // ── Create ─────────────────────────────────────────────────────
@@ -80,7 +81,7 @@ export async function createStaffNote(
     title: payload.title?.trim() || null,
     body: payload.body.trim(),
     is_pinned: payload.is_pinned ?? false,
-  });
+  } as never);
 
   if (error) return { success: false, error: error.message };
 
@@ -110,7 +111,7 @@ export async function updateStaffNote(
   const supabase = await createClient();
   const { error } = await supabase
     .from("staff_notes")
-    .update({ ...payload, updated_at: new Date().toISOString() })
+    .update({ ...payload, updated_at: new Date().toISOString() } as never)
     .eq("id", noteId)
     .eq("organization_id", orgId);
 

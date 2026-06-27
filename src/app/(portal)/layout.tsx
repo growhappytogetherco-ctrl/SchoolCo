@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getUser } from "@/lib/supabase/server";
 import { getActiveOrgId, getActiveRole } from "@/lib/supabase/org-context";
-import { BookOpen, User, LogOut, Home } from "lucide-react";
+import { User, Home } from "lucide-react";
 
 /**
  * Parent Portal layout — Sprint 2.

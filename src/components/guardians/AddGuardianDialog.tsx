@@ -33,7 +33,7 @@ export function AddGuardianDialog({
   const [error, setError]   = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(InviteGuardianSchema),
     defaultValues: {
       student_id:           studentId,

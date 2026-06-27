@@ -1,8 +1,6 @@
 "use client";
 
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,24 +10,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RELATIONSHIP_LABELS } from "@/lib/constants";
 import type { RelationshipType } from "@/lib/constants";
 
-const Schema = z.object({
-  full_name:            z.string().min(2, "Name is required").max(120),
-  email:                z.string().email("Valid email is required"),
-  phone:                z.string().max(30).optional().nullable(),
-  relationship_type:    z.string().min(1, "Relationship is required"),
-  custody_type:         z.string().default("primary"),
-  is_legal_guardian:    z.boolean().default(true),
-  is_emergency_contact: z.boolean().default(false),
-  can_pickup:           z.boolean().default(true),
-  // Empty object means "skip guardian" — handled in wizard
-}).or(
-  // Allow skipping by submitting an empty-ish form
-  z.object({
-    full_name:         z.string().max(0).optional(),
-    email:             z.string().max(0).optional(),
-    skip:              z.literal(true),
-  }).partial()
-);
 
 export type GuardianStepData = {
   full_name?:           string;
@@ -51,6 +31,10 @@ export function GuardianStep({
 }) {
   const { register, handleSubmit, formState: { errors } } = useForm({
     defaultValues: {
+      full_name:            "",
+      email:                "",
+      phone:                "",
+      relationship_type:    "",
       custody_type:         "primary",
       is_legal_guardian:    true,
       is_emergency_contact: false,

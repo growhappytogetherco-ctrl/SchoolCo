@@ -115,7 +115,7 @@ export default function SelectMissionPage() {
               {userName ? `Welcome, ${userName}!` : "Choose Your Mission"}
             </h1>
             <p className="mt-2 text-body-md text-sc-gray">
-              Select the mission you'd like to work in today.
+              Select the mission you&apos;d like to work in today.
             </p>
             <p className="mt-1 text-label-sm text-sc-gray-400 italic">
               {APP_TAGLINE}

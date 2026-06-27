@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Home, Plus } from "lucide-react";
-import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +49,7 @@ export function AddHouseholdDialog({
       phone:           data.phone ?? null,
       email:           data.email || null,
       address_json:    {
+        country: "US",
         street1: data.street1 ?? undefined,
         city:    data.city    ?? undefined,
         state:   data.state   ?? undefined,

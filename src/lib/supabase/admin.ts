@@ -6,7 +6,7 @@
  * - It has unrestricted access to every table in the database.
  * - It may ONLY be imported in:
  *     - Server Actions (files named actions/*.ts)
- *     - Route Handlers (app/api/**/route.ts)
+ *     - Route Handlers (app/api/[...]/route.ts)
  *     - Server-only utility files (lib/supabase/admin.ts itself)
  * - NEVER import this in:
  *     - Client components ("use client")

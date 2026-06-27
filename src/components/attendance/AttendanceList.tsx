@@ -81,7 +81,7 @@ function AttendanceRow({ row, onUpdate }: { row: StudentAttendanceRow; onUpdate:
           <div className="flex items-center gap-2">
             <p className="text-label-md font-semibold text-sc-navy truncate">{displayName}</p>
             {hasMedical && (
-              <AlertTriangle className="size-3.5 text-sc-rose shrink-0" title="Medical alert on file" />
+              <AlertTriangle className="size-3.5 text-sc-rose shrink-0" aria-label="Medical alert on file" />
             )}
           </div>
           {row.grade_level && (

@@ -247,7 +247,7 @@ export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProp
       )}
 
       {/* ── Admin override (only for completed actions, not already_out) ── */}
-      {action !== "already_out" && undoState !== "done" && (
+      {action !== "already_out" && (undoState as string) !== "done" && (
         <button
           onClick={() => setUndoState("confirm")}
           className="flex items-center justify-center gap-2 w-full rounded-xl border-2 border-sc-gray-200 py-3 text-label-md text-sc-gray hover:border-sc-rose hover:text-sc-rose transition-colors"

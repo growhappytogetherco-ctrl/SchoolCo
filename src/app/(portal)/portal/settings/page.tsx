@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getUser, getMyGuardianships } from "@/lib/supabase/server";
+import { getUser, getMyGuardianships, getActiveOrgId } from "@/lib/supabase/server";
 import { PreferencesForm } from "@/components/portal/PreferencesForm";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Users } from "lucide-react";
@@ -21,7 +21,10 @@ export default async function PortalSettingsPage() {
   const user = await getUser();
   if (!user) redirect("/login");
 
-  const guardianships = await getMyGuardianships(user.id);
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/login");
+
+  const guardianships = await getMyGuardianships(user.id, orgId);
   const active = guardianships.filter((g) => g.status === "active");
 
   if (active.length === 0) {

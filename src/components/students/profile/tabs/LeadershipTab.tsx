@@ -52,7 +52,7 @@ export function LeadershipTab({ studentId }: Props) {
   const total  = data?.total_service_hours ?? 0;
 
   const filtered = filter === "all" ? badges : badges.filter((b) => b.badge_category === filter);
-  const categories = [...new Set(badges.map((b) => b.badge_category))];
+  const categories = Array.from(new Set(badges.map((b) => b.badge_category)));
 
   // Level summary counts
   const levelCounts = badges.reduce((acc, b) => {
@@ -167,7 +167,7 @@ export function LeadershipTab({ studentId }: Props) {
                     <p className="text-label-sm text-sc-gray">{fmtDate(h.service_date)}</p>
                   </div>
                   {h.verified && (
-                    <CheckCircle className="size-4 text-sc-teal shrink-0" title="Verified" />
+                    <CheckCircle className="size-4 text-sc-teal shrink-0" aria-label="Verified" />
                   )}
                 </div>
               ))}

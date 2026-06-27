@@ -37,7 +37,7 @@ interface WizardState {
 
 // ── Main component ────────────────────────────────────────────────────────
 
-export function EnrollmentWizard({ prefillFamilyId }: { prefillFamilyId?: string }) {
+export function EnrollmentWizard({ prefillFamilyId: _prefillFamilyId }: { prefillFamilyId?: string }) {
   const router  = useRouter();
   const [step, setStep]     = useState<Step>("family");
   const [state, setState]   = useState<WizardState>({ family: null, student: null, guardian: null });
@@ -94,6 +94,7 @@ export function EnrollmentWizard({ prefillFamilyId }: { prefillFamilyId?: string
         phone:           state.family.phone ?? null,
         email:           state.family.email ?? null,
         address_json:    state.family.address ? {
+          country: "US",
           street1: state.family.address.street1 ?? undefined,
           city:    state.family.address.city    ?? undefined,
           state:   state.family.address.state   ?? undefined,
@@ -124,7 +125,7 @@ export function EnrollmentWizard({ prefillFamilyId }: { prefillFamilyId?: string
           family_id:            familyId,
           household_id:         householdId,
           full_name:            state.guardian.full_name,
-          email:                state.guardian.email,
+          email:                state.guardian.email!,
           phone:                state.guardian.phone ?? null,
           relationship_type:    state.guardian.relationship_type as Parameters<typeof inviteGuardian>[0]["relationship_type"],
           custody_type:         state.guardian.custody_type as Parameters<typeof inviteGuardian>[0]["custody_type"],

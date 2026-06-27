@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { GraduationCap, ChevronRight } from "lucide-react";
-import { getUser, getGuardianChildren } from "@/lib/supabase/server";
+import { getUser, getGuardianChildren, getActiveOrgId } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ENROLLMENT_LABELS } from "@/lib/constants";
@@ -23,7 +23,10 @@ export default async function PortalChildrenPage() {
   const user = await getUser();
   if (!user) redirect("/login");
 
-  const children = await getGuardianChildren(user.id);
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/login");
+
+  const children = await getGuardianChildren(user.id, orgId);
 
   return (
     <div className="space-y-6">

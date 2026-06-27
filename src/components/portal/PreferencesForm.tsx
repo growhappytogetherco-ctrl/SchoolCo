@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Bell, Mail, Phone, MessageSquare, CheckCircle } from "lucide-react";
+import { Bell, Mail, CheckCircle } from "lucide-react";
 import { updateMyPreferences } from "@/app/actions/guardians";
 import { Switch } from "@/components/ui/switch";
-import type { Guardianship, GuardianCommunication, GuardianVisibility } from "@/types/database";
+import type { Guardianship, GuardianCommunication } from "@/types/database";
 import { RELATIONSHIP_LABELS } from "@/lib/constants";
 import type { RelationshipType } from "@/lib/constants";
 
@@ -28,7 +28,6 @@ export function PreferencesForm({ guardianship }: PreferencesFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   const comm = (guardianship.communication_json ?? {}) as GuardianCommunication;
-  const vis  = (guardianship.visibility_json    ?? {}) as GuardianVisibility;
 
   const studentName = guardianship.students
     ? `${guardianship.students.first_name} ${guardianship.students.last_name}`
@@ -38,10 +37,17 @@ export function PreferencesForm({ guardianship }: PreferencesFormProps) {
 
   // Local state for toggles
   const [channels, setChannels] = useState<GuardianCommunication["channels"]>(
-    comm.channels ?? { email: true, sms: false, push: false }
+    comm.channels ?? { email: true, sms: false, in_app: false, push: false }
   );
   const [receive, setReceive] = useState<GuardianCommunication["receive"]>(
-    comm.receive ?? { announcements: true, attendance: true, grades: true, incidents: true, newsletters: true }
+    comm.receive ?? {
+      announcements:          true,
+      attendance_alerts:      true,
+      grade_reports:          true,
+      incident_notifications: true,
+      direct_messages:        true,
+      payment_reminders:      true,
+    }
   );
 
   async function handleSave() {
@@ -99,19 +105,19 @@ export function PreferencesForm({ guardianship }: PreferencesFormProps) {
               label="Email notifications"
               description="Receive updates at your registered email address"
               checked={!!channels.email}
-              onChange={(v) => setChannels((c) => ({ ...c, email: v }))}
+              onChange={(e) => setChannels((c) => ({ ...c, email: e.target.checked }))}
             />
             <Switch
               label="SMS / text message"
               description="Receive text messages for time-sensitive updates"
               checked={!!channels.sms}
-              onChange={(v) => setChannels((c) => ({ ...c, sms: v }))}
+              onChange={(e) => setChannels((c) => ({ ...c, sms: e.target.checked }))}
             />
             <Switch
               label="Push notifications"
               description="In-app push notifications (requires mobile app)"
               checked={!!channels.push}
-              onChange={(v) => setChannels((c) => ({ ...c, push: v }))}
+              onChange={(e) => setChannels((c) => ({ ...c, push: e.target.checked }))}
             />
           </div>
         </section>
@@ -127,31 +133,31 @@ export function PreferencesForm({ guardianship }: PreferencesFormProps) {
               label="Announcements"
               description="School-wide and class announcements"
               checked={!!receive.announcements}
-              onChange={(v) => setReceive((r) => ({ ...r, announcements: v }))}
+              onChange={(e) => setReceive((r) => ({ ...r, announcements: e.target.checked }))}
             />
             <Switch
               label="Attendance alerts"
               description="Notify when your child is marked absent or tardy"
-              checked={!!receive.attendance}
-              onChange={(v) => setReceive((r) => ({ ...r, attendance: v }))}
+              checked={!!receive.attendance_alerts}
+              onChange={(e) => setReceive((r) => ({ ...r, attendance_alerts: e.target.checked }))}
             />
             <Switch
               label="Grade reports"
               description="Report cards and progress updates"
-              checked={!!receive.grades}
-              onChange={(v) => setReceive((r) => ({ ...r, grades: v }))}
+              checked={!!receive.grade_reports}
+              onChange={(e) => setReceive((r) => ({ ...r, grade_reports: e.target.checked }))}
             />
             <Switch
               label="Incident notifications"
               description="Resolved incidents that staff have approved for family visibility"
-              checked={!!receive.incidents}
-              onChange={(v) => setReceive((r) => ({ ...r, incidents: v }))}
+              checked={!!receive.incident_notifications}
+              onChange={(e) => setReceive((r) => ({ ...r, incident_notifications: e.target.checked }))}
             />
             <Switch
-              label="Newsletters"
-              description="Monthly newsletters and community updates"
-              checked={!!receive.newsletters}
-              onChange={(v) => setReceive((r) => ({ ...r, newsletters: v }))}
+              label="Direct messages"
+              description="Direct messages from staff"
+              checked={!!receive.direct_messages}
+              onChange={(e) => setReceive((r) => ({ ...r, direct_messages: e.target.checked }))}
             />
           </div>
         </section>
