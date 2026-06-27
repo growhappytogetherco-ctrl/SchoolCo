@@ -119,7 +119,7 @@ export default async function FamilyDetailPage({
                 ? "This family has multiple households. Each parent sees only their own household."
                 : "Standard single-household family."}
             </p>
-            <AddHouseholdDialog familyId={id} onSuccess={() => {}} />
+            <AddHouseholdDialog familyId={id} />
           </div>
 
           {households.length === 0 ? (
@@ -247,7 +247,6 @@ export default async function FamilyDetailPage({
                 studentId={students[0].id}
                 familyId={id}
                 households={households.map((h) => ({ id: h.id, household_label: h.household_label }))}
-                onSuccess={() => {}}
               />
             )}
           </div>

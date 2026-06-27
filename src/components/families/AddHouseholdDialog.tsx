@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -27,9 +28,10 @@ export function AddHouseholdDialog({
   familyId,
   onSuccess,
 }: {
-  familyId:  string;
-  onSuccess: () => void;
+  familyId:   string;
+  onSuccess?: () => void;
 }) {
+  const router = useRouter();
   const [open, setOpen]       = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [saving, setSaving]   = useState(false);
@@ -60,7 +62,8 @@ export function AddHouseholdDialog({
     if (!result.success) { setError(result.error); return; }
     reset();
     setOpen(false);
-    onSuccess();
+    if (onSuccess) onSuccess();
+    else router.refresh();
   }
 
   return (

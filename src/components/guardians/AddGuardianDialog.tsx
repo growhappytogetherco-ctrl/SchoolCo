@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { UserPlus } from "lucide-react";
@@ -24,11 +25,12 @@ export function AddGuardianDialog({
   households,
   onSuccess,
 }: {
-  studentId:  string;
-  familyId:   string;
-  households: Household[];
-  onSuccess:  () => void;
+  studentId:   string;
+  familyId:    string;
+  households:  Household[];
+  onSuccess?:  () => void;
 }) {
+  const router = useRouter();
   const [open, setOpen]     = useState(false);
   const [error, setError]   = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -58,7 +60,8 @@ export function AddGuardianDialog({
     if (!result.success) { setError(result.error); return; }
     reset();
     setOpen(false);
-    onSuccess();
+    if (onSuccess) onSuccess();
+    else router.refresh();
   }
 
   return (
