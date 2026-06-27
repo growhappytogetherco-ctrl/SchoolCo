@@ -264,7 +264,7 @@ export async function getFamily(familyId: string): Promise<FamilyDetail | null> 
           is_primary_contact, is_emergency_contact, emergency_contact_order,
           can_pickup, pickup_restrictions, court_order_on_file,
           household_id, status, archived_at,
-          profiles ( id, full_name, email, phone, avatar_url )
+          profiles!guardianships_profile_id_fkey ( id, full_name, email, phone )
         )
       )
     `)
@@ -321,7 +321,7 @@ interface FamilyDetail {
       household_id: string | null;
       status: string;
       archived_at: string | null;
-      profiles: { id: string; full_name: string; email: string; phone: string | null; avatar_url: string | null } | null;
+      profiles: { id: string; full_name: string; email: string; phone: string | null } | null;
     }[] | null;
   }[];
 }
