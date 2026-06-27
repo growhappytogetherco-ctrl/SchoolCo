@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Home, Users, FolderPlus } from "lucide-react";
 import { getUser, getFamilies } from "@/lib/supabase/server";
+import { requireStaff } from "@/lib/roleGuard";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { createClient } from "@/lib/supabase/server";
@@ -19,6 +20,7 @@ export const metadata: Metadata = { title: "Families" };
  * Sprint 2: Add family creation form, guardian management.
  */
 export default async function FamiliesPage() {
+  await requireStaff();
   const user = await getUser();
   if (!user) redirect("/login");
 

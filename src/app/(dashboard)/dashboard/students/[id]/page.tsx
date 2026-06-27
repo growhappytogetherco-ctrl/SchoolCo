@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createClient, getUser, getActiveOrgId, getActiveRole } from "@/lib/supabase/server";
 import { StudentProfile } from "@/components/students/profile/StudentProfile";
 
 export default async function StudentProfilePage({
@@ -15,6 +15,7 @@ export default async function StudentProfilePage({
   const orgId = await getActiveOrgId();
   if (!orgId) redirect("/select-mission");
 
+  const role = (await getActiveRole()) ?? "volunteer";
   const supabase = await createClient();
   const today = new Date().toISOString().split("T")[0];
   const tab = searchParams.tab ?? "overview";
@@ -68,6 +69,23 @@ export default async function StudentProfilePage({
     .eq("organization_id", orgId)
     .in("status", ["active", "pitching"]);
 
+  // High/critical support flags — shown in alert banner (snapshot-eligible)
+  const { data: criticalFlags } = await supabase
+    .from("support_flags")
+    .select("id, title, priority, category, color, show_on_snapshot")
+    .eq("student_id", params.id)
+    .eq("organization_id", orgId)
+    .in("priority", ["high", "critical"])
+    .or(`expires_at.is.null,expires_at.gte.${today}`)
+    .order("priority", { ascending: false });
+
+  // Custody warnings from guardians (supervised/none = alert; not authorized to pickup)
+  const { data: custodyWarnings } = await supabase
+    .from("guardianships")
+    .select("custody_type, can_pickup, pickup_restrictions, profiles:profile_id ( full_name )")
+    .eq("student_id", params.id)
+    .in("custody_type", ["supervised", "none"]);
+
   // Derive top leadership level from badge set
   const BADGE_RANK = ["platinum", "gold", "silver", "bronze"];
   const earnedLevels = new Set((badges ?? []).map((b) => b.badge_level as string));
@@ -117,12 +135,34 @@ export default async function StudentProfilePage({
     drive_folder_url: student.google_drive_folder_url as string | null,
   };
 
+  const alertBannerFlags = (criticalFlags ?? []).map((f) => ({
+    id: f.id as string,
+    title: f.title as string,
+    priority: f.priority as "high" | "critical",
+    category: f.category as string,
+    color: f.color as string,
+  }));
+
+  const pickupAlerts = (custodyWarnings ?? []).map((g) => {
+    const row = g as Record<string, unknown>;
+    const prof = row.profiles as { full_name: string } | null;
+    return {
+      guardian_name: prof?.full_name ?? "Guardian",
+      custody_type: row.custody_type as string,
+      can_pickup: row.can_pickup as boolean,
+      pickup_restrictions: row.pickup_restrictions as string | null,
+    };
+  });
+
   return (
     <StudentProfile
       data={profileData}
       initialTab={tab}
       orgId={orgId}
       currentUserId={user.id}
+      role={role}
+      alertBannerFlags={alertBannerFlags}
+      pickupAlerts={pickupAlerts}
     />
   );
 }

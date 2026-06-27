@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, HeartPulse, CalendarCheck, StickyNote,
   AlertOctagon, FolderOpen, Award, Briefcase, Users,
-  ShieldAlert, Target, BookOpen,
+  ShieldAlert, Target, BookOpen, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudentProfileData, TabId } from "./types";
@@ -24,22 +24,64 @@ import { GoalsTab }           from "./tabs/GoalsTab";
 import { SupportTab }         from "./tabs/SupportTab";
 import { AcademicsTab }       from "./tabs/AcademicsTab";
 
-// ── Tab definitions ────────────────────────────────────────────
-
-const TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
-  { id: "overview",        label: "Snapshot",        Icon: LayoutDashboard },
-  { id: "goals",           label: "Goals",           Icon: Target          },
-  { id: "support",         label: "Support",         Icon: ShieldAlert     },
-  { id: "academics",       label: "Academics",       Icon: BookOpen        },
-  { id: "medical",         label: "Medical",         Icon: HeartPulse      },
-  { id: "attendance",      label: "Attendance",      Icon: CalendarCheck   },
-  { id: "notes",           label: "Notes",           Icon: StickyNote      },
-  { id: "incidents",       label: "Incidents",       Icon: AlertOctagon    },
-  { id: "documents",       label: "Documents",       Icon: FolderOpen      },
-  { id: "leadership",      label: "Leadership",      Icon: Award           },
-  { id: "entrepreneurship",label: "Entrepreneurship",Icon: Briefcase       },
-  { id: "family",          label: "Family",          Icon: Users           },
+// ── Role visibility ────────────────────────────────────────────
+// Tabs hidden from volunteers — they can only see safety-relevant info.
+const VOLUNTEER_HIDDEN_TABS: TabId[] = [
+  "notes", "incidents", "documents", "support", "academics",
+  "leadership", "entrepreneurship", "family",
 ];
+
+// Tabs hidden from parents (they use the portal, but just in case)
+const PARENT_HIDDEN_TABS: TabId[] = [
+  "notes", "support", "incidents", "documents",
+];
+
+function getHiddenTabs(role: string): TabId[] {
+  if (role === "volunteer") return VOLUNTEER_HIDDEN_TABS;
+  if (role === "parent")    return PARENT_HIDDEN_TABS;
+  return [];
+}
+
+// ── Tab definitions ────────────────────────────────────────────
+// ROW 1: core daily-use tabs (7)
+// ROW 2: reference/deep-dive tabs (5)
+
+const ROW1_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
+  { id: "overview",   label: "Snapshot",   Icon: LayoutDashboard },
+  { id: "goals",      label: "Goals",      Icon: Target          },
+  { id: "support",    label: "Support",    Icon: ShieldAlert     },
+  { id: "academics",  label: "Academics",  Icon: BookOpen        },
+  { id: "medical",    label: "Medical",    Icon: HeartPulse      },
+  { id: "attendance", label: "Attendance", Icon: CalendarCheck   },
+  { id: "notes",      label: "Notes",      Icon: StickyNote      },
+];
+
+const ROW2_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
+  { id: "incidents",        label: "Incidents",        Icon: AlertOctagon },
+  { id: "documents",        label: "Documents",        Icon: FolderOpen   },
+  { id: "leadership",       label: "Leadership",       Icon: Award        },
+  { id: "entrepreneurship", label: "Entrepreneurship", Icon: Briefcase    },
+  { id: "family",           label: "Family",           Icon: Users        },
+];
+
+const ALL_TABS = [...ROW1_TABS, ...ROW2_TABS];
+
+// ── Alert banner types ─────────────────────────────────────────
+
+interface AlertFlag {
+  id: string;
+  title: string;
+  priority: "high" | "critical";
+  category: string;
+  color: string;
+}
+
+interface PickupAlert {
+  guardian_name: string;
+  custody_type: string;
+  can_pickup: boolean;
+  pickup_restrictions: string | null;
+}
 
 // ── Props ─────────────────────────────────────────────────────
 
@@ -48,14 +90,27 @@ interface Props {
   initialTab: string;
   orgId: string;
   currentUserId: string;
+  role?: string;
+  alertBannerFlags?: AlertFlag[];
+  pickupAlerts?: PickupAlert[];
 }
 
 // ── Component ─────────────────────────────────────────────────
 
-export function StudentProfile({ data, initialTab, orgId, currentUserId }: Props) {
+export function StudentProfile({
+  data, initialTab, orgId, currentUserId,
+  role = "staff",
+  alertBannerFlags = [],
+  pickupAlerts = [],
+}: Props) {
   const router = useRouter();
+  const hiddenTabs = getHiddenTabs(role);
+
+  const firstVisible = ALL_TABS.find((t) => !hiddenTabs.includes(t.id));
   const [activeTab, setActiveTab] = useState<TabId>(
-    (TABS.some((t) => t.id === initialTab) ? initialTab : "overview") as TabId
+    (ALL_TABS.some((t) => t.id === initialTab && !hiddenTabs.includes(t.id))
+      ? initialTab
+      : (firstVisible?.id ?? "overview")) as TabId
   );
 
   const switchTab = useCallback((tab: TabId) => {
@@ -66,11 +121,46 @@ export function StudentProfile({ data, initialTab, orgId, currentUserId }: Props
   }, [router]);
 
   const hasEmergencyMed = data.medication_alerts.some((m) => m.is_emergency);
+  const hasCriticalFlags = alertBannerFlags.some((f) => f.priority === "critical");
+  const hasHighFlags = alertBannerFlags.some((f) => f.priority === "high");
+  const hasPickupAlerts = pickupAlerts.length > 0;
+  const isAdmin = ["admin", "full_admin", "platform_admin"].includes(role);
+
+  function TabRow({ tabs }: { tabs: typeof ROW1_TABS }) {
+    const visible = tabs.filter((t) => !hiddenTabs.includes(t.id));
+    if (visible.length === 0) return null;
+    return (
+      <>
+        {visible.map(({ id, label, Icon }) => {
+          const isActive = activeTab === id;
+          const isMedical = id === "medical" && data.medication_alerts.length > 0;
+          return (
+            <button
+              key={id}
+              onClick={() => switchTab(id)}
+              className={cn(
+                "flex items-center gap-1.5 whitespace-nowrap px-3 py-3 text-label-sm font-medium border-b-2 transition-all shrink-0",
+                isActive
+                  ? "border-sc-teal text-sc-teal"
+                  : "border-transparent text-sc-gray hover:text-sc-navy hover:border-sc-gray-200"
+              )}
+            >
+              <Icon className={cn("size-3.5", isMedical && !isActive && "text-sc-rose")} />
+              {label}
+              {isMedical && !isActive && (
+                <span className="flex h-1.5 w-1.5 rounded-full bg-sc-rose" />
+              )}
+            </button>
+          );
+        })}
+      </>
+    );
+  }
 
   return (
-    <div className="space-y-0 -mt-4 sm:-mt-6"> {/* bleed into page padding */}
+    <div className="space-y-0 -mt-4 sm:-mt-6">
 
-      {/* ── Emergency banner — always visible ─────────────────── */}
+      {/* ── Emergency medication banner ────────────────────────── */}
       {hasEmergencyMed && (
         <div className="sticky top-0 z-40 bg-sc-rose border-b-2 border-sc-rose-700 px-4 py-2.5 flex items-center gap-3">
           <ShieldAlert className="size-5 text-white shrink-0" />
@@ -81,6 +171,61 @@ export function StudentProfile({ data, initialTab, orgId, currentUserId }: Props
               .map((m) => m.medication_name)
               .join(", ")}
           </p>
+        </div>
+      )}
+
+      {/* ── Critical support flag banner ───────────────────────── */}
+      {hasCriticalFlags && (
+        <div className="bg-sc-rose-700 border-b-2 border-sc-rose-900 px-4 py-2.5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="size-5 text-white shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="text-white text-label-sm font-bold uppercase tracking-wide">Critical Alert</p>
+              {alertBannerFlags
+                .filter((f) => f.priority === "critical")
+                .map((f) => (
+                  <p key={f.id} className="text-white text-label-sm">{f.title}</p>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── High-priority support flag banner ─────────────────── */}
+      {hasHighFlags && !hasCriticalFlags && (
+        <div className="bg-sc-gold border-b-2 border-sc-gold-600 px-4 py-2.5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="size-5 text-sc-navy shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="text-sc-navy text-label-sm font-bold uppercase tracking-wide">Staff Alert</p>
+              {alertBannerFlags
+                .filter((f) => f.priority === "high")
+                .map((f) => (
+                  <p key={f.id} className="text-sc-navy text-label-sm">{f.title}</p>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Pickup restriction banner ──────────────────────────── */}
+      {hasPickupAlerts && (
+        <div className="bg-sc-rose-50 border-b-2 border-sc-rose-300 px-4 py-2.5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="size-5 text-sc-rose-700 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="text-sc-rose-800 text-label-sm font-bold uppercase tracking-wide">Pickup Restriction</p>
+              {pickupAlerts.map((a, i) => (
+                <p key={i} className="text-sc-rose-700 text-label-sm">
+                  {a.guardian_name}:{" "}
+                  {a.custody_type === "none"
+                    ? "NOT authorized for pickup"
+                    : "Supervised visitation only"}
+                  {a.pickup_restrictions && ` — ${a.pickup_restrictions}`}
+                </p>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -96,32 +241,18 @@ export function StudentProfile({ data, initialTab, orgId, currentUserId }: Props
         />
       </div>
 
-      {/* ── Tab navigation — horizontal scroll on mobile ─────── */}
+      {/* ── Tab navigation — two rows, no horizontal scroll ───── */}
       <div className="bg-white border-b border-sc-gray-100 sticky top-0 z-30 px-4 sm:px-6">
-        <div className="flex gap-0 overflow-x-auto scrollbar-none -mx-4 sm:-mx-6 px-4 sm:px-6">
-          {TABS.map(({ id, label, Icon }) => {
-            const isActive = activeTab === id;
-            const isMedical = id === "medical" && data.medication_alerts.length > 0;
-            return (
-              <button
-                key={id}
-                onClick={() => switchTab(id)}
-                className={cn(
-                  "flex items-center gap-1.5 whitespace-nowrap px-3 py-3.5 text-label-sm font-medium border-b-2 transition-all shrink-0",
-                  isActive
-                    ? "border-sc-teal text-sc-teal"
-                    : "border-transparent text-sc-gray hover:text-sc-navy hover:border-sc-gray-200"
-                )}
-              >
-                <Icon className={cn("size-3.5", isMedical && !isActive && "text-sc-rose")} />
-                {label}
-                {isMedical && !isActive && (
-                  <span className="flex h-1.5 w-1.5 rounded-full bg-sc-rose" />
-                )}
-              </button>
-            );
-          })}
+        {/* Row 1 */}
+        <div className="flex gap-0 border-b border-sc-gray-50">
+          <TabRow tabs={ROW1_TABS} />
         </div>
+        {/* Row 2 — only show if at least one row-2 tab is visible */}
+        {ROW2_TABS.some((t) => !hiddenTabs.includes(t.id)) && (
+          <div className="flex gap-0">
+            <TabRow tabs={ROW2_TABS} />
+          </div>
+        )}
       </div>
 
       {/* ── Tab content ───────────────────────────────────────── */}

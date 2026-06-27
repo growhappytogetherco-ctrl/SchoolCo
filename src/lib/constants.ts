@@ -54,6 +54,23 @@ export const ADMIN_ROLES: UserRole[] = [
   "admin", "full_admin", "platform_admin",
 ];
 
+/** True if the role can view private student/family data (not volunteer/parent). */
+export function isStaffRole(role: string | null | undefined): boolean {
+  return STAFF_ROLES.includes(role as UserRole);
+}
+
+/** True if the role has admin-level access. */
+export function isAdminRole(role: string | null | undefined): boolean {
+  return ADMIN_ROLES.includes(role as UserRole);
+}
+
+/** Numeric level in the hierarchy (higher = more access). 0 = unknown/none. */
+export function getRoleLevel(role: string | null | undefined): number {
+  if (!role) return 0;
+  const idx = ROLE_HIERARCHY.indexOf(role as UserRole);
+  return idx < 0 ? 0 : idx + 1;
+}
+
 // ── Display ID Prefixes ───────────────────────────────────────────────────
 // Used by next_org_display_id() in PostgreSQL to generate human-readable IDs.
 // Format: {ORG_SHORT_NAME}-{PREFIX}{ZERO_PADDED_4_DIGIT_NUMBER}
@@ -147,9 +164,10 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Leadership",        href: "/dashboard/leadership",     icon: "Award" },
   ],
   volunteer: [
-    { label: "Dashboard",  href: "/dashboard/home",     icon: "LayoutDashboard" },
-    { label: "Schedule",   href: "/dashboard/schedule", icon: "Calendar" },
-    { label: "Messages",   href: "/dashboard/comms",    icon: "MessageSquare" },
+    { label: "Check-In / Out",  href: "/dashboard/attendance",          icon: "ClipboardCheck" },
+    { label: "Student Lookup",  href: "/dashboard/students",            icon: "GraduationCap"  },
+    { label: "Schedule",        href: "/dashboard/schedule",            icon: "Calendar"       },
+    { label: "Messages",        href: "/dashboard/comms",               icon: "MessageSquare"  },
   ],
   parent: [
     { label: "Home",           href: "/dashboard/home",        icon: "Home" },

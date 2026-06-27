@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Database, Upload } from "lucide-react";
+import { requireAdmin } from "@/lib/roleGuard";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -14,7 +15,8 @@ const SECTIONS = [
   },
 ];
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  await requireAdmin();
   return (
     <div className="animate-fade-in space-y-6">
       <div>

@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "@/types/database";
 import type { TimelineEntry } from "@/types/database";
-export { getActiveOrgId } from "./org-context";
+export { getActiveOrgId, getActiveRole } from "./org-context";
 
 /**
  * Server-side Supabase client.

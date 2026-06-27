@@ -136,6 +136,68 @@ export function FamilyTab({ studentId }: Props) {
         </div>
       )}
 
+      {/* ── Authorized Pickup Summary ──────────────────────────── */}
+      {guardians.length > 0 && (
+        <div className="rounded-2xl border border-sc-navy-200 bg-sc-navy-50 p-5 space-y-3">
+          <h2 className="font-serif text-heading-3 text-sc-navy flex items-center gap-2">
+            <Shield className="size-4 text-sc-navy" /> Authorized Pickup
+          </h2>
+          {data?.authorized_pickup_notes && (
+            <div className="rounded-xl bg-sc-gold-50 border border-sc-gold-200 px-3 py-2">
+              <p className="text-label-sm text-sc-gold-800">{data.authorized_pickup_notes}</p>
+            </div>
+          )}
+          <div className="space-y-2">
+            {guardians.map((g) => {
+              const profile = g.profiles;
+              const notAuth = g.custody_type === "none";
+              const supervised = g.custody_type === "supervised";
+              return (
+                <div key={g.id} className={cn(
+                  "flex items-center justify-between rounded-xl border px-4 py-3",
+                  notAuth    ? "border-sc-rose-300 bg-sc-rose-50"
+                  : supervised ? "border-sc-rose-200 bg-sc-rose-50"
+                  : g.can_pickup ? "border-sc-teal-200 bg-sc-teal-50"
+                  : "border-sc-gray-200 bg-sc-gray-50"
+                )}>
+                  <div>
+                    <p className="text-label-md font-semibold text-sc-navy">
+                      {profile?.full_name ?? "Guardian"}
+                    </p>
+                    <p className="text-label-sm text-sc-gray capitalize">
+                      {RELATIONSHIP_LABELS[g.relationship_type] ?? g.relationship_type}
+                      {profile?.phone ? ` · ${profile.phone}` : ""}
+                    </p>
+                    {g.pickup_restrictions && (
+                      <p className="text-label-sm text-sc-rose-700 mt-0.5">{g.pickup_restrictions}</p>
+                    )}
+                  </div>
+                  <div className="shrink-0 ml-3">
+                    {notAuth ? (
+                      <span className="rounded-full bg-sc-rose-600 text-white text-label-sm font-bold px-3 py-1">
+                        NOT AUTHORIZED
+                      </span>
+                    ) : supervised ? (
+                      <span className="rounded-full bg-sc-rose-100 border border-sc-rose-400 text-sc-rose-700 text-label-sm font-bold px-3 py-1">
+                        SUPERVISED ONLY
+                      </span>
+                    ) : g.can_pickup ? (
+                      <span className="rounded-full bg-sc-teal text-white text-label-sm font-medium px-3 py-1">
+                        ✓ Authorized
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-sc-gray-200 text-sc-gray-600 text-label-sm font-medium px-3 py-1">
+                        Not for Pickup
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Guardians */}
       <div className="space-y-3">
         <h2 className="font-serif text-heading-3 text-sc-navy">Guardians & Contacts</h2>
