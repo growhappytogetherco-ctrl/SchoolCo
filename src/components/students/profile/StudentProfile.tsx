@@ -268,7 +268,7 @@ export function StudentProfile({
         {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} />}
         {activeTab === "leadership"       && <LeadershipTab       studentId={data.id} />}
         {activeTab === "entrepreneurship" && <EntrepreneurshipTab studentId={data.id} />}
-        {activeTab === "family"           && <FamilyTab           studentId={data.id} />}
+        {activeTab === "family"           && <FamilyTab           studentId={data.id} role={role} isAdmin={isAdmin} />}
       </div>
     </div>
   );

@@ -7,8 +7,9 @@ import {
 import Link from "next/link";
 import { getStudentFamilyData } from "@/app/actions/profileData";
 import { cn } from "@/lib/utils";
+import { PickupPersonsPanel } from "./PickupPersonsPanel";
 
-interface Props { studentId: string }
+interface Props { studentId: string; role?: string; isAdmin?: boolean; }
 
 type FamData = Awaited<ReturnType<typeof getStudentFamilyData>>;
 
@@ -26,7 +27,7 @@ const CUSTODY_LABELS: Record<string, { label: string; cls: string }> = {
   none:       { label: "No Custody",             cls: "bg-sc-rose-50 text-sc-rose border-sc-rose-200"   },
 };
 
-export function FamilyTab({ studentId }: Props) {
+export function FamilyTab({ studentId, role = "staff", isAdmin = false }: Props) {
   const [data, setData] = useState<FamData>(null);
   const [loading, setLoading] = useState(true);
 
@@ -300,6 +301,11 @@ export function FamilyTab({ studentId }: Props) {
           <p className="text-body-sm text-sc-navy">{data.authorized_pickup_notes}</p>
         </div>
       )}
+
+      {/* Authorized Pickup Persons — full CRUD panel */}
+      <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-5">
+        <PickupPersonsPanel studentId={studentId} role={role} isAdmin={isAdmin} />
+      </div>
 
       {/* Scholarship */}
       {data?.scholarship_info && Object.keys(data.scholarship_info as object).length > 0 && (

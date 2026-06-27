@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TodaysBlessing } from "@/components/shared/TodaysBlessing";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
+import { TodaysActionsCard } from "@/components/dashboard/TodaysActionsCard";
+import { SchoolWideAlerts } from "@/components/dashboard/SchoolWideAlerts";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -161,6 +163,12 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
 
   return (
     <div className="space-y-6 animate-fade-in">
+
+      {/* ── Today's per-student action items ──────────────────── */}
+      <TodaysActionsCard />
+
+      {/* ── School-wide attendance & safety overview ──────────── */}
+      <SchoolWideAlerts />
 
       {/* ── Student alerts (goals, assessments, curriculum) ─── */}
       <AlertsPanel />
