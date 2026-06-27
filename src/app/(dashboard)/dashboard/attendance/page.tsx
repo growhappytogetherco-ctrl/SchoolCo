@@ -6,6 +6,7 @@ import { QrCode, Users, ClipboardList, RefreshCw } from "lucide-react";
 import { getTodayAttendance } from "@/app/actions/attendance";
 import type { StudentAttendanceRow } from "@/app/actions/attendance";
 import { AttendanceList } from "@/components/attendance/AttendanceList";
+import { ManualEntryForm } from "@/components/attendance/ManualEntryForm";
 import { cn } from "@/lib/utils";
 
 type Tab = "today" | "manual";
@@ -82,14 +83,18 @@ export default function AttendancePage() {
       </div>
 
       {/* ── Content ──────────────────────────────────────────── */}
-      {loading ? (
-        <div className="space-y-2">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-16 rounded-xl bg-sc-gray-100 animate-pulse" />
-          ))}
-        </div>
+      {tab === "today" ? (
+        loading ? (
+          <div className="space-y-2">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="h-16 rounded-xl bg-sc-gray-100 animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <AttendanceList rows={rows} onUpdate={load} />
+        )
       ) : (
-        <AttendanceList rows={rows} onUpdate={load} />
+        <ManualEntryForm onSaved={load} />
       )}
     </div>
   );

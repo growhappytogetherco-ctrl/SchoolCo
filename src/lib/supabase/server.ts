@@ -250,7 +250,8 @@ export async function getFamily(familyId: string): Promise<FamilyDetail | null> 
   const { data, error } = await supabase
     .from("families")
     .select(`
-      *,
+      id, family_name, family_display_id, is_split_household, notes, archived_at,
+      organization_id,
       households (
         id, household_display_id, household_label, sort_order,
         address_json, phone, email, status, archived_at
@@ -261,17 +262,20 @@ export async function getFamily(familyId: string): Promise<FamilyDetail | null> 
         guardianships (
           id, relationship_type, custody_type, is_legal_guardian,
           is_primary_contact, is_emergency_contact, emergency_contact_order,
-          can_pickup, pickup_restrictions, household_id, visibility_json,
-          communication_json, status, archived_at,
+          can_pickup, pickup_restrictions, court_order_on_file,
+          household_id, status, archived_at,
           profiles ( id, full_name, email, phone, avatar_url )
         )
       )
     `)
     .eq("id", familyId)
     .is("archived_at", null)
-    .single();
+    .maybeSingle();
 
-  if (error) return null;
+  if (error) {
+    console.error("[getFamily] query error:", error.message);
+    return null;
+  }
   return data as unknown as FamilyDetail;
 }
 

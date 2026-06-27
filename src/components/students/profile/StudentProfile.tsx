@@ -236,6 +236,7 @@ export function StudentProfile({
       <div className="px-4 sm:px-6 pt-4 pb-3 border-b border-sc-gray-100 bg-white">
         <StudentQuickActions
           studentId={data.id}
+          studentName={data.preferred_name ? `${data.preferred_name} ${data.last_name}` : `${data.first_name} ${data.last_name}`}
           todayAttendance={data.today_attendance}
           attendanceQrToken={data.attendance_qr_token}
         />

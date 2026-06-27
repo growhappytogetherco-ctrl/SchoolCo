@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { TodaysBlessing } from "@/components/shared/TodaysBlessing";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { TodaysActionsCard } from "@/components/dashboard/TodaysActionsCard";
-import { SchoolWideAlerts } from "@/components/dashboard/SchoolWideAlerts";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -164,15 +163,6 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
   return (
     <div className="space-y-6 animate-fade-in">
 
-      {/* ── Today's per-student action items ──────────────────── */}
-      <TodaysActionsCard />
-
-      {/* ── School-wide attendance & safety overview ──────────── */}
-      <SchoolWideAlerts />
-
-      {/* ── Student alerts (goals, assessments, curriculum) ─── */}
-      <AlertsPanel />
-
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -266,6 +256,12 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
           emptyMessage="No incidents reported today"
         />
       </section>
+
+      {/* ── Today's per-student action items ──────────────────── */}
+      <TodaysActionsCard />
+
+      {/* ── Student alerts (goals, assessments, curriculum) ─── */}
+      <AlertsPanel />
 
       {/* ── Bottom Row: Recent incidents + Notes + Quick Actions ─ */}
       <div className="grid lg:grid-cols-3 gap-4">
