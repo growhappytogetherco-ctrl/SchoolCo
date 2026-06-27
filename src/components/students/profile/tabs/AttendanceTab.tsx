@@ -175,9 +175,9 @@ export function AttendanceTab({ studentId, isAdmin = false }: Props) {
         </p>
       </div>
 
-      {/* Records list */}
-      <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">
-        <div className="px-5 py-4 border-b border-sc-gray-100 flex items-center justify-between">
+      {/* Records list — no overflow-hidden so CorrectionMenu dropdown isn't clipped */}
+      <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card">
+        <div className="px-5 py-4 border-b border-sc-gray-100 flex items-center justify-between rounded-t-2xl">
           <h2 className="font-serif text-heading-3 text-sc-navy">Attendance History</h2>
           <span className="text-label-sm text-sc-gray">{records.length} days this year</span>
         </div>

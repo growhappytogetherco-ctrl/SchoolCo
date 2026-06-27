@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   UserCheck, LogOut, QrCode, StickyNote, AlertOctagon,
@@ -683,6 +684,7 @@ export function StudentQuickActions({
   role = "staff",
   isAdmin = false,
 }: Props) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [feedback, setFeedback]   = useState<string | null>(null);
   const [modal, setModal]         = useState<ActiveModal>(null);
@@ -697,6 +699,7 @@ export function StudentQuickActions({
       const res = await checkInStudent(studentId, "manual");
       if (res.success) {
         setFeedback("Checked in ✓");
+        router.refresh(); // update header attendance chip
       } else {
         setFeedback(res.alreadyCheckedIn ? "Already checked in" : (res.error ?? "Error"));
       }
@@ -707,6 +710,7 @@ export function StudentQuickActions({
   function handleModalDone() {
     setModal(null);
     setFeedback("Saved ✓");
+    router.refresh(); // update header attendance chip after checkout / other actions
     setTimeout(() => setFeedback(null), 2500);
   }
 

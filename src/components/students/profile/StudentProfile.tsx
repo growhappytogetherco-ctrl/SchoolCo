@@ -124,7 +124,7 @@ export function StudentProfile({
   const hasCriticalFlags = alertBannerFlags.some((f) => f.priority === "critical");
   const hasHighFlags = alertBannerFlags.some((f) => f.priority === "high");
   const hasPickupAlerts = pickupAlerts.length > 0;
-  const isAdmin = ["admin", "full_admin", "platform_admin"].includes(role);
+  const isAdmin = ["admin", "full_admin", "platform_admin", "registrar"].includes(role);
 
   function TabRow({ tabs }: { tabs: typeof ROW1_TABS }) {
     const visible = tabs.filter((t) => !hiddenTabs.includes(t.id));
