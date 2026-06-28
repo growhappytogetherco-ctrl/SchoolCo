@@ -11,11 +11,11 @@ import {
   createCurriculumRecord, updateCurriculumRecord,
   changeCurriculum, archiveCurriculumRecord,
   getInterventionSessions, logInterventionSession, updateInterventionSession,
-  SUBJECTS, SUBJECT_LABELS,
   type CurriculumEnrollment, type CurriculumPayload, type CurriculumStatus,
   type InterventionSession, type InterventionSessionPayload,
   type OOORequestedBy, type OOOPriority, type InterventionStatus,
 } from "@/app/actions/academics";
+import { SUBJECTS, SUBJECT_LABELS } from "@/lib/academics-constants";
 import { cn } from "@/lib/utils";
 
 interface Props { studentId: string; isAdmin?: boolean; }

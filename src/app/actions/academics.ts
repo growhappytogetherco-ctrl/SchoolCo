@@ -3,34 +3,8 @@
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
 import { getActiveRole } from "@/lib/supabase/org-context";
 import { isAdminRole } from "@/lib/constants";
-
-// ── Subjects ────────────────────────────────────────────────────────────────
-
-export const SUBJECTS = [
-  "math", "reading", "writing", "ela", "science", "history",
-  "bible", "spanish", "leadership", "entrepreneurship",
-  "elective", "art", "music", "pe", "other",
-] as const;
-
-export type Subject = typeof SUBJECTS[number];
-
-export const SUBJECT_LABELS: Record<Subject, string> = {
-  math:            "Math",
-  reading:         "Reading",
-  writing:         "Writing",
-  ela:             "ELA",
-  science:         "Science",
-  history:         "History",
-  bible:           "Bible",
-  spanish:         "Spanish",
-  leadership:      "Leadership",
-  entrepreneurship:"Entrepreneurship",
-  elective:        "Elective",
-  art:             "Art",
-  music:           "Music",
-  pe:              "PE",
-  other:           "Other",
-};
+import { SUBJECTS } from "@/lib/academics-constants";
+export type { Subject } from "@/lib/academics-constants";
 
 export type CurriculumStatus =
   | "not_started" | "active" | "paused" | "completed" | "changed_curriculum" | "dropped";
