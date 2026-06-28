@@ -802,16 +802,16 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
   const [addingNew, setAddingNew]     = useState(false);
   const [newDraft, setNewDraft]       = useState<CurriculumPayload>(BLANK_PAYLOAD);
   const [error, setError]             = useState<string | null>(null);
-  const [fetchError, setFetchError]   = useState(false);
+  const [fetchError, setFetchError]   = useState<string | false>(false);
   const [isPending, startTransition]  = useTransition();
 
   useEffect(() => {
     setFetchError(false);
     getCurriculumEnrollments(studentId)
       .then(setEnrollments)
-      .catch(() => {
+      .catch((err: unknown) => {
         setEnrollments([]);
-        setFetchError(true);
+        setFetchError(err instanceof Error ? err.message : String(err));
       });
   }, [studentId]);
 
@@ -873,8 +873,8 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
       </div>
 
       {fetchError && (
-        <p className="rounded-xl bg-sc-gold-50 border border-sc-gold-200 px-4 py-3 text-label-sm text-sc-gold-700">
-          Could not load curriculum data. Please refresh to try again.
+        <p className="rounded-xl bg-sc-gold-50 border border-sc-gold-200 px-4 py-3 text-label-sm text-sc-gold-700 font-mono break-all">
+          Error: {fetchError}
         </p>
       )}
       {error && (
