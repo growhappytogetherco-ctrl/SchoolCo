@@ -759,7 +759,7 @@ function HistorySection({ studentId }: { studentId: string }) {
 
   function load() {
     setOpen(true);
-    if (!records) getCurriculumHistory(studentId).then(setRecords);
+    if (!records) getCurriculumHistory(studentId).then(setRecords).catch(() => setRecords([]));
   }
 
   return (
@@ -802,10 +802,17 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
   const [addingNew, setAddingNew]     = useState(false);
   const [newDraft, setNewDraft]       = useState<CurriculumPayload>(BLANK_PAYLOAD);
   const [error, setError]             = useState<string | null>(null);
+  const [fetchError, setFetchError]   = useState(false);
   const [isPending, startTransition]  = useTransition();
 
   useEffect(() => {
-    getCurriculumEnrollments(studentId).then(setEnrollments);
+    setFetchError(false);
+    getCurriculumEnrollments(studentId)
+      .then(setEnrollments)
+      .catch(() => {
+        setEnrollments([]);
+        setFetchError(true);
+      });
   }, [studentId]);
 
   function handleAdd() {
@@ -865,6 +872,11 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
         </button>
       </div>
 
+      {fetchError && (
+        <p className="rounded-xl bg-sc-gold-50 border border-sc-gold-200 px-4 py-3 text-label-sm text-sc-gold-700">
+          Could not load curriculum data. Please refresh to try again.
+        </p>
+      )}
       {error && (
         <p className="rounded-xl bg-sc-rose-50 border border-sc-rose-200 px-4 py-3 text-label-sm text-sc-rose-700">{error}</p>
       )}

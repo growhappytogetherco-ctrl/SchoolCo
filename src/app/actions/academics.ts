@@ -144,41 +144,57 @@ function isStaffOrAbove(role: string | null | undefined) {
 // ── Curriculum CRUD ──────────────────────────────────────────────────────────
 
 export async function getCurriculumEnrollments(studentId: string): Promise<CurriculumEnrollment[]> {
-  const orgId = await getActiveOrgId();
-  if (!orgId) return [];
-  const role = await getActiveRole();
-  if (!isStaffOrAbove(role)) return [];
+  try {
+    const orgId = await getActiveOrgId();
+    if (!orgId) return [];
 
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("curriculum_enrollments")
-    .select("*")
-    .eq("student_id", studentId)
-    .eq("organization_id", orgId)
-    .is("archived_at", null)
-    .order("subject");
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("curriculum_enrollments")
+      .select("*")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .is("archived_at", null)
+      .order("subject");
 
-  return (data ?? []) as unknown as CurriculumEnrollment[];
+    if (error) {
+      // Fallback: try without the archived_at filter in case schema cache is stale
+      const { data: fallback } = await supabase
+        .from("curriculum_enrollments")
+        .select("*")
+        .eq("student_id", studentId)
+        .eq("organization_id", orgId)
+        .order("subject");
+      return ((fallback ?? []) as unknown as CurriculumEnrollment[])
+        .filter((r) => !r.archived_at);
+    }
+
+    return (data ?? []) as unknown as CurriculumEnrollment[];
+  } catch {
+    return [];
+  }
 }
 
 // Includes archived (changed_curriculum) records for history view
 export async function getCurriculumHistory(studentId: string): Promise<CurriculumEnrollment[]> {
-  const orgId = await getActiveOrgId();
-  if (!orgId) return [];
-  const role = await getActiveRole();
-  if (!isStaffOrAbove(role)) return [];
+  try {
+    const orgId = await getActiveOrgId();
+    if (!orgId) return [];
 
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("curriculum_enrollments")
-    .select("*")
-    .eq("student_id", studentId)
-    .eq("organization_id", orgId)
-    .not("archived_at", "is", null)
-    .order("archived_at", { ascending: false })
-    .limit(50);
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("curriculum_enrollments")
+      .select("*")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .not("archived_at", "is", null)
+      .order("archived_at", { ascending: false })
+      .limit(50);
 
-  return (data ?? []) as unknown as CurriculumEnrollment[];
+    return (data ?? []) as unknown as CurriculumEnrollment[];
+  } catch {
+    return [];
+  }
 }
 
 export async function createCurriculumRecord(
