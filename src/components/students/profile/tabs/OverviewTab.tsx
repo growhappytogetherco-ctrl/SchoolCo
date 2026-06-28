@@ -10,6 +10,7 @@ import { getStudentOverviewData } from "@/app/actions/profileData";
 import { getStudentGoals, type Goal } from "@/app/actions/studentGoals";
 import { getSnapshotFlags, type SupportFlag } from "@/app/actions/supportFlags";
 import { getCurriculumEnrollments, getAssessments, type CurriculumEnrollment, type Assessment } from "@/app/actions/academics";
+import { getSSPSummary } from "@/app/actions/successPlanActions";
 import type { StudentProfileData } from "../types";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +64,7 @@ export function OverviewTab({ studentId, data }: Props) {
   const [snapshotFlags, setSnapshotFlags] = useState<SupportFlag[]>([]);
   const [curricula, setCurricula]       = useState<CurriculumEnrollment[]>([]);
   const [latestAssessment, setLatestAssessment] = useState<Assessment | null>(null);
+  const [sspSummary, setSSPSummary]     = useState<Awaited<ReturnType<typeof getSSPSummary>>>(null);
   const [loading, setLoading]           = useState(true);
 
   useEffect(() => {
@@ -72,12 +74,14 @@ export function OverviewTab({ studentId, data }: Props) {
       getSnapshotFlags(studentId),
       getCurriculumEnrollments(studentId),
       getAssessments(studentId),
-    ]).then(([overviewData, goalsData, flagsData, currData, assessData]) => {
+      getSSPSummary(studentId),
+    ]).then(([overviewData, goalsData, flagsData, currData, assessData, sspData]) => {
       setOverview(overviewData);
       setGoals(goalsData.filter((g) => g.status === "active"));
       setSnapshotFlags(flagsData);
       setCurricula(currData.filter((c) => c.status === "active"));
       setLatestAssessment(assessData[0] ?? null);
+      setSSPSummary(sspData);
       setLoading(false);
     });
   }, [studentId]);
@@ -122,6 +126,47 @@ export function OverviewTab({ studentId, data }: Props) {
               valueClass={latestAssessment?.performance_level ? PERF_CLR[latestAssessment.performance_level] : ""}
             />
           </div>
+        </div>
+      )}
+
+      {/* ── SSP Summary card ─────────────────────────────────── */}
+      {sspSummary && (sspSummary.activeGoalCount > 0 || sspSummary.highPriorityStrategies.length > 0 || sspSummary.learningStyles.length > 0) && (
+        <div className="rounded-2xl border border-sc-teal-200 bg-sc-teal-50 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="flex items-center gap-2 font-serif text-heading-3 text-sc-navy">
+              <ClipboardList className="size-4 text-sc-teal" /> Success Plan
+            </p>
+            <Link href={`/dashboard/students/${studentId}?tab=plan`}
+              className="text-label-sm text-sc-teal font-medium hover:text-sc-teal-700">
+              View plan →
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl bg-white border border-sc-teal-100 px-3 py-2.5 text-center">
+              <p className="text-display-2 font-serif font-bold text-sc-teal">{sspSummary.activeGoalCount}</p>
+              <p className="text-label-sm text-sc-gray mt-0.5">Active Goals</p>
+            </div>
+            <div className="rounded-xl bg-white border border-sc-teal-100 px-3 py-2.5 text-center">
+              <p className="text-display-2 font-serif font-bold text-sc-rose">{sspSummary.highPriorityStrategies.length}</p>
+              <p className="text-label-sm text-sc-gray mt-0.5">Priority Strategies</p>
+            </div>
+            <div className="rounded-xl bg-white border border-sc-teal-100 px-3 py-2.5">
+              <p className="text-label-sm text-sc-gray mb-1">Learning Styles</p>
+              <p className="text-label-sm text-sc-navy font-medium">
+                {sspSummary.learningStyles.length > 0
+                  ? sspSummary.learningStyles.map((s) =>
+                      ({ visual:"Visual", auditory:"Auditory", reading_writing:"Read/Write",
+                         hands_on:"Hands-On", independent:"Independent", collaborative:"Collaborative" })[s] ?? s
+                    ).join(", ")
+                  : "Not set"}
+              </p>
+            </div>
+          </div>
+          {sspSummary.lastReviewedAt && (
+            <p className="text-label-sm text-sc-gray mt-2">
+              Last reviewed {new Date(sspSummary.lastReviewedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            </p>
+          )}
         </div>
       )}
 

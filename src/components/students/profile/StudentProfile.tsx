@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, HeartPulse, CalendarCheck, StickyNote,
   AlertOctagon, FolderOpen, Award, Briefcase, Users,
-  ShieldAlert, Target, BookOpen, AlertTriangle,
+  ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudentProfileData, TabId } from "./types";
@@ -20,20 +20,21 @@ import { DocumentsTab }       from "./tabs/DocumentsTab";
 import { LeadershipTab }      from "./tabs/LeadershipTab";
 import { EntrepreneurshipTab } from "./tabs/EntrepreneurshipTab";
 import { FamilyTab }          from "./tabs/FamilyTab";
-import { GoalsTab }           from "./tabs/GoalsTab";
-import { SupportTab }         from "./tabs/SupportTab";
-import { AcademicsTab }       from "./tabs/AcademicsTab";
+import { GoalsTab }                 from "./tabs/GoalsTab";
+import { SupportTab }               from "./tabs/SupportTab";
+import { AcademicsTab }             from "./tabs/AcademicsTab";
+import { StudentSuccessPlanTab }    from "./tabs/StudentSuccessPlanTab";
 
 // ── Role visibility ────────────────────────────────────────────
 // Tabs hidden from volunteers — they can only see safety-relevant info.
 const VOLUNTEER_HIDDEN_TABS: TabId[] = [
   "notes", "incidents", "documents", "support", "academics",
-  "leadership", "entrepreneurship", "family",
+  "leadership", "entrepreneurship", "family", "plan",
 ];
 
 // Tabs hidden from parents (they use the portal, but just in case)
 const PARENT_HIDDEN_TABS: TabId[] = [
-  "notes", "support", "incidents", "documents",
+  "notes", "support", "incidents", "documents", "plan",
 ];
 
 function getHiddenTabs(role: string): TabId[] {
@@ -57,11 +58,12 @@ const ROW1_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
 ];
 
 const ROW2_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
-  { id: "incidents",        label: "Incidents",        Icon: AlertOctagon },
-  { id: "documents",        label: "Documents",        Icon: FolderOpen   },
-  { id: "leadership",       label: "Leadership",       Icon: Award        },
-  { id: "entrepreneurship", label: "Entrepreneurship", Icon: Briefcase    },
-  { id: "family",           label: "Family",           Icon: Users        },
+  { id: "plan",             label: "Success Plan",     Icon: ClipboardList },
+  { id: "incidents",        label: "Incidents",        Icon: AlertOctagon  },
+  { id: "documents",        label: "Documents",        Icon: FolderOpen    },
+  { id: "leadership",       label: "Leadership",       Icon: Award         },
+  { id: "entrepreneurship", label: "Entrepreneurship", Icon: Briefcase     },
+  { id: "family",           label: "Family",           Icon: Users         },
 ];
 
 const ALL_TABS = [...ROW1_TABS, ...ROW2_TABS];
@@ -272,6 +274,7 @@ export function StudentProfile({
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} />}
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} />}
+        {activeTab === "plan"             && <StudentSuccessPlanTab studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} />}
         {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} />}
         {activeTab === "leadership"       && <LeadershipTab       studentId={data.id} />}

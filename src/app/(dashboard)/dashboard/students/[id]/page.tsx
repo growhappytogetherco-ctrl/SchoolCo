@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient, getUser, getActiveOrgId, getActiveRole } from "@/lib/supabase/server";
 import { StudentProfile } from "@/components/students/profile/StudentProfile";
+import { getPinnedStrategies } from "@/app/actions/successPlanActions";
 
 export default async function StudentProfilePage({
   params,
@@ -79,6 +80,9 @@ export default async function StudentProfilePage({
     .or(`expires_at.is.null,expires_at.gte.${today}`)
     .order("priority", { ascending: false });
 
+  // Pinned SSP support strategies (high/critical) for safety banner
+  const pinnedStrategies = await getPinnedStrategies(params.id);
+
   // Custody warnings from guardians (supervised/none = alert; not authorized to pickup)
   const { data: custodyWarnings } = await supabase
     .from("guardianships")
@@ -135,13 +139,23 @@ export default async function StudentProfilePage({
     drive_folder_url: student.google_drive_folder_url as string | null,
   };
 
-  const alertBannerFlags = (criticalFlags ?? []).map((f) => ({
-    id: f.id as string,
-    title: f.title as string,
-    priority: f.priority as "high" | "critical",
-    category: f.category as string,
-    color: f.color as string,
-  }));
+  const alertBannerFlags = [
+    ...(criticalFlags ?? []).map((f) => ({
+      id: f.id as string,
+      title: f.title as string,
+      priority: f.priority as "high" | "critical",
+      category: f.category as string,
+      color: f.color as string,
+    })),
+    // Merge pinned SSP support strategies into the banner
+    ...pinnedStrategies.map((s) => ({
+      id: `ssp-${s.id}`,
+      title: s.title,
+      priority: s.priority as "high" | "critical",
+      category: "strategy",
+      color: s.priority === "critical" ? "rose" : "gold",
+    })),
+  ];
 
   const pickupAlerts = (custodyWarnings ?? []).map((g) => {
     const row = g as Record<string, unknown>;
