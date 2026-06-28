@@ -394,6 +394,25 @@ export async function getAcademicPlanSummary(studentId: string): Promise<Academi
   }));
 }
 
+// ── Dashboard Alerts (used by AlertsPanel on /dashboard/home) ────────────────
+
+export interface StudentAlert {
+  alert_type:   string;
+  student_id:   string;
+  student_name: string;
+  message:      string;
+  severity:     string;
+  action_url:   string;
+}
+
+export async function getDashboardAlerts(): Promise<StudentAlert[]> {
+  const orgId = await getActiveOrgId();
+  if (!orgId) return [];
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("get_student_alerts", { p_org_id: orgId } as never);
+  return (data ?? []) as StudentAlert[];
+}
+
 // ── Intervention Sessions ────────────────────────────────────────────────────
 
 export async function getInterventionSessions(

@@ -9,9 +9,8 @@ import Link from "next/link";
 import { getStudentOverviewData } from "@/app/actions/profileData";
 import { getStudentGoals, type Goal } from "@/app/actions/studentGoals";
 import { getSnapshotFlags, type SupportFlag } from "@/app/actions/supportFlags";
-import { getCurriculumEnrollments, getAssessments, type CurriculumEnrollment, type Assessment } from "@/app/actions/academics";
+import { getCurriculumEnrollments, getAssessments, getAcademicPlanSummary, getActiveInterventionSummary, type CurriculumEnrollment, type Assessment, type AcademicPlanEntry } from "@/app/actions/academics";
 import { getSSPSummary } from "@/app/actions/successPlanActions";
-import { getAcademicPlanSummary, getActiveInterventionSummary, type AcademicPlanEntry } from "@/app/actions/academics";
 import type { StudentProfileData } from "../types";
 import { cn } from "@/lib/utils";
 
