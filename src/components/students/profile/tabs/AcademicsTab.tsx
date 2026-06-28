@@ -1,712 +1,924 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { BookOpen, Plus, ChevronDown, ChevronUp, Pencil, Trash2, Loader2, AlertCircle, TrendingUp, ClipboardList } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
 import {
-  getCurriculumEnrollments, upsertCurriculum, getAcademicProgress, recordProgress,
-  getAssessments, createAssessment, deleteAssessment,
-  type CurriculumEnrollment, type AcademicProgressRecord, type Assessment, type Subject,
-  SUBJECTS,
+  BookOpen, Plus, Pencil, RefreshCw, Archive, ChevronDown, ChevronUp,
+  Users, Clock, AlertCircle, CheckCircle, PauseCircle, Circle,
+  ClipboardList, Loader2, CalendarDays, History, Stethoscope,
+} from "lucide-react";
+import {
+  getCurriculumEnrollments, getCurriculumHistory,
+  createCurriculumRecord, updateCurriculumRecord,
+  changeCurriculum, archiveCurriculumRecord,
+  getInterventionSessions, logInterventionSession, updateInterventionSession,
+  SUBJECTS, SUBJECT_LABELS,
+  type CurriculumEnrollment, type CurriculumPayload, type CurriculumStatus,
+  type InterventionSession, type InterventionSessionPayload,
+  type OOORequestedBy, type OOOPriority, type InterventionStatus,
 } from "@/app/actions/academics";
 import { cn } from "@/lib/utils";
 
-const SUBJECT_LABELS: Record<string, string> = {
-  math: "Math", ela: "ELA", science: "Science", history: "History", bible: "Bible",
-  spanish: "Spanish", elective: "Elective", leadership: "Leadership",
-  entrepreneurship: "Entrepreneurship", art: "Art", music: "Music", pe: "PE", other: "Other",
+interface Props { studentId: string; isAdmin?: boolean; }
+
+// ── Config ───────────────────────────────────────────────────────────────────
+
+const STATUS_CFG: Record<CurriculumStatus, { label: string; cls: string; Icon: React.ElementType }> = {
+  not_started:        { label: "Not Started",        cls: "bg-sc-gray-100 text-sc-gray-600 border-sc-gray-200",       Icon: Circle        },
+  active:             { label: "Active",             cls: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200",        Icon: CheckCircle   },
+  paused:             { label: "Paused",             cls: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200",        Icon: PauseCircle   },
+  completed:          { label: "Completed",          cls: "bg-sc-navy/10 text-sc-navy border-sc-navy/20",             Icon: CheckCircle   },
+  changed_curriculum: { label: "Changed",            cls: "bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200",        Icon: RefreshCw     },
+  dropped:            { label: "Dropped",            cls: "bg-sc-gray-100 text-sc-gray border-sc-gray-200",           Icon: Archive       },
 };
 
-const PERIOD_CFG = {
-  boy:        { label: "BOY",        cls: "bg-sc-teal-50   text-sc-teal"      },
-  moy:        { label: "MOY",        cls: "bg-sc-gold-100  text-sc-gold-700"  },
-  eoy:        { label: "EOY",        cls: "bg-sc-green/10  text-sc-green"     },
-  additional: { label: "Additional", cls: "bg-sc-gray-100  text-sc-gray"      },
+const OO1_INTERVENTION_CFG: Record<InterventionStatus, { label: string; dot: string }> = {
+  monitoring:    { label: "Monitoring",    dot: "bg-sc-gold" },
+  active:        { label: "Active 1:1",   dot: "bg-sc-rose" },
+  completed:     { label: "Completed",    dot: "bg-sc-teal" },
+  discontinued:  { label: "Discontinued", dot: "bg-sc-gray" },
 };
 
-const PERF_CFG: Record<string, { cls: string; label: string }> = {
-  advanced:    { cls: "bg-sc-green/10  text-sc-green",      label: "Advanced"    },
-  proficient:  { cls: "bg-sc-teal-50   text-sc-teal",       label: "Proficient"  },
-  approaching: { cls: "bg-sc-gold-100  text-sc-gold-700",   label: "Approaching" },
-  below:       { cls: "bg-sc-rose-50   text-sc-rose",       label: "Below"       },
-  far_below:   { cls: "bg-sc-rose-100  text-sc-rose-700",   label: "Far Below"   },
-};
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmtDate(iso: string | null) {
-  if (!iso) return "";
+function fmtDate(iso: string | null): string {
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function ProgressBar({ pct }: { pct: number }) {
-  const color = pct >= 80 ? "bg-sc-green" : pct >= 50 ? "bg-sc-teal" : "bg-sc-gold-400";
+const BLANK_PAYLOAD: CurriculumPayload = {
+  subject:                   "math",
+  curriculum_name:           "",
+  publisher:                 null,
+  current_level:             null,
+  current_unit:              null,
+  current_lesson:            null,
+  teacher_id:                null,
+  teacher_name:              null,
+  start_date:                null,
+  expected_completion:       null,
+  completion_pct:            0,
+  status:                    "active",
+  visibility:                "parent_visible",
+  notes:                     null,
+  linked_goal_id:            null,
+  one_on_one_needed:         false,
+  one_on_one_requested_by:   null,
+  one_on_one_reason:         null,
+  one_on_one_priority:       "medium",
+  one_on_one_date_identified:null,
+  intervention_status:       null,
+};
+
+const BLANK_SESSION: InterventionSessionPayload = {
+  curriculum_enrollment_id: "",
+  session_date:             new Date().toISOString().split("T")[0],
+  subject:                  "",
+  staff_id:                 null,
+  duration_minutes:         null,
+  focus_skill:              null,
+  lesson_unit_covered:      null,
+  student_response:         null,
+  progress_observed:        null,
+  next_steps:               null,
+  parent_followup_needed:   false,
+};
+
+// ── Curriculum Form ───────────────────────────────────────────────────────────
+
+function CurriculumForm({
+  payload, onChange, onSave, onCancel, saving, label,
+}: {
+  payload: CurriculumPayload;
+  onChange: (p: Partial<CurriculumPayload>) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+  label: string;
+}) {
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 rounded-full bg-sc-gray-100">
-        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+        {/* Subject */}
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Subject *</label>
+          <select value={payload.subject}
+            onChange={(e) => onChange({ subject: e.target.value as typeof SUBJECTS[number] })}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal">
+            {SUBJECTS.map((s) => <option key={s} value={s}>{SUBJECT_LABELS[s]}</option>)}
+          </select>
+        </div>
+
+        {/* Status */}
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Status</label>
+          <select value={payload.status}
+            onChange={(e) => onChange({ status: e.target.value as CurriculumStatus })}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal">
+            <option value="not_started">Not Started</option>
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="completed">Completed</option>
+          </select>
+        </div>
+
+        {/* Curriculum name */}
+        <div className="sm:col-span-2">
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Curriculum Name *</label>
+          <input value={payload.curriculum_name}
+            onChange={(e) => onChange({ curriculum_name: e.target.value })}
+            placeholder="e.g. Saxon Math, Lexia Core5, Mystery of History"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+
+        {/* Publisher */}
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Publisher</label>
+          <input value={payload.publisher ?? ""}
+            onChange={(e) => onChange({ publisher: e.target.value || null })}
+            placeholder="e.g. Saxon Publishers"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+
+        {/* Level/Book */}
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Level / Book</label>
+          <input value={payload.current_level ?? ""}
+            onChange={(e) => onChange({ current_level: e.target.value || null })}
+            placeholder="e.g. Level 5/4, Book 3, Grade 2"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+
+        {/* Unit */}
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Unit</label>
+          <input value={payload.current_unit ?? ""}
+            onChange={(e) => onChange({ current_unit: e.target.value || null })}
+            placeholder="e.g. Unit 3, Chapter 4"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+
+        {/* Lesson */}
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Lesson</label>
+          <input value={payload.current_lesson ?? ""}
+            onChange={(e) => onChange({ current_lesson: e.target.value || null })}
+            placeholder="e.g. Lesson 38, Section 2.4"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+
+        {/* Start date */}
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Start Date</label>
+          <input type="date" value={payload.start_date ?? ""}
+            onChange={(e) => onChange({ start_date: e.target.value || null })}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+
+        {/* Expected completion */}
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Expected Completion</label>
+          <input type="date" value={payload.expected_completion ?? ""}
+            onChange={(e) => onChange({ expected_completion: e.target.value || null })}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+
+        {/* Completion % */}
+        <div className="sm:col-span-2">
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">
+            Completion ({payload.completion_pct}%)
+          </label>
+          <input type="range" min={0} max={100} step={5}
+            value={payload.completion_pct}
+            onChange={(e) => onChange({ completion_pct: Number(e.target.value) })}
+            className="w-full accent-sc-teal" />
+        </div>
+
+        {/* Assigned staff */}
+        <div className="sm:col-span-2">
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Assigned Teacher / Staff</label>
+          <input value={payload.teacher_name ?? ""}
+            onChange={(e) => onChange({ teacher_name: e.target.value || null })}
+            placeholder="Staff name"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+
+        {/* Notes */}
+        <div className="sm:col-span-2">
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Notes</label>
+          <textarea value={payload.notes ?? ""}
+            onChange={(e) => onChange({ notes: e.target.value || null })}
+            placeholder="Additional notes or context"
+            rows={2}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal resize-none" />
+        </div>
       </div>
-      <span className="text-label-sm text-sc-gray w-8 text-right">{pct}%</span>
+
+      {/* ── 1:1 Support Section ── */}
+      <div className="rounded-xl border border-sc-rose-200 bg-sc-rose-50/40 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Stethoscope className="size-4 text-sc-rose" />
+          <p className="font-semibold text-label-md text-sc-navy">1:1 Academic Support</p>
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={payload.one_on_one_needed}
+            onChange={(e) => onChange({ one_on_one_needed: e.target.checked })}
+            className="rounded accent-sc-rose" />
+          <span className="text-label-sm text-sc-navy font-semibold">1:1 Support Needed</span>
+        </label>
+
+        {payload.one_on_one_needed && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="text-label-sm font-semibold text-sc-navy block mb-1">Requested By</label>
+              <select value={payload.one_on_one_requested_by ?? ""}
+                onChange={(e) => onChange({ one_on_one_requested_by: (e.target.value || null) as OOORequestedBy | null })}
+                className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md bg-white focus:outline-none focus:ring-2 focus:ring-sc-rose">
+                <option value="">— Select —</option>
+                <option value="parent">Parent</option>
+                <option value="teacher">Teacher</option>
+                <option value="assessment">Assessment</option>
+                <option value="student_success_plan">Student Success Plan</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-label-sm font-semibold text-sc-navy block mb-1">Priority</label>
+              <select value={payload.one_on_one_priority}
+                onChange={(e) => onChange({ one_on_one_priority: e.target.value as OOOPriority })}
+                className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md bg-white focus:outline-none focus:ring-2 focus:ring-sc-rose">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-label-sm font-semibold text-sc-navy block mb-1">Intervention Status</label>
+              <select value={payload.intervention_status ?? ""}
+                onChange={(e) => onChange({ intervention_status: (e.target.value || null) as InterventionStatus | null })}
+                className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md bg-white focus:outline-none focus:ring-2 focus:ring-sc-rose">
+                <option value="">— Select —</option>
+                <option value="monitoring">Monitoring</option>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+                <option value="discontinued">Discontinued</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-label-sm font-semibold text-sc-navy block mb-1">Date Identified</label>
+              <input type="date" value={payload.one_on_one_date_identified ?? ""}
+                onChange={(e) => onChange({ one_on_one_date_identified: e.target.value || null })}
+                className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-rose" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-label-sm font-semibold text-sc-navy block mb-1">Reason for 1:1 Support</label>
+              <textarea value={payload.one_on_one_reason ?? ""}
+                onChange={(e) => onChange({ one_on_one_reason: e.target.value || null })}
+                placeholder="Describe why 1:1 support is needed"
+                rows={2}
+                className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-rose resize-none" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel}
+          className="rounded-lg border border-sc-gray-200 px-4 py-2 text-label-sm text-sc-gray hover:bg-sc-gray-50">
+          Cancel
+        </button>
+        <button onClick={onSave} disabled={saving || !payload.curriculum_name.trim()}
+          className="rounded-lg bg-sc-teal px-4 py-2 text-label-sm text-white hover:bg-sc-teal-700 disabled:opacity-60">
+          {saving ? "Saving…" : label}
+        </button>
+      </div>
     </div>
   );
 }
 
-type Section = "curriculum" | "progress" | "assessments";
+// ── Session Form ──────────────────────────────────────────────────────────────
 
-export function AcademicsTab({ studentId }: { studentId: string }) {
-  const [section, setSection] = useState<Section>("curriculum");
-  const [curricula, setCurricula]     = useState<CurriculumEnrollment[]>([]);
-  const [progress, setProgress]       = useState<AcademicProgressRecord[]>([]);
-  const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [loaded, setLoaded]           = useState<Set<Section>>(new Set());
+function SessionForm({
+  payload, onChange, onSave, onCancel, saving, label,
+}: {
+  payload: InterventionSessionPayload;
+  onChange: (p: Partial<InterventionSessionPayload>) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+  label: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Session Date *</label>
+          <input type="date" value={payload.session_date}
+            onChange={(e) => onChange({ session_date: e.target.value })}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Duration (minutes)</label>
+          <input type="number" min={5} max={240} value={payload.duration_minutes ?? ""}
+            onChange={(e) => onChange({ duration_minutes: e.target.value ? Number(e.target.value) : null })}
+            placeholder="e.g. 30"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Focus Skill</label>
+          <input value={payload.focus_skill ?? ""}
+            onChange={(e) => onChange({ focus_skill: e.target.value || null })}
+            placeholder="e.g. Regrouping subtraction"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+        <div>
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Lesson / Unit Covered</label>
+          <input value={payload.lesson_unit_covered ?? ""}
+            onChange={(e) => onChange({ lesson_unit_covered: e.target.value || null })}
+            placeholder="e.g. Lesson 38, Chapter 3"
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Student Response</label>
+          <textarea value={payload.student_response ?? ""}
+            onChange={(e) => onChange({ student_response: e.target.value || null })}
+            placeholder="How did the student respond to the instruction?"
+            rows={2}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal resize-none" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Progress Observed</label>
+          <textarea value={payload.progress_observed ?? ""}
+            onChange={(e) => onChange({ progress_observed: e.target.value || null })}
+            placeholder="What progress or growth was observed?"
+            rows={2}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal resize-none" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Next Steps</label>
+          <textarea value={payload.next_steps ?? ""}
+            onChange={(e) => onChange({ next_steps: e.target.value || null })}
+            placeholder="What should the next session focus on?"
+            rows={2}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal resize-none" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={payload.parent_followup_needed}
+              onChange={(e) => onChange({ parent_followup_needed: e.target.checked })}
+              className="rounded accent-sc-teal" />
+            <span className="text-label-sm text-sc-navy font-semibold">Parent follow-up needed</span>
+          </label>
+        </div>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel}
+          className="rounded-lg border border-sc-gray-200 px-4 py-2 text-label-sm text-sc-gray hover:bg-sc-gray-50">
+          Cancel
+        </button>
+        <button onClick={onSave} disabled={saving || !payload.session_date}
+          className="rounded-lg bg-sc-rose px-4 py-2 text-label-sm text-white hover:bg-sc-rose-700 disabled:opacity-60">
+          {saving ? "Saving…" : label}
+        </button>
+      </div>
+    </div>
+  );
+}
 
-  // Curriculum form
-  const [showCurrForm, setShowCurrForm] = useState(false);
-  const [editingCurr, setEditingCurr]   = useState<CurriculumEnrollment | null>(null);
-  const [currForm, setCurrForm] = useState<{
-    subject: Subject; curriculum_name: string; publisher: string;
-    current_level: string; current_unit: string; current_lesson: string;
-    teacher_name: string; start_date: string; expected_completion: string;
-    completion_pct: number; status: "active" | "completed" | "paused" | "dropped";
-  }>({
-    subject: "math", curriculum_name: "", publisher: "",
-    current_level: "", current_unit: "", current_lesson: "",
-    teacher_name: "", start_date: "", expected_completion: "",
-    completion_pct: 0, status: "active",
+// ── Intervention History Panel ─────────────────────────────────────────────────
+
+function InterventionPanel({ enrollment, studentId, isAdmin }: {
+  enrollment: CurriculumEnrollment; studentId: string; isAdmin: boolean;
+}) {
+  const [sessions, setSessions]     = useState<InterventionSession[] | null>(null);
+  const [addingSession, setAdding]  = useState(false);
+  const [sessionDraft, setDraft]    = useState<InterventionSessionPayload>({
+    ...BLANK_SESSION,
+    curriculum_enrollment_id: enrollment.id,
+    subject: enrollment.subject,
   });
-
-  // Progress form
-  const [showProgForm, setShowProgForm] = useState(false);
-  const [progForm, setProgForm] = useState({
-    subject: "math", curriculum_name: "", level: "", lesson: "",
-    mastery_pct: "", notes: "", recorded_date: new Date().toISOString().split("T")[0],
-    curriculum_enrollment_id: "",
-  });
-
-  // Assessment form
-  const [showAssessForm, setShowAssessForm] = useState(false);
-  const [assessForm, setAssessForm] = useState<{
-    subject: string; assessment_name: string;
-    assessment_period: "boy" | "moy" | "eoy" | "additional";
-    assessment_date: string; score_raw: string; score_max: string;
-    grade_equivalent: string; performance_level: string;
-    teacher_comments: string; visibility: string;
-  }>({
-    subject: "", assessment_name: "", assessment_period: "boy",
-    assessment_date: new Date().toISOString().split("T")[0],
-    score_raw: "", score_max: "", grade_equivalent: "",
-    performance_level: "", teacher_comments: "", visibility: "internal",
-  });
-
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [expandedProg, setExpandedProg] = useState<string | null>(null);
+  const [error, setError]           = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    async function loadSection() {
-      if (loaded.has(section)) return;
-      setLoading(true);
-      if (section === "curriculum") {
-        const data = await getCurriculumEnrollments(studentId);
-        setCurricula(data);
-      } else if (section === "progress") {
-        const data = await getAcademicProgress(studentId);
-        setProgress(data);
-      } else {
-        const data = await getAssessments(studentId);
-        setAssessments(data);
-      }
-      setLoaded((prev) => new Set(prev).add(section));
-      setLoading(false);
-    }
-    loadSection();
-  }, [section, studentId, loaded]);
+    getInterventionSessions(enrollment.id).then(setSessions);
+  }, [enrollment.id]);
 
-  // ── Curriculum CRUD ───────────────────────────────────────────
-
-  function openNewCurr() {
-    setEditingCurr(null);
-    setCurrForm({
-      subject: "math", curriculum_name: "", publisher: "",
-      current_level: "", current_unit: "", current_lesson: "",
-      teacher_name: "", start_date: "", expected_completion: "", completion_pct: 0, status: "active",
+  function handleAdd() {
+    startTransition(async () => {
+      const r = await logInterventionSession(studentId, sessionDraft);
+      if (!r.success) { setError(r.error); return; }
+      const fresh = await getInterventionSessions(enrollment.id);
+      setSessions(fresh);
+      setDraft({ ...BLANK_SESSION, curriculum_enrollment_id: enrollment.id, subject: enrollment.subject });
+      setAdding(false);
+      setError(null);
     });
-    setShowCurrForm(true);
-    setError(null);
   }
 
-  function openEditCurr(c: CurriculumEnrollment) {
-    setEditingCurr(c);
-    setCurrForm({
-      subject:            c.subject,
-      curriculum_name:    c.curriculum_name,
-      publisher:          c.publisher ?? "",
-      current_level:      c.current_level ?? "",
-      current_unit:       c.current_unit ?? "",
-      current_lesson:     c.current_lesson ?? "",
-      teacher_name:       c.teacher_name ?? "",
-      start_date:         c.start_date ?? "",
-      expected_completion:c.expected_completion ?? "",
-      completion_pct:     c.completion_pct,
-      status:             c.status,
-    });
-    setShowCurrForm(true);
-    setError(null);
+  if (sessions === null) {
+    return <p className="text-label-sm text-sc-gray animate-pulse">Loading sessions…</p>;
   }
-
-  async function saveCurr() {
-    if (!currForm.curriculum_name.trim()) { setError("Curriculum name required"); return; }
-    setSaving(true);
-    setError(null);
-    const res = await upsertCurriculum(studentId, {
-      id: editingCurr?.id,
-      ...currForm,
-      publisher:          currForm.publisher || null,
-      current_level:      currForm.current_level || null,
-      current_unit:       currForm.current_unit || null,
-      current_lesson:     currForm.current_lesson || null,
-      teacher_name:       currForm.teacher_name || null,
-      start_date:         currForm.start_date || null,
-      expected_completion:currForm.expected_completion || null,
-    });
-    if (!res.success) { setError(res.error); setSaving(false); return; }
-    const updated = await getCurriculumEnrollments(studentId);
-    setCurricula(updated);
-    setShowCurrForm(false);
-    setSaving(false);
-  }
-
-  // ── Progress CRUD ─────────────────────────────────────────────
-
-  async function saveProgress() {
-    setSaving(true);
-    setError(null);
-    const res = await recordProgress(studentId, {
-      subject:                  progForm.subject,
-      curriculum_enrollment_id: progForm.curriculum_enrollment_id || null,
-      curriculum_name:          progForm.curriculum_name || null,
-      level:                    progForm.level || null,
-      lesson:                   progForm.lesson || null,
-      mastery_pct:              progForm.mastery_pct ? parseInt(progForm.mastery_pct) : null,
-      notes:                    progForm.notes || null,
-      recorded_date:            progForm.recorded_date,
-    });
-    if (!res.success) { setError(res.error); setSaving(false); return; }
-    const updated = await getAcademicProgress(studentId);
-    setProgress(updated);
-    setShowProgForm(false);
-    setSaving(false);
-  }
-
-  // ── Assessment CRUD ───────────────────────────────────────────
-
-  async function saveAssessment() {
-    if (!assessForm.subject || !assessForm.assessment_name) { setError("Subject and name required"); return; }
-    setSaving(true);
-    setError(null);
-    const res = await createAssessment(studentId, {
-      ...assessForm,
-      score_raw:       assessForm.score_raw       ? parseFloat(assessForm.score_raw) : null,
-      score_max:       assessForm.score_max       ? parseFloat(assessForm.score_max) : null,
-      grade_equivalent:assessForm.grade_equivalent || null,
-      performance_level:assessForm.performance_level || null,
-      teacher_comments: assessForm.teacher_comments || null,
-    });
-    if (!res.success) { setError(res.error); setSaving(false); return; }
-    const updated = await getAssessments(studentId);
-    setAssessments(updated);
-    setShowAssessForm(false);
-    setSaving(false);
-  }
-
-  async function handleDeleteAssessment(id: string) {
-    const res = await deleteAssessment(id, studentId);
-    if (res.success) setAssessments((prev) => prev.filter((a) => a.id !== id));
-  }
-
-  // Group progress by subject
-  const progressBySubject: Record<string, AcademicProgressRecord[]> = {};
-  progress.forEach((p) => {
-    if (!progressBySubject[p.subject]) progressBySubject[p.subject] = [];
-    progressBySubject[p.subject].push(p);
-  });
-
-  const activeCurricula  = curricula.filter((c) => c.status === "active");
-  const inactiveCurricula = curricula.filter((c) => c.status !== "active");
 
   return (
-    <div className="space-y-5 max-w-3xl">
-      {/* Section tabs */}
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="flex gap-1 rounded-xl border border-sc-gray-200 p-1 bg-white">
-          {([
-            { id: "curriculum",  label: "Curriculum",       Icon: BookOpen       },
-            { id: "progress",    label: "Progress History",  Icon: TrendingUp     },
-            { id: "assessments", label: "Assessments",       Icon: ClipboardList  },
-          ] as const).map((tab) => (
-            <button key={tab.id} onClick={() => setSection(tab.id)}
-              className={cn("flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-label-sm font-medium transition-colors",
-                section === tab.id ? "bg-sc-navy text-white" : "text-sc-gray hover:text-sc-navy"
-              )}>
-              <tab.Icon className="size-3.5" />
-              {tab.label}
+        <p className="font-semibold text-label-md text-sc-navy">
+          Intervention Sessions ({sessions.length})
+        </p>
+        <button onClick={() => setAdding(true)}
+          className="flex items-center gap-1 rounded-lg bg-sc-rose px-3 py-1.5 text-label-sm text-white hover:bg-sc-rose-700 transition-colors">
+          <Plus className="size-3.5" /> Log Session
+        </button>
+      </div>
+
+      {error && (
+        <p className="text-label-sm text-sc-rose-700 bg-sc-rose-50 border border-sc-rose-200 rounded-lg px-3 py-2">{error}</p>
+      )}
+
+      {addingSession && (
+        <div className="rounded-xl border border-sc-rose-200 bg-white p-4">
+          <SessionForm
+            payload={sessionDraft}
+            onChange={(p) => setDraft((d) => ({ ...d, ...p }))}
+            onSave={handleAdd}
+            onCancel={() => setAdding(false)}
+            saving={isPending}
+            label="Log Session"
+          />
+        </div>
+      )}
+
+      {sessions.length === 0 && !addingSession && (
+        <p className="text-label-sm text-sc-gray italic">No sessions logged yet.</p>
+      )}
+
+      <div className="space-y-3">
+        {sessions.map((s) => (
+          <div key={s.id} className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 p-3 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-label-sm text-sc-navy">{fmtDate(s.session_date)}</p>
+              <div className="flex gap-2 text-label-sm text-sc-gray">
+                {s.duration_minutes && <span className="flex items-center gap-1"><Clock className="size-3" />{s.duration_minutes} min</span>}
+                {s.parent_followup_needed && <span className="text-sc-gold-700 font-medium">Parent follow-up</span>}
+              </div>
+            </div>
+            {s.focus_skill && <p className="text-label-sm text-sc-navy"><span className="font-medium">Focus:</span> {s.focus_skill}</p>}
+            {s.lesson_unit_covered && <p className="text-label-sm text-sc-gray">Covered: {s.lesson_unit_covered}</p>}
+            {s.student_response && <p className="text-body-md text-sc-navy">{s.student_response}</p>}
+            {s.progress_observed && (
+              <p className="text-label-sm text-sc-teal-700 bg-sc-teal-50 rounded-lg px-2 py-1">
+                <span className="font-medium">Progress:</span> {s.progress_observed}
+              </p>
+            )}
+            {s.next_steps && <p className="text-label-sm text-sc-gray italic">Next: {s.next_steps}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Curriculum Card ───────────────────────────────────────────────────────────
+
+function CurriculumCard({
+  enrollment, studentId, isAdmin, onUpdated, onChanged, onArchived,
+}: {
+  enrollment:  CurriculumEnrollment;
+  studentId:   string;
+  isAdmin:     boolean;
+  onUpdated:   (e: CurriculumEnrollment) => void;
+  onChanged:   (oldId: string, newEnrollment: CurriculumEnrollment) => void;
+  onArchived:  (id: string) => void;
+}) {
+  const [expanded, setExpanded]      = useState(false);
+  const [mode, setMode]              = useState<"view" | "edit" | "change" | "intervention">("view");
+  const [editDraft, setEditDraft]    = useState<CurriculumPayload>(BLANK_PAYLOAD);
+  const [changeDraft, setChangeDraft]= useState<CurriculumPayload>(BLANK_PAYLOAD);
+  const [error, setError]            = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const { cls: statusCls, label: statusLabel, Icon: StatusIcon } = STATUS_CFG[enrollment.status];
+  const subjectLabel = SUBJECT_LABELS[enrollment.subject] ?? enrollment.subject;
+
+  function startEdit() {
+    setEditDraft({
+      subject:                    enrollment.subject,
+      curriculum_name:            enrollment.curriculum_name,
+      publisher:                  enrollment.publisher,
+      current_level:              enrollment.current_level,
+      current_unit:               enrollment.current_unit,
+      current_lesson:             enrollment.current_lesson,
+      teacher_id:                 enrollment.teacher_id,
+      teacher_name:               enrollment.teacher_name,
+      start_date:                 enrollment.start_date,
+      expected_completion:        enrollment.expected_completion,
+      completion_pct:             enrollment.completion_pct,
+      status:                     enrollment.status,
+      visibility:                 enrollment.visibility,
+      notes:                      enrollment.notes,
+      linked_goal_id:             enrollment.linked_goal_id,
+      one_on_one_needed:          enrollment.one_on_one_needed,
+      one_on_one_requested_by:    enrollment.one_on_one_requested_by,
+      one_on_one_reason:          enrollment.one_on_one_reason,
+      one_on_one_priority:        enrollment.one_on_one_priority,
+      one_on_one_date_identified: enrollment.one_on_one_date_identified,
+      intervention_status:        enrollment.intervention_status,
+    });
+    setMode("edit");
+    setExpanded(true);
+    setError(null);
+  }
+
+  function startChange() {
+    setChangeDraft({
+      ...BLANK_PAYLOAD,
+      subject: enrollment.subject,
+    });
+    setMode("change");
+    setExpanded(true);
+    setError(null);
+  }
+
+  function saveEdit() {
+    startTransition(async () => {
+      const r = await updateCurriculumRecord(enrollment.id, studentId, editDraft);
+      if (!r.success) { setError(r.error); return; }
+      onUpdated({ ...enrollment, ...editDraft, updated_at: new Date().toISOString() });
+      setMode("view");
+    });
+  }
+
+  function saveChange() {
+    startTransition(async () => {
+      const r = await changeCurriculum(enrollment.id, studentId, changeDraft);
+      if (!r.success) { setError(r.error); return; }
+      const now = new Date().toISOString();
+      onChanged(enrollment.id, {
+        ...changeDraft,
+        id: r.newId,
+        student_id:   studentId,
+        archived_at:  null,
+        created_at:   now,
+        updated_at:   now,
+      });
+      setMode("view");
+    });
+  }
+
+  function doArchive() {
+    if (!confirm(`Archive this ${subjectLabel} record? It will be moved to history.`)) return;
+    startTransition(async () => {
+      await archiveCurriculumRecord(enrollment.id, studentId);
+      onArchived(enrollment.id);
+    });
+  }
+
+  const hasOo1 = enrollment.one_on_one_needed && enrollment.intervention_status;
+  const oo1cfg = hasOo1 ? OO1_INTERVENTION_CFG[enrollment.intervention_status!] : null;
+
+  return (
+    <div className={cn("rounded-2xl border bg-white overflow-hidden shadow-card",
+      enrollment.one_on_one_needed && enrollment.intervention_status === "active"
+        ? "border-sc-rose-300" : "border-sc-gray-100"
+    )}>
+      {/* Card header */}
+      <div className="px-5 py-4 flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-serif text-heading-3 text-sc-navy">{subjectLabel}</span>
+            <span className={cn("rounded-full border px-2.5 py-0.5 text-label-sm font-medium flex items-center gap-1", statusCls)}>
+              <StatusIcon className="size-3" />
+              {statusLabel}
+            </span>
+            {hasOo1 && oo1cfg && (
+              <span className="flex items-center gap-1.5 rounded-full bg-sc-rose-50 border border-sc-rose-200 px-2.5 py-0.5 text-label-sm text-sc-rose-700 font-medium">
+                <span className={cn("size-1.5 rounded-full", oo1cfg.dot)} />
+                {oo1cfg.label}
+              </span>
+            )}
+          </div>
+          <p className="text-body-md text-sc-navy mt-0.5">
+            <span className="font-medium">{enrollment.curriculum_name}</span>
+            {enrollment.current_level && <span className="text-sc-gray"> · {enrollment.current_level}</span>}
+          </p>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-label-sm text-sc-gray">
+            {enrollment.current_unit  && <span>Unit: {enrollment.current_unit}</span>}
+            {enrollment.current_lesson && <span>Lesson: {enrollment.current_lesson}</span>}
+            {enrollment.teacher_name   && <span className="flex items-center gap-1"><Users className="size-3" />{enrollment.teacher_name}</span>}
+          </div>
+
+          {/* Completion bar */}
+          {enrollment.completion_pct > 0 && (
+            <div className="mt-2 flex items-center gap-2">
+              <div className="flex-1 h-1.5 rounded-full bg-sc-gray-100 overflow-hidden">
+                <div className="h-full rounded-full bg-sc-teal transition-all"
+                  style={{ width: `${enrollment.completion_pct}%` }} />
+              </div>
+              <span className="text-label-sm text-sc-gray shrink-0">{enrollment.completion_pct}%</span>
+            </div>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex gap-1 shrink-0">
+          <button onClick={startEdit}
+            className="rounded-lg border border-sc-gray-200 p-1.5 text-sc-gray hover:bg-sc-teal-50 hover:text-sc-teal transition-colors"
+            title="Edit">
+            <Pencil className="size-3.5" />
+          </button>
+          <button onClick={startChange}
+            className="rounded-lg border border-sc-gray-200 p-1.5 text-sc-gray hover:bg-sc-gold-50 hover:text-sc-gold-700 transition-colors"
+            title="Change curriculum">
+            <RefreshCw className="size-3.5" />
+          </button>
+          {isAdmin && (
+            <button onClick={doArchive} disabled={isPending}
+              className="rounded-lg border border-sc-gray-200 p-1.5 text-sc-gray hover:bg-sc-rose-50 hover:text-sc-rose transition-colors"
+              title="Archive">
+              <Archive className="size-3.5" />
             </button>
-          ))}
+          )}
+          {enrollment.one_on_one_needed && (
+            <button onClick={() => { setMode(mode === "intervention" ? "view" : "intervention"); setExpanded(true); }}
+              className={cn("rounded-lg border p-1.5 transition-colors",
+                mode === "intervention"
+                  ? "border-sc-rose bg-sc-rose-50 text-sc-rose"
+                  : "border-sc-gray-200 text-sc-gray hover:bg-sc-rose-50 hover:text-sc-rose"
+              )}
+              title="Intervention sessions">
+              <Stethoscope className="size-3.5" />
+            </button>
+          )}
+          <button onClick={() => setExpanded((v) => !v)}
+            className="rounded-lg border border-sc-gray-200 p-1.5 text-sc-gray hover:bg-sc-gray-50">
+            {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+          </button>
         </div>
       </div>
 
-      {loading ? (
-        <div className="space-y-3">
-          {[1,2,3].map((i) => <div key={i} className="h-24 rounded-2xl border border-sc-gray-100 bg-white animate-pulse" />)}
-        </div>
-      ) : (
-        <>
-          {/* ── CURRICULUM ── */}
-          {section === "curriculum" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-heading-sm text-sc-navy font-semibold">Curriculum Enrollments</h3>
-                <button onClick={openNewCurr}
-                  className="flex items-center gap-2 rounded-xl bg-sc-teal px-4 py-2 text-label-sm text-white font-medium hover:bg-sc-teal-700 transition-colors">
-                  <Plus className="size-4" /> Add Curriculum
-                </button>
-              </div>
+      {/* Expanded content */}
+      {expanded && (
+        <div className="border-t border-sc-gray-100 px-5 py-4 bg-sc-gray-50/50 space-y-4">
+          {error && (
+            <p className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">{error}</p>
+          )}
 
-              {showCurrForm && (
-                <div className="rounded-2xl border border-sc-teal-200 bg-sc-teal-50 p-5 space-y-4">
-                  <h4 className="text-label-md font-semibold text-sc-navy">{editingCurr ? "Edit Curriculum" : "New Curriculum"}</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Subject</label>
-                      <select value={currForm.subject} onChange={(e) => setCurrForm((f) => ({ ...f, subject: e.target.value as Subject }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none">
-                        {SUBJECTS.map((s) => <option key={s} value={s}>{SUBJECT_LABELS[s] ?? s}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Curriculum Name *</label>
-                      <input value={currForm.curriculum_name} onChange={(e) => setCurrForm((f) => ({ ...f, curriculum_name: e.target.value }))}
-                        placeholder="e.g. Saxon Math"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Publisher</label>
-                      <input value={currForm.publisher} onChange={(e) => setCurrForm((f) => ({ ...f, publisher: e.target.value }))}
-                        placeholder="e.g. Saxon Publishers"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Level</label>
-                      <input value={currForm.current_level} onChange={(e) => setCurrForm((f) => ({ ...f, current_level: e.target.value }))}
-                        placeholder="e.g. 5/4"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Current Lesson</label>
-                      <input value={currForm.current_lesson} onChange={(e) => setCurrForm((f) => ({ ...f, current_lesson: e.target.value }))}
-                        placeholder="e.g. Lesson 38"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Teacher</label>
-                      <input value={currForm.teacher_name} onChange={(e) => setCurrForm((f) => ({ ...f, teacher_name: e.target.value }))}
-                        placeholder="Teacher name"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Start Date</label>
-                      <input type="date" value={currForm.start_date} onChange={(e) => setCurrForm((f) => ({ ...f, start_date: e.target.value }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Expected Completion</label>
-                      <input type="date" value={currForm.expected_completion} onChange={(e) => setCurrForm((f) => ({ ...f, expected_completion: e.target.value }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-label-sm font-medium text-sc-gray mb-1 block">Completion: {currForm.completion_pct}%</label>
-                    <input type="range" min={0} max={100} step={5} value={currForm.completion_pct}
-                      onChange={(e) => setCurrForm((f) => ({ ...f, completion_pct: parseInt(e.target.value) }))}
-                      className="w-full accent-sc-teal" />
-                  </div>
-                  <div>
-                    <label className="text-label-sm font-medium text-sc-gray mb-1 block">Status</label>
-                    <select value={currForm.status} onChange={(e) => setCurrForm((f) => ({ ...f, status: e.target.value as "active" | "completed" | "paused" | "dropped" }))}
-                      className="rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none">
-                      <option value="active">Active</option>
-                      <option value="completed">Completed</option>
-                      <option value="paused">Paused</option>
-                      <option value="dropped">Dropped</option>
-                    </select>
-                  </div>
-                  {error && <p className="flex items-center gap-1.5 text-label-sm text-sc-rose"><AlertCircle className="size-4" />{error}</p>}
-                  <div className="flex gap-2">
-                    <button onClick={saveCurr} disabled={saving}
-                      className="flex items-center gap-2 rounded-xl bg-sc-navy px-5 py-2 text-label-sm text-white font-medium disabled:opacity-50">
-                      {saving && <Loader2 className="size-4 animate-spin" />}{editingCurr ? "Save" : "Add"}
-                    </button>
-                    <button onClick={() => setShowCurrForm(false)} className="text-label-sm text-sc-gray px-3 py-2">Cancel</button>
-                  </div>
+          {/* Edit mode */}
+          {mode === "edit" && (
+            <>
+              <p className="text-label-sm font-semibold text-sc-navy uppercase tracking-wide">Edit Curriculum</p>
+              <CurriculumForm
+                payload={editDraft}
+                onChange={(p) => setEditDraft((d) => ({ ...d, ...p }))}
+                onSave={saveEdit}
+                onCancel={() => setMode("view")}
+                saving={isPending}
+                label="Save Changes"
+              />
+            </>
+          )}
+
+          {/* Change mode */}
+          {mode === "change" && (
+            <>
+              <div className="rounded-lg bg-sc-gold-50 border border-sc-gold-200 px-3 py-2 text-label-sm text-sc-gold-700">
+                <span className="font-semibold">Changing Curriculum:</span> The current record will be archived as "Changed Curriculum" and a new record will be created. History is preserved.
+              </div>
+              <CurriculumForm
+                payload={changeDraft}
+                onChange={(p) => setChangeDraft((d) => ({ ...d, ...p }))}
+                onSave={saveChange}
+                onCancel={() => setMode("view")}
+                saving={isPending}
+                label="Switch Curriculum"
+              />
+            </>
+          )}
+
+          {/* View mode details */}
+          {mode === "view" && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-label-sm">
+              {enrollment.publisher && (
+                <div>
+                  <p className="text-sc-gray">Publisher</p>
+                  <p className="text-sc-navy font-medium">{enrollment.publisher}</p>
                 </div>
               )}
-
-              {curricula.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-sc-gray-200 p-10 text-center space-y-3">
-                  <BookOpen className="size-10 text-sc-gray-300 mx-auto" />
-                  <p className="text-body-md text-sc-gray-400">No curriculum added yet.</p>
-                  <button onClick={openNewCurr}
-                    className="inline-flex items-center gap-2 rounded-xl bg-sc-teal px-4 py-2 text-label-sm text-white font-medium">
-                    <Plus className="size-4" /> Add First Curriculum
-                  </button>
+              {enrollment.start_date && (
+                <div>
+                  <p className="text-sc-gray">Started</p>
+                  <p className="text-sc-navy font-medium">{fmtDate(enrollment.start_date)}</p>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {activeCurricula.map((c) => (
-                    <div key={c.id} className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-4 space-y-3">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sc-teal-50 border border-sc-teal-100">
-                          <BookOpen className="size-5 text-sc-teal" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-label-md font-semibold text-sc-navy">{c.curriculum_name}</p>
-                            <span className="rounded-full bg-sc-teal-50 px-2 py-0.5 text-label-sm text-sc-teal font-medium capitalize">
-                              {SUBJECT_LABELS[c.subject] ?? c.subject}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-label-sm text-sc-gray">
-                            {c.current_level  && <span>Level: <strong className="text-sc-navy">{c.current_level}</strong></span>}
-                            {c.current_lesson && <span>Lesson: <strong className="text-sc-navy">{c.current_lesson}</strong></span>}
-                            {c.teacher_name   && <span>Teacher: {c.teacher_name}</span>}
-                          </div>
-                        </div>
-                        <button onClick={() => openEditCurr(c)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-teal-50 hover:text-sc-teal transition-colors">
-                          <Pencil className="size-3.5" />
-                        </button>
-                      </div>
-                      {c.completion_pct > 0 && <ProgressBar pct={c.completion_pct} />}
-                      {(c.start_date || c.expected_completion) && (
-                        <div className="flex gap-4 text-label-sm text-sc-gray">
-                          {c.start_date          && <span>Started: {fmtDate(c.start_date)}</span>}
-                          {c.expected_completion && <span>Expected: {fmtDate(c.expected_completion)}</span>}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {inactiveCurricula.length > 0 && (
-                    <details className="rounded-2xl border border-sc-gray-100 bg-white">
-                      <summary className="px-4 py-3 text-label-sm font-medium text-sc-gray cursor-pointer hover:text-sc-navy">
-                        {inactiveCurricula.length} inactive curriculum(s)
-                      </summary>
-                      <div className="border-t border-sc-gray-100 divide-y divide-sc-gray-50">
-                        {inactiveCurricula.map((c) => (
-                          <div key={c.id} className="flex items-center gap-3 px-4 py-3">
-                            <p className="text-label-sm text-sc-gray flex-1">{c.curriculum_name} — {SUBJECT_LABELS[c.subject] ?? c.subject}</p>
-                            <span className="text-label-sm text-sc-gray capitalize">{c.status}</span>
-                            <button onClick={() => openEditCurr(c)} className="flex h-7 w-7 items-center justify-center rounded-lg text-sc-gray hover:text-sc-teal">
-                              <Pencil className="size-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
+              )}
+              {enrollment.expected_completion && (
+                <div>
+                  <p className="text-sc-gray">Expected Completion</p>
+                  <p className="text-sc-navy font-medium">{fmtDate(enrollment.expected_completion)}</p>
+                </div>
+              )}
+              {enrollment.notes && (
+                <div className="col-span-full">
+                  <p className="text-sc-gray">Notes</p>
+                  <p className="text-sc-navy">{enrollment.notes}</p>
+                </div>
+              )}
+              {enrollment.one_on_one_needed && (
+                <div className="col-span-full rounded-lg bg-sc-rose-50 border border-sc-rose-200 p-3 space-y-1">
+                  <p className="font-semibold text-sc-rose-700 flex items-center gap-1.5">
+                    <Stethoscope className="size-3.5" /> 1:1 Support
+                  </p>
+                  {enrollment.one_on_one_requested_by && (
+                    <p className="text-sc-rose-700">Requested by: {enrollment.one_on_one_requested_by.replace("_", " ")}</p>
+                  )}
+                  {enrollment.one_on_one_reason && <p className="text-sc-rose-700">{enrollment.one_on_one_reason}</p>}
+                  {enrollment.one_on_one_date_identified && (
+                    <p className="text-sc-gray">Identified: {fmtDate(enrollment.one_on_one_date_identified)}</p>
                   )}
                 </div>
               )}
             </div>
           )}
 
-          {/* ── PROGRESS HISTORY ── */}
-          {section === "progress" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-heading-sm text-sc-navy font-semibold">Progress History</h3>
-                <button onClick={() => { setShowProgForm(true); setError(null); }}
-                  className="flex items-center gap-2 rounded-xl bg-sc-teal px-4 py-2 text-label-sm text-white font-medium hover:bg-sc-teal-700 transition-colors">
-                  <Plus className="size-4" /> Record Progress
-                </button>
-              </div>
-
-              {showProgForm && (
-                <div className="rounded-2xl border border-sc-teal-200 bg-sc-teal-50 p-5 space-y-3">
-                  <h4 className="text-label-md font-semibold text-sc-navy">Record Progress Check-In</h4>
-                  <p className="text-label-sm text-sc-gray">Each check-in creates an immutable history entry — the full timeline is preserved.</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Subject</label>
-                      <select value={progForm.subject} onChange={(e) => {
-                        const sub = e.target.value;
-                        const match = activeCurricula.find((c) => c.subject === sub);
-                        setProgForm((f) => ({
-                          ...f, subject: sub,
-                          curriculum_enrollment_id: match?.id ?? "",
-                          curriculum_name: match?.curriculum_name ?? f.curriculum_name,
-                          level: match?.current_level ?? f.level,
-                          lesson: match?.current_lesson ?? f.lesson,
-                        }));
-                      }}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none">
-                        {SUBJECTS.map((s) => <option key={s} value={s}>{SUBJECT_LABELS[s] ?? s}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Date</label>
-                      <input type="date" value={progForm.recorded_date} onChange={(e) => setProgForm((f) => ({ ...f, recorded_date: e.target.value }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Curriculum</label>
-                      <input value={progForm.curriculum_name} onChange={(e) => setProgForm((f) => ({ ...f, curriculum_name: e.target.value }))}
-                        placeholder="e.g. Saxon Math"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Level</label>
-                      <input value={progForm.level} onChange={(e) => setProgForm((f) => ({ ...f, level: e.target.value }))}
-                        placeholder="e.g. 5/4"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Lesson</label>
-                      <input value={progForm.lesson} onChange={(e) => setProgForm((f) => ({ ...f, lesson: e.target.value }))}
-                        placeholder="e.g. Lesson 38"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Mastery %</label>
-                      <input type="number" min={0} max={100} value={progForm.mastery_pct} onChange={(e) => setProgForm((f) => ({ ...f, mastery_pct: e.target.value }))}
-                        placeholder="e.g. 72"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-label-sm font-medium text-sc-gray mb-1 block">Notes</label>
-                    <textarea value={progForm.notes} onChange={(e) => setProgForm((f) => ({ ...f, notes: e.target.value }))}
-                      rows={2} placeholder="Optional observations…"
-                      className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none resize-none" />
-                  </div>
-                  {error && <p className="flex items-center gap-1.5 text-label-sm text-sc-rose"><AlertCircle className="size-4" />{error}</p>}
-                  <div className="flex gap-2">
-                    <button onClick={saveProgress} disabled={saving}
-                      className="flex items-center gap-2 rounded-xl bg-sc-navy px-5 py-2 text-label-sm text-white font-medium disabled:opacity-50">
-                      {saving && <Loader2 className="size-4 animate-spin" />} Record
-                    </button>
-                    <button onClick={() => setShowProgForm(false)} className="text-label-sm text-sc-gray px-3 py-2">Cancel</button>
-                  </div>
-                </div>
-              )}
-
-              {Object.keys(progressBySubject).length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-sc-gray-200 p-10 text-center space-y-3">
-                  <TrendingUp className="size-10 text-sc-gray-300 mx-auto" />
-                  <p className="text-body-md text-sc-gray-400">No progress check-ins recorded yet.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {Object.entries(progressBySubject).map(([sub, records]) => {
-                    const isExp = expandedProg === sub;
-                    const latest = records[0];
-                    return (
-                      <div key={sub} className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">
-                        <div className="flex items-center gap-3 p-4">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="text-label-md font-semibold text-sc-navy">{SUBJECT_LABELS[sub] ?? sub}</p>
-                              <span className="text-label-sm text-sc-gray">{records.length} check-in{records.length > 1 ? "s" : ""}</span>
-                            </div>
-                            {latest && (
-                              <p className="text-label-sm text-sc-gray mt-0.5">
-                                Latest: {latest.curriculum_name && `${latest.curriculum_name} · `}{latest.level && `${latest.level} · `}{latest.lesson && `${latest.lesson} · `}
-                                {fmtDate(latest.recorded_date)}
-                                {latest.mastery_pct != null && ` · ${latest.mastery_pct}% mastery`}
-                              </p>
-                            )}
-                          </div>
-                          <button onClick={() => setExpandedProg(isExp ? null : sub)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:text-sc-navy">
-                            {isExp ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-                          </button>
-                        </div>
-                        {isExp && (
-                          <div className="border-t border-sc-gray-100 divide-y divide-sc-gray-50">
-                            {records.map((r, i) => (
-                              <div key={r.id} className={cn("px-4 py-2.5 flex items-center gap-3", i === 0 && "bg-sc-teal-50")}>
-                                <div className="w-2 h-2 rounded-full bg-sc-teal shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-label-sm">
-                                    {r.level  && <span className="font-medium text-sc-navy">Level {r.level}</span>}
-                                    {r.lesson && <span className="text-sc-gray">· {r.lesson}</span>}
-                                    {r.mastery_pct != null && <span className="text-sc-teal font-medium">· {r.mastery_pct}%</span>}
-                                  </div>
-                                  {r.notes && <p className="text-label-sm text-sc-gray">{r.notes}</p>}
-                                </div>
-                                <span className="text-label-sm text-sc-gray shrink-0">{fmtDate(r.recorded_date)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+          {/* Intervention sessions panel */}
+          {mode === "intervention" && (
+            <InterventionPanel enrollment={enrollment} studentId={studentId} isAdmin={isAdmin} />
           )}
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {/* ── ASSESSMENTS ── */}
-          {section === "assessments" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-heading-sm text-sc-navy font-semibold">Assessment Center</h3>
-                <button onClick={() => { setShowAssessForm(true); setError(null); }}
-                  className="flex items-center gap-2 rounded-xl bg-sc-teal px-4 py-2 text-label-sm text-white font-medium hover:bg-sc-teal-700 transition-colors">
-                  <Plus className="size-4" /> Add Assessment
-                </button>
+// ── History Section ───────────────────────────────────────────────────────────
+
+function HistorySection({ studentId }: { studentId: string }) {
+  const [records, setRecords]     = useState<CurriculumEnrollment[] | null>(null);
+  const [open, setOpen]           = useState(false);
+
+  function load() {
+    setOpen(true);
+    if (!records) getCurriculumHistory(studentId).then(setRecords);
+  }
+
+  return (
+    <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">
+      <button onClick={open ? () => setOpen(false) : load}
+        className="w-full flex items-center gap-2 px-5 py-4 text-left hover:bg-sc-gray-50 transition-colors">
+        <History className="size-4 text-sc-gray" />
+        <span className="font-serif text-heading-3 text-sc-navy">Curriculum History</span>
+        <span className="text-label-sm text-sc-gray">(archived / changed)</span>
+        {open ? <ChevronUp className="size-4 text-sc-gray ml-auto" /> : <ChevronDown className="size-4 text-sc-gray ml-auto" />}
+      </button>
+      {open && (
+        <div className="border-t border-sc-gray-100 p-5 space-y-3">
+          {records === null && <p className="text-label-sm text-sc-gray animate-pulse">Loading…</p>}
+          {records?.length === 0 && <p className="text-label-sm text-sc-gray italic">No archived records yet.</p>}
+          {records?.map((r) => (
+            <div key={r.id} className="flex items-center gap-3 rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-4 py-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-label-sm font-medium text-sc-navy">
+                  {SUBJECT_LABELS[r.subject]} — {r.curriculum_name}
+                </p>
+                {r.current_level && <p className="text-label-sm text-sc-gray">{r.current_level}</p>}
               </div>
-
-              {showAssessForm && (
-                <div className="rounded-2xl border border-sc-teal-200 bg-sc-teal-50 p-5 space-y-3">
-                  <h4 className="text-label-md font-semibold text-sc-navy">New Assessment</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Subject *</label>
-                      <select value={assessForm.subject} onChange={(e) => setAssessForm((f) => ({ ...f, subject: e.target.value }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none">
-                        <option value="">Select subject…</option>
-                        {SUBJECTS.map((s) => <option key={s} value={s}>{SUBJECT_LABELS[s] ?? s}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Assessment Period</label>
-                      <select value={assessForm.assessment_period} onChange={(e) => setAssessForm((f) => ({ ...f, assessment_period: e.target.value as "boy" | "moy" | "eoy" | "additional" }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none">
-                        <option value="boy">BOY — Beginning of Year</option>
-                        <option value="moy">MOY — Middle of Year</option>
-                        <option value="eoy">EOY — End of Year</option>
-                        <option value="additional">Additional</option>
-                      </select>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Assessment Name *</label>
-                      <input value={assessForm.assessment_name} onChange={(e) => setAssessForm((f) => ({ ...f, assessment_name: e.target.value }))}
-                        placeholder="e.g. Saxon Math Test 10, DIBELS, MAP Reading"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Date</label>
-                      <input type="date" value={assessForm.assessment_date} onChange={(e) => setAssessForm((f) => ({ ...f, assessment_date: e.target.value }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Performance Level</label>
-                      <select value={assessForm.performance_level} onChange={(e) => setAssessForm((f) => ({ ...f, performance_level: e.target.value }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none">
-                        <option value="">Select…</option>
-                        <option value="advanced">Advanced</option>
-                        <option value="proficient">Proficient</option>
-                        <option value="approaching">Approaching</option>
-                        <option value="below">Below</option>
-                        <option value="far_below">Far Below</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Score (raw)</label>
-                      <input type="number" value={assessForm.score_raw} onChange={(e) => setAssessForm((f) => ({ ...f, score_raw: e.target.value }))}
-                        placeholder="e.g. 85"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Total Points</label>
-                      <input type="number" value={assessForm.score_max} onChange={(e) => setAssessForm((f) => ({ ...f, score_max: e.target.value }))}
-                        placeholder="e.g. 100"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Grade Equivalent</label>
-                      <input value={assessForm.grade_equivalent} onChange={(e) => setAssessForm((f) => ({ ...f, grade_equivalent: e.target.value }))}
-                        placeholder="e.g. 3.2"
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-label-sm font-medium text-sc-gray mb-1 block">Visibility</label>
-                      <select value={assessForm.visibility} onChange={(e) => setAssessForm((f) => ({ ...f, visibility: e.target.value }))}
-                        className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none">
-                        <option value="internal">Staff Only</option>
-                        <option value="parent_visible">Parent Visible</option>
-                        <option value="admin_only">Admin Only</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-label-sm font-medium text-sc-gray mb-1 block">Teacher Comments</label>
-                    <textarea value={assessForm.teacher_comments} onChange={(e) => setAssessForm((f) => ({ ...f, teacher_comments: e.target.value }))}
-                      rows={2}
-                      className="w-full rounded-xl border border-sc-gray-200 bg-white px-3 py-2 text-label-sm focus:border-sc-teal focus:outline-none resize-none" />
-                  </div>
-                  {error && <p className="flex items-center gap-1.5 text-label-sm text-sc-rose"><AlertCircle className="size-4" />{error}</p>}
-                  <div className="flex gap-2">
-                    <button onClick={saveAssessment} disabled={saving}
-                      className="flex items-center gap-2 rounded-xl bg-sc-navy px-5 py-2 text-label-sm text-white font-medium disabled:opacity-50">
-                      {saving && <Loader2 className="size-4 animate-spin" />} Save Assessment
-                    </button>
-                    <button onClick={() => setShowAssessForm(false)} className="text-label-sm text-sc-gray px-3 py-2">Cancel</button>
-                  </div>
-                </div>
-              )}
-
-              {assessments.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-sc-gray-200 p-10 text-center space-y-3">
-                  <ClipboardList className="size-10 text-sc-gray-300 mx-auto" />
-                  <p className="text-body-md text-sc-gray-400">No assessments recorded yet. Add BOY, MOY, EOY, or additional assessments.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {(["boy","moy","eoy","additional"] as const).map((period) => {
-                    const periodAssessments = assessments.filter((a) => a.assessment_period === period);
-                    if (periodAssessments.length === 0) return null;
-                    const cfg = PERIOD_CFG[period];
-                    return (
-                      <div key={period} className="space-y-2">
-                        <p className="text-label-sm font-semibold text-sc-gray uppercase tracking-wider">{cfg.label}</p>
-                        {periodAssessments.map((a) => {
-                          const perfCfg = a.performance_level ? PERF_CFG[a.performance_level] : null;
-                          return (
-                            <div key={a.id} className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-4">
-                              <div className="flex items-start gap-3">
-                                <div className={cn("rounded-lg px-2.5 py-1 text-label-sm font-semibold shrink-0", cfg.cls)}>
-                                  {cfg.label}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-label-md font-semibold text-sc-navy">{a.assessment_name}</p>
-                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-label-sm text-sc-gray">
-                                    <span className="font-medium capitalize">{SUBJECT_LABELS[a.subject] ?? a.subject}</span>
-                                    <span>·</span>
-                                    <span>{fmtDate(a.assessment_date)}</span>
-                                    {a.score_pct != null && <><span>·</span><span className="font-medium text-sc-navy">{Math.round(a.score_pct)}%</span></>}
-                                    {a.score_raw != null && a.score_max != null && <span>({a.score_raw}/{a.score_max})</span>}
-                                    {a.grade_equivalent && <><span>·</span><span>GE {a.grade_equivalent}</span></>}
-                                    {perfCfg && (
-                                      <span className={cn("rounded-full px-2 py-0.5 font-medium", perfCfg.cls)}>{perfCfg.label}</span>
-                                    )}
-                                  </div>
-                                  {a.teacher_comments && <p className="text-label-sm text-sc-gray mt-1">{a.teacher_comments}</p>}
-                                </div>
-                                <button onClick={() => handleDeleteAssessment(a.id)}
-                                  className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-rose-50 hover:text-sc-rose transition-colors shrink-0">
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="text-right text-label-sm text-sc-gray shrink-0">
+                <p>{STATUS_CFG[r.status]?.label ?? r.status}</p>
+                {r.archived_at && <p>Archived {fmtDate(r.archived_at)}</p>}
+              </div>
             </div>
-          )}
-        </>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Tab ──────────────────────────────────────────────────────────────────
+
+export function AcademicsTab({ studentId, isAdmin = false }: Props) {
+  const [enrollments, setEnrollments] = useState<CurriculumEnrollment[] | null>(null);
+  const [addingNew, setAddingNew]     = useState(false);
+  const [newDraft, setNewDraft]       = useState<CurriculumPayload>(BLANK_PAYLOAD);
+  const [error, setError]             = useState<string | null>(null);
+  const [isPending, startTransition]  = useTransition();
+
+  useEffect(() => {
+    getCurriculumEnrollments(studentId).then(setEnrollments);
+  }, [studentId]);
+
+  function handleAdd() {
+    startTransition(async () => {
+      const r = await createCurriculumRecord(studentId, newDraft);
+      if (!r.success) { setError(r.error); return; }
+      const fresh = await getCurriculumEnrollments(studentId);
+      setEnrollments(fresh);
+      setNewDraft(BLANK_PAYLOAD);
+      setAddingNew(false);
+      setError(null);
+    });
+  }
+
+  function handleUpdated(updated: CurriculumEnrollment) {
+    setEnrollments((arr) => arr?.map((e) => e.id === updated.id ? updated : e) ?? null);
+  }
+
+  function handleChanged(oldId: string, newEnrollment: CurriculumEnrollment) {
+    // Remove old, add new
+    setEnrollments((arr) => arr
+      ? [newEnrollment, ...arr.filter((e) => e.id !== oldId)]
+      : [newEnrollment]
+    );
+  }
+
+  function handleArchived(id: string) {
+    setEnrollments((arr) => arr?.filter((e) => e.id !== id) ?? null);
+  }
+
+  if (enrollments === null) {
+    return (
+      <div className="flex items-center justify-center py-16 text-sc-gray">
+        <Loader2 className="size-5 animate-spin mr-2" /> Loading academics…
+      </div>
+    );
+  }
+
+  // Group by subject for display order
+  const ordered = [...enrollments].sort((a, b) =>
+    SUBJECTS.indexOf(a.subject) - SUBJECTS.indexOf(b.subject)
+  );
+
+  return (
+    <div className="space-y-5 max-w-4xl">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-serif text-heading-2 text-sc-navy">Academic Plan</h2>
+          <p className="text-body-md text-sc-gray mt-0.5">
+            {enrollments.length} subject{enrollments.length !== 1 ? "s" : ""} tracked
+          </p>
+        </div>
+        <button onClick={() => setAddingNew(true)}
+          className="flex items-center gap-1.5 rounded-xl bg-sc-teal px-4 py-2 text-label-sm text-white font-medium hover:bg-sc-teal-700 transition-colors">
+          <Plus className="size-4" /> Add Curriculum
+        </button>
+      </div>
+
+      {error && (
+        <p className="rounded-xl bg-sc-rose-50 border border-sc-rose-200 px-4 py-3 text-label-sm text-sc-rose-700">{error}</p>
+      )}
+
+      {/* Add new form */}
+      {addingNew && (
+        <div className="rounded-2xl border border-sc-teal-200 bg-white shadow-card p-5">
+          <p className="font-serif text-heading-3 text-sc-navy mb-4 flex items-center gap-2">
+            <BookOpen className="size-4 text-sc-teal" /> New Curriculum Record
+          </p>
+          <CurriculumForm
+            payload={newDraft}
+            onChange={(p) => setNewDraft((d) => ({ ...d, ...p }))}
+            onSave={handleAdd}
+            onCancel={() => { setAddingNew(false); setError(null); }}
+            saving={isPending}
+            label="Add Curriculum"
+          />
+        </div>
+      )}
+
+      {/* Empty state */}
+      {enrollments.length === 0 && !addingNew && (
+        <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-10 text-center">
+          <BookOpen className="size-10 mx-auto mb-3 text-sc-gray-300" />
+          <p className="font-serif text-heading-2 text-sc-navy">No curriculum on file</p>
+          <p className="text-body-md text-sc-gray mt-1 mb-4">
+            Add the curriculum this student is using for each subject.
+          </p>
+          <button onClick={() => setAddingNew(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-sc-teal px-4 py-2 text-label-sm text-white hover:bg-sc-teal-700 transition-colors">
+            <Plus className="size-4" /> Add First Curriculum
+          </button>
+        </div>
+      )}
+
+      {/* Curriculum cards */}
+      <div className="space-y-4">
+        {ordered.map((enrollment) => (
+          <CurriculumCard
+            key={enrollment.id}
+            enrollment={enrollment}
+            studentId={studentId}
+            isAdmin={isAdmin}
+            onUpdated={handleUpdated}
+            onChanged={handleChanged}
+            onArchived={handleArchived}
+          />
+        ))}
+      </div>
+
+      {/* History section */}
+      {enrollments.length > 0 && (
+        <HistorySection studentId={studentId} />
       )}
     </div>
   );

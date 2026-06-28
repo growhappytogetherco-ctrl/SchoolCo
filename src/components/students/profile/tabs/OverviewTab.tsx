@@ -11,6 +11,7 @@ import { getStudentGoals, type Goal } from "@/app/actions/studentGoals";
 import { getSnapshotFlags, type SupportFlag } from "@/app/actions/supportFlags";
 import { getCurriculumEnrollments, getAssessments, type CurriculumEnrollment, type Assessment } from "@/app/actions/academics";
 import { getSSPSummary } from "@/app/actions/successPlanActions";
+import { getAcademicPlanSummary, getActiveInterventionSummary, type AcademicPlanEntry } from "@/app/actions/academics";
 import type { StudentProfileData } from "../types";
 import { cn } from "@/lib/utils";
 
@@ -64,8 +65,10 @@ export function OverviewTab({ studentId, data }: Props) {
   const [snapshotFlags, setSnapshotFlags] = useState<SupportFlag[]>([]);
   const [curricula, setCurricula]       = useState<CurriculumEnrollment[]>([]);
   const [latestAssessment, setLatestAssessment] = useState<Assessment | null>(null);
-  const [sspSummary, setSSPSummary]     = useState<Awaited<ReturnType<typeof getSSPSummary>>>(null);
-  const [loading, setLoading]           = useState(true);
+  const [sspSummary, setSSPSummary]       = useState<Awaited<ReturnType<typeof getSSPSummary>>>(null);
+  const [academicPlan, setAcademicPlan]   = useState<AcademicPlanEntry[]>([]);
+  const [interventions, setInterventions] = useState<Awaited<ReturnType<typeof getActiveInterventionSummary>>>([]);
+  const [loading, setLoading]             = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -75,13 +78,17 @@ export function OverviewTab({ studentId, data }: Props) {
       getCurriculumEnrollments(studentId),
       getAssessments(studentId),
       getSSPSummary(studentId),
-    ]).then(([overviewData, goalsData, flagsData, currData, assessData, sspData]) => {
+      getAcademicPlanSummary(studentId),
+      getActiveInterventionSummary(studentId),
+    ]).then(([overviewData, goalsData, flagsData, currData, assessData, sspData, planData, iData]) => {
       setOverview(overviewData);
       setGoals(goalsData.filter((g) => g.status === "active"));
       setSnapshotFlags(flagsData);
       setCurricula(currData.filter((c) => c.status === "active"));
       setLatestAssessment(assessData[0] ?? null);
       setSSPSummary(sspData);
+      setAcademicPlan(planData);
+      setInterventions(iData);
       setLoading(false);
     });
   }, [studentId]);
@@ -166,6 +173,52 @@ export function OverviewTab({ studentId, data }: Props) {
             <p className="text-label-sm text-sc-gray mt-2">
               Last reviewed {new Date(sspSummary.lastReviewedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Current Academic Plan Summary ─────────────────────── */}
+      {academicPlan.length > 0 && (
+        <div className="rounded-2xl border border-sc-navy/10 bg-white shadow-card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="flex items-center gap-2 font-serif text-heading-3 text-sc-navy">
+              <BookOpen className="size-4 text-sc-teal" /> Current Academic Plan
+            </p>
+            <Link href={`/dashboard/students/${studentId}?tab=academics`}
+              className="text-label-sm text-sc-teal hover:text-sc-teal-700 font-medium">
+              View academics →
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {academicPlan.map((entry) => (
+              <div key={entry.subject} className="flex items-center gap-3 text-label-sm">
+                <span className="w-20 shrink-0 font-semibold text-sc-navy">{entry.label}</span>
+                <span className="flex-1 text-sc-gray">
+                  {entry.name}
+                  {entry.level  && <span> · {entry.level}</span>}
+                  {entry.lesson && <span> — Lesson {entry.lesson}</span>}
+                </span>
+                {entry.oo1_active && entry.oo1_status && ["active","monitoring"].includes(entry.oo1_status) && (
+                  <span className={cn("rounded-full px-2 py-0.5 text-label-sm font-medium border shrink-0",
+                    entry.oo1_status === "active"
+                      ? "bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200"
+                      : "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200"
+                  )}>
+                    {entry.oo1_status === "active" ? "Active 1:1" : "Monitoring"}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+          {interventions.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-sc-gray-100">
+              <p className="text-label-sm font-semibold text-sc-rose-700 mb-1">Academic Support Needed</p>
+              {interventions.map((i) => (
+                <p key={i.subject} className="text-label-sm text-sc-gray">
+                  • {i.label} — {i.intervention_status === "active" ? "Active 1:1" : "Monitoring"}
+                </p>
+              ))}
+            </div>
           )}
         </div>
       )}
