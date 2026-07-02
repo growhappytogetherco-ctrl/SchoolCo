@@ -187,15 +187,16 @@ export async function getGrowthSummary(studentId: string): Promise<GrowthEntry[]
     const supabase = await createClient();
     const { data } = await supabase
       .from("assessments")
-      .select("subject, assessment_period, assessment_date, score_pct, performance_level")
+      .select("subject, assessment_period, assessment_date, score_raw, score_max, score_pct, performance_level, created_at")
       .eq("student_id", studentId)
       .eq("organization_id", orgId)
       .is("archived_at", null)
-      .order("assessment_date", { ascending: true });
+      .order("assessment_date", { ascending: true })
+      .order("created_at",      { ascending: true });
 
     if (!data || data.length === 0) return [];
 
-    // Group by subject
+    // Group by subject; rows are already sorted oldest → newest
     const bySubject = new Map<string, typeof data>();
     for (const row of data) {
       const arr = bySubject.get(row.subject) ?? [];
@@ -207,21 +208,31 @@ export async function getGrowthSummary(studentId: string): Promise<GrowthEntry[]
     for (const [subject, rows] of bySubject) {
       if (rows.length < 1) continue;
 
-      // Prefer BOY as baseline; fallback to earliest
-      const baseline = rows.find((r) => r.assessment_period === "boy") ?? rows[0];
+      // Baseline = earliest, latest = most recent (by date then created_at)
+      const baseline = rows[0];
       const latest   = rows[rows.length - 1];
 
-      const baselineScore = baseline.score_pct != null ? Number(baseline.score_pct) : null;
-      const latestScore   = latest.score_pct   != null ? Number(latest.score_pct)   : null;
+      // Safe score computation: use score_pct if present, else derive from raw/max
+      function safeScore(r: typeof rows[0]): number | null {
+        if (r.score_pct != null) return Number(r.score_pct);
+        if (r.score_raw != null && r.score_max != null && Number(r.score_max) > 0) {
+          return Math.round((Number(r.score_raw) / Number(r.score_max)) * 1000) / 10;
+        }
+        return null;
+      }
+
+      const baselineScore = safeScore(baseline);
+      const latestScore   = safeScore(latest);
 
       let delta: number | null = null;
       let direction: GrowthEntry["direction"] = "insufficient_data";
 
-      const isBaseline = baseline.assessment_date === latest.assessment_date;
-      if (!isBaseline && baselineScore != null && latestScore != null) {
+      const onlyOne = rows.length === 1;
+      if (!onlyOne && baselineScore != null && latestScore != null) {
         delta = Math.round((latestScore - baselineScore) * 10) / 10;
         direction = delta > 0 ? "improved" : delta < 0 ? "declined" : "no_change";
-      } else if (isBaseline) {
+      } else if (!onlyOne && (baselineScore == null || latestScore == null)) {
+        // Two+ records but scores missing — show no_change rather than hiding
         direction = "insufficient_data";
       }
 
