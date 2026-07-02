@@ -3,7 +3,7 @@
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
 import { getActiveRole } from "@/lib/supabase/org-context";
 import { isAdminRole } from "@/lib/constants";
-import { SUBJECTS } from "@/lib/academics-constants";
+import { SUBJECTS, SUBJECT_LABELS } from "@/lib/academics-constants";
 export type { Subject } from "@/lib/academics-constants";
 
 export type CurriculumStatus =
@@ -58,6 +58,7 @@ export interface InterventionSession {
   duration_minutes:         number | null;
   focus_skill:              string | null;
   lesson_unit_covered:      string | null;
+  teaching_strategy:        string | null;
   student_response:         string | null;
   progress_observed:        string | null;
   next_steps:               string | null;

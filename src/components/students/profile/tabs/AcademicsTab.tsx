@@ -77,6 +77,7 @@ const BLANK_SESSION: InterventionSessionPayload = {
   duration_minutes:         null,
   focus_skill:              null,
   lesson_unit_covered:      null,
+  teaching_strategy:        null,
   student_response:         null,
   progress_observed:        null,
   next_steps:               null,
@@ -340,6 +341,14 @@ function SessionForm({
             className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
         </div>
         <div className="sm:col-span-2">
+          <label className="text-label-sm font-semibold text-sc-navy block mb-1">Teaching Strategy Used</label>
+          <textarea value={payload.teaching_strategy ?? ""}
+            onChange={(e) => onChange({ teaching_strategy: e.target.value || null })}
+            placeholder="e.g. Multisensory approach, direct instruction, manipulatives"
+            rows={2}
+            className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal resize-none" />
+        </div>
+        <div className="sm:col-span-2">
           <label className="text-label-sm font-semibold text-sc-navy block mb-1">Student Response</label>
           <textarea value={payload.student_response ?? ""}
             onChange={(e) => onChange({ student_response: e.target.value || null })}
@@ -466,6 +475,7 @@ function InterventionPanel({ enrollment, studentId, isAdmin }: {
             </div>
             {s.focus_skill && <p className="text-label-sm text-sc-navy"><span className="font-medium">Focus:</span> {s.focus_skill}</p>}
             {s.lesson_unit_covered && <p className="text-label-sm text-sc-gray">Covered: {s.lesson_unit_covered}</p>}
+            {s.teaching_strategy && <p className="text-label-sm text-sc-gray"><span className="font-medium">Strategy:</span> {s.teaching_strategy}</p>}
             {s.student_response && <p className="text-body-md text-sc-navy">{s.student_response}</p>}
             {s.progress_observed && (
               <p className="text-label-sm text-sc-teal-700 bg-sc-teal-50 rounded-lg px-2 py-1">
@@ -797,22 +807,25 @@ function HistorySection({ studentId }: { studentId: string }) {
 
 // ── Main Tab ──────────────────────────────────────────────────────────────────
 
+type StatusFilter = "all" | CurriculumStatus;
+type InterventionFilter = "all" | "needed" | "active" | "monitoring";
+
 export function AcademicsTab({ studentId, isAdmin = false }: Props) {
-  const [enrollments, setEnrollments] = useState<CurriculumEnrollment[] | null>(null);
-  const [addingNew, setAddingNew]     = useState(false);
-  const [newDraft, setNewDraft]       = useState<CurriculumPayload>(BLANK_PAYLOAD);
-  const [error, setError]             = useState<string | null>(null);
-  const [fetchError, setFetchError]   = useState<string | false>(false);
-  const [isPending, startTransition]  = useTransition();
+  const [enrollments, setEnrollments]     = useState<CurriculumEnrollment[] | null>(null);
+  const [addingNew, setAddingNew]         = useState(false);
+  const [newDraft, setNewDraft]           = useState<CurriculumPayload>(BLANK_PAYLOAD);
+  const [error, setError]                 = useState<string | null>(null);
+  const [fetchFailed, setFetchFailed]     = useState(false);
+  const [isPending, startTransition]      = useTransition();
+  const [search, setSearch]               = useState("");
+  const [statusFilter, setStatusFilter]   = useState<StatusFilter>("all");
+  const [interventionFilter, setInterventionFilter] = useState<InterventionFilter>("all");
 
   useEffect(() => {
-    setFetchError(false);
+    setFetchFailed(false);
     getCurriculumEnrollments(studentId)
       .then(setEnrollments)
-      .catch((err: unknown) => {
-        setEnrollments([]);
-        setFetchError(err instanceof Error ? err.message : String(err));
-      });
+      .catch(() => { setEnrollments([]); setFetchFailed(true); });
   }, [studentId]);
 
   function handleAdd() {
@@ -832,7 +845,6 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
   }
 
   function handleChanged(oldId: string, newEnrollment: CurriculumEnrollment) {
-    // Remove old, add new
     setEnrollments((arr) => arr
       ? [newEnrollment, ...arr.filter((e) => e.id !== oldId)]
       : [newEnrollment]
@@ -851,14 +863,32 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
     );
   }
 
-  // Group by subject for display order
-  const ordered = [...enrollments].sort((a, b) =>
-    SUBJECTS.indexOf(a.subject) - SUBJECTS.indexOf(b.subject)
-  );
+  // ── Filter logic ─────────────────────────────────────────────────────────────
+  const q = search.toLowerCase().trim();
+  const filtered = enrollments
+    .filter((e) => {
+      if (statusFilter !== "all" && e.status !== statusFilter) return false;
+      if (interventionFilter === "needed" && !e.one_on_one_needed) return false;
+      if (interventionFilter === "active" && e.intervention_status !== "active") return false;
+      if (interventionFilter === "monitoring" && e.intervention_status !== "monitoring") return false;
+      if (q) {
+        const haystack = [
+          e.curriculum_name, e.publisher, e.subject,
+          SUBJECT_LABELS[e.subject], e.teacher_name, e.status,
+        ].join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => SUBJECTS.indexOf(a.subject) - SUBJECTS.indexOf(b.subject));
+
+  const activeSubjects = enrollments.filter((e) => e.status === "active");
+  const interventionSubjects = enrollments.filter((e) => e.one_on_one_needed && ["active", "monitoring"].includes(e.intervention_status ?? ""));
 
   return (
     <div className="space-y-5 max-w-4xl">
-      {/* Header row */}
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-serif text-heading-2 text-sc-navy">Academic Plan</h2>
@@ -872,16 +902,81 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
         </button>
       </div>
 
-      {fetchError && (
-        <p className="rounded-xl bg-sc-gold-50 border border-sc-gold-200 px-4 py-3 text-label-sm text-sc-gold-700 font-mono break-all">
-          Error: {fetchError}
+      {fetchFailed && (
+        <p className="rounded-xl bg-sc-gold-50 border border-sc-gold-200 px-4 py-3 text-label-sm text-sc-gold-700">
+          Could not load curriculum data. Please refresh to try again.
         </p>
       )}
       {error && (
         <p className="rounded-xl bg-sc-rose-50 border border-sc-rose-200 px-4 py-3 text-label-sm text-sc-rose-700">{error}</p>
       )}
 
-      {/* Add new form */}
+      {/* ── Current Academic Plan Summary ───────────────────────────────────── */}
+      {activeSubjects.length > 0 && (
+        <div className="rounded-2xl border border-sc-navy/10 bg-sc-navy/[0.03] p-4">
+          <p className="text-label-sm font-semibold text-sc-navy uppercase tracking-wide mb-3 flex items-center gap-1.5">
+            <ClipboardList className="size-3.5" /> Current Academic Plan
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {activeSubjects
+              .sort((a, b) => SUBJECTS.indexOf(a.subject) - SUBJECTS.indexOf(b.subject))
+              .map((e) => (
+                <div key={e.id} className="rounded-xl bg-white border border-sc-gray-100 px-3 py-2">
+                  <p className="text-label-sm font-semibold text-sc-navy">{SUBJECT_LABELS[e.subject]}</p>
+                  <p className="text-label-sm text-sc-gray truncate">{e.curriculum_name}</p>
+                  {e.current_lesson && (
+                    <p className="text-label-sm text-sc-teal-700">Lesson {e.current_lesson}</p>
+                  )}
+                </div>
+              ))}
+          </div>
+          {interventionSubjects.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-sc-navy/10">
+              <p className="text-label-sm font-semibold text-sc-navy mb-1.5">Academic Supports</p>
+              <div className="flex flex-wrap gap-2">
+                {interventionSubjects.map((e) => {
+                  const cfg = OO1_INTERVENTION_CFG[e.intervention_status!];
+                  return (
+                    <span key={e.id} className="inline-flex items-center gap-1.5 rounded-full bg-white border border-sc-gray-200 px-2.5 py-1 text-label-sm">
+                      <span className={cn("size-2 rounded-full", cfg.dot)} />
+                      {SUBJECT_LABELS[e.subject]} — {cfg.label}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Search & Filter ─────────────────────────────────────────────────── */}
+      {enrollments.length > 0 && (
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search curriculum, publisher, teacher…"
+            className="flex-1 rounded-xl border border-sc-gray-200 px-3 py-2 text-body-md focus:outline-none focus:ring-2 focus:ring-sc-teal"
+          />
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="rounded-xl border border-sc-gray-200 px-3 py-2 text-body-md bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal">
+            <option value="all">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="not_started">Not Started</option>
+            <option value="paused">Paused</option>
+            <option value="completed">Completed</option>
+          </select>
+          <select value={interventionFilter} onChange={(e) => setInterventionFilter(e.target.value as InterventionFilter)}
+            className="rounded-xl border border-sc-gray-200 px-3 py-2 text-body-md bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal">
+            <option value="all">All</option>
+            <option value="needed">Intervention Needed</option>
+            <option value="active">Active 1:1</option>
+            <option value="monitoring">Monitoring</option>
+          </select>
+        </div>
+      )}
+
+      {/* ── Add new form ────────────────────────────────────────────────────── */}
       {addingNew && (
         <div className="rounded-2xl border border-sc-teal-200 bg-white shadow-card p-5">
           <p className="font-serif text-heading-3 text-sc-navy mb-4 flex items-center gap-2">
@@ -898,7 +993,7 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
         </div>
       )}
 
-      {/* Empty state */}
+      {/* ── Empty state ─────────────────────────────────────────────────────── */}
       {enrollments.length === 0 && !addingNew && (
         <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-10 text-center">
           <BookOpen className="size-10 mx-auto mb-3 text-sc-gray-300" />
@@ -913,9 +1008,16 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
         </div>
       )}
 
-      {/* Curriculum cards */}
+      {/* ── Filtered empty state ─────────────────────────────────────────────── */}
+      {enrollments.length > 0 && filtered.length === 0 && (
+        <p className="text-label-sm text-sc-gray italic py-4 text-center">
+          No curriculum matches your search or filters.
+        </p>
+      )}
+
+      {/* ── Curriculum cards ─────────────────────────────────────────────────── */}
       <div className="space-y-4">
-        {ordered.map((enrollment) => (
+        {filtered.map((enrollment) => (
           <CurriculumCard
             key={enrollment.id}
             enrollment={enrollment}
@@ -928,7 +1030,7 @@ export function AcademicsTab({ studentId, isAdmin = false }: Props) {
         ))}
       </div>
 
-      {/* History section */}
+      {/* ── History section ──────────────────────────────────────────────────── */}
       {enrollments.length > 0 && (
         <HistorySection studentId={studentId} />
       )}
