@@ -77,3 +77,33 @@ export const PERFORMANCE_LEVEL_COLORS: Record<PerformanceLevel, string> = {
   above_expectations:     "bg-sc-teal-100 text-sc-teal-800 border-sc-teal-300",
   mastered:               "bg-sc-navy/10 text-sc-navy border-sc-navy/20",
 };
+
+// Default blank payload for new assessment forms — kept here (not in 'use server')
+// so client components can import it without triggering Next.js server-action errors.
+export const BLANK_ASSESSMENT_PAYLOAD = {
+  subject:                  "math",
+  assessment_name:          "",
+  assessment_type:          null as string | null,
+  assessment_period:        "additional",
+  administered_at:          "",   // set at runtime: new Date().toISOString().split("T")[0]
+  staff_member_id:          null as string | null,
+  staff_name:               null as string | null,
+  curriculum_enrollment_id: null as string | null,
+  growth_goal_id:           null as string | null,
+  score_raw:                null as number | null,
+  score_max:                null as number | null,
+  score_pct:                null as number | null,
+  performance_level:        null as string | null,
+  grade_equivalent:         null as string | null,
+  placement_level:          null as string | null,
+  percentile_rank:          null as number | null,
+  stanine:                  null as number | null,
+  fluency_wpm:              null as number | null,
+  accuracy_percent:         null as number | null,
+  mastery_percent:          null as number | null,
+  notes:                    null as string | null,
+  staff_interpretation:     null as string | null,
+  recommended_next_steps:   null as string | null,
+  parent_visible:           false,
+  attachment_url:           null as string | null,
+};

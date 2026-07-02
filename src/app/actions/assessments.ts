@@ -62,33 +62,6 @@ export interface GrowthEntry {
   direction:        "improved" | "declined" | "no_change" | "insufficient_data";
 }
 
-export const BLANK_PAYLOAD: AssessmentPayload = {
-  subject:                  "math",
-  assessment_name:          "",
-  assessment_type:          null,
-  assessment_period:        "additional",
-  administered_at:          new Date().toISOString().split("T")[0],
-  staff_member_id:          null,
-  staff_name:               null,
-  curriculum_enrollment_id: null,
-  growth_goal_id:           null,
-  score_raw:                null,
-  score_max:                null,
-  score_pct:                null,
-  performance_level:        null,
-  grade_equivalent:         null,
-  placement_level:          null,
-  percentile_rank:          null,
-  stanine:                  null,
-  fluency_wpm:              null,
-  accuracy_percent:         null,
-  mastery_percent:          null,
-  notes:                    null,
-  staff_interpretation:     null,
-  recommended_next_steps:   null,
-  parent_visible:           false,
-  attachment_url:           null,
-};
 
 // ── Role guard ────────────────────────────────────────────────────────────────
 

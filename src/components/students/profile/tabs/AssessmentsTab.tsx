@@ -9,9 +9,9 @@ import {
 import {
   getAssessments, createAssessment, updateAssessment,
   archiveAssessment, restoreAssessment, getGrowthSummary,
-  BLANK_PAYLOAD,
   type Assessment, type AssessmentPayload, type GrowthEntry,
 } from "@/app/actions/assessments";
+import { BLANK_ASSESSMENT_PAYLOAD } from "@/lib/assessment-constants";
 import {
   SUBJECTS, SUBJECT_LABELS,
 } from "@/lib/academics-constants";
@@ -558,7 +558,11 @@ export function AssessmentsTab({ studentId, isAdmin = false }: Props) {
   const [showArchived, setShowArchived]   = useState(false);
   const [addingNew, setAddingNew]         = useState(false);
   const [editTarget, setEditTarget]       = useState<Assessment | null>(null);
-  const [draft, setDraft]                 = useState<AssessmentPayload>(BLANK_PAYLOAD);
+  const blankPayload = (): AssessmentPayload => ({
+    ...BLANK_ASSESSMENT_PAYLOAD,
+    administered_at: new Date().toISOString().split("T")[0],
+  });
+  const [draft, setDraft]                 = useState<AssessmentPayload>(blankPayload);
   const [error, setError]                 = useState<string | null>(null);
   const [isPending, startTransition]      = useTransition();
   const [subjectFilter, setSubjectFilter] = useState("all");
@@ -574,7 +578,7 @@ export function AssessmentsTab({ studentId, isAdmin = false }: Props) {
   }, [studentId]);
 
   function openAdd() {
-    setDraft(BLANK_PAYLOAD);
+    setDraft(blankPayload());
     setError(null);
     setEditTarget(null);
     setAddingNew(true);
