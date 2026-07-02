@@ -9,7 +9,9 @@ import Link from "next/link";
 import { getStudentOverviewData } from "@/app/actions/profileData";
 import { getStudentGoals, type Goal } from "@/app/actions/studentGoals";
 import { getSnapshotFlags, type SupportFlag } from "@/app/actions/supportFlags";
-import { getCurriculumEnrollments, getAssessments, getAcademicPlanSummary, getActiveInterventionSummary, type CurriculumEnrollment, type Assessment, type AcademicPlanEntry } from "@/app/actions/academics";
+import { getCurriculumEnrollments, getAcademicPlanSummary, getActiveInterventionSummary, type CurriculumEnrollment, type AcademicPlanEntry } from "@/app/actions/academics";
+import { getAssessmentSnapshot } from "@/app/actions/assessments";
+import { SUBJECT_LABELS } from "@/lib/academics-constants";
 import { getSSPSummary } from "@/app/actions/successPlanActions";
 import type { StudentProfileData } from "../types";
 import { cn } from "@/lib/utils";
@@ -62,8 +64,8 @@ export function OverviewTab({ studentId, data }: Props) {
   const [overview, setOverview]         = useState<Awaited<ReturnType<typeof getStudentOverviewData>>>(null);
   const [goals, setGoals]               = useState<Goal[]>([]);
   const [snapshotFlags, setSnapshotFlags] = useState<SupportFlag[]>([]);
-  const [curricula, setCurricula]       = useState<CurriculumEnrollment[]>([]);
-  const [latestAssessment, setLatestAssessment] = useState<Assessment | null>(null);
+  const [curricula, setCurricula]         = useState<CurriculumEnrollment[]>([]);
+  const [assessSnap, setAssessSnap]       = useState<Awaited<ReturnType<typeof getAssessmentSnapshot>> | null>(null);
   const [sspSummary, setSSPSummary]       = useState<Awaited<ReturnType<typeof getSSPSummary>>>(null);
   const [academicPlan, setAcademicPlan]   = useState<AcademicPlanEntry[]>([]);
   const [interventions, setInterventions] = useState<Awaited<ReturnType<typeof getActiveInterventionSummary>>>([]);
@@ -75,16 +77,16 @@ export function OverviewTab({ studentId, data }: Props) {
       getStudentGoals(studentId),
       getSnapshotFlags(studentId),
       getCurriculumEnrollments(studentId),
-      getAssessments(studentId),
+      getAssessmentSnapshot(studentId),
       getSSPSummary(studentId),
       getAcademicPlanSummary(studentId),
       getActiveInterventionSummary(studentId),
-    ]).then(([overviewData, goalsData, flagsData, currData, assessData, sspData, planData, iData]) => {
+    ]).then(([overviewData, goalsData, flagsData, currData, snapData, sspData, planData, iData]) => {
       setOverview(overviewData);
       setGoals(goalsData.filter((g) => g.status === "active"));
       setSnapshotFlags(flagsData);
       setCurricula(currData.filter((c) => c.status === "active"));
-      setLatestAssessment(assessData[0] ?? null);
+      setAssessSnap(snapData);
       setSSPSummary(sspData);
       setAcademicPlan(planData);
       setInterventions(iData);
@@ -95,15 +97,6 @@ export function OverviewTab({ studentId, data }: Props) {
   const hasEmergencyMed = data.medication_alerts.some((m) => m.is_emergency);
   const hasAllergies    = data.allergies.length > 0;
   const hasMedicalNotes = !!data.medical_notes;
-
-  // ── PERF_CFG for assessments (subset) ──────────────────
-  const PERF_CLR: Record<string, string> = {
-    advanced:   "text-sc-green",
-    proficient: "text-sc-teal",
-    approaching:"text-sc-gold-600",
-    below:      "text-sc-rose",
-    far_below:  "text-sc-rose-700",
-  };
 
   return (
     <div className="space-y-6">
@@ -123,13 +116,11 @@ export function OverviewTab({ studentId, data }: Props) {
             <SnapshotCard label="Goals" value={goals.length > 0 ? `${goals.length} active` : "None"} href={`?tab=goals`} />
             {/* Scholarship */}
             <SnapshotCard label="Scholarship" value={(data.scholarship_info as { type?: string } | null)?.type ?? "—"} />
-            {/* Latest assessment */}
+            {/* Assessments */}
             <SnapshotCard
-              label="Last Assessment"
-              value={latestAssessment
-                ? (latestAssessment.score_pct != null ? `${Math.round(latestAssessment.score_pct)}%` : latestAssessment.performance_level?.replace("_", " ") ?? "On file")
-                : "None"}
-              valueClass={latestAssessment?.performance_level ? PERF_CLR[latestAssessment.performance_level] : ""}
+              label="Assessments"
+              value={assessSnap ? (assessSnap.totalCount > 0 ? `${assessSnap.totalCount} on file` : "None") : "—"}
+              href={`?tab=assessments`}
             />
           </div>
         </div>
@@ -295,28 +286,45 @@ export function OverviewTab({ studentId, data }: Props) {
         </div>
       )}
 
-      {/* ── Latest assessment strip ───────────────────────────── */}
-      {latestAssessment && (
+      {/* ── Assessment summary card ───────────────────────────── */}
+      {assessSnap && assessSnap.totalCount > 0 && (
         <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3">
             <h3 className="text-label-md font-semibold text-sc-navy flex items-center gap-2">
-              <ClipboardList className="size-4 text-sc-teal" /> Most Recent Assessment
+              <ClipboardList className="size-4 text-sc-teal" /> Assessment Summary
             </h3>
-            <Link href={`?tab=academics`} className="text-label-sm text-sc-teal hover:underline">View all →</Link>
+            <Link href={`?tab=assessments`} className="text-label-sm text-sc-teal hover:underline">View all →</Link>
           </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-label-sm">
-            <span className="font-semibold text-sc-navy capitalize">{latestAssessment.subject}</span>
-            <span className="text-sc-gray">·</span>
-            <span className="text-sc-gray">{latestAssessment.assessment_name}</span>
-            <span className="text-sc-gray">·</span>
-            <span className="text-sc-gray">{new Date(latestAssessment.assessment_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
-            {latestAssessment.score_pct != null && (
-              <><span className="text-sc-gray">·</span><span className="font-semibold text-sc-navy">{Math.round(latestAssessment.score_pct)}%</span></>
-            )}
-            {latestAssessment.performance_level && (
-              <span className={cn("font-medium capitalize", PERF_CLR[latestAssessment.performance_level] ?? "text-sc-gray")}>
-                {latestAssessment.performance_level.replace("_", " ")}
+          <div className="space-y-2 text-label-sm">
+            <div className="flex gap-4 flex-wrap">
+              <span className="text-sc-gray">
+                <span className="font-semibold text-sc-navy">{assessSnap.totalCount}</span> total
               </span>
+              {assessSnap.latestDate && (
+                <span className="text-sc-gray">
+                  Last: <span className="text-sc-navy">{new Date(assessSnap.latestDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                </span>
+              )}
+              {assessSnap.subjectsAssessed.length > 0 && (
+                <span className="text-sc-gray">
+                  Subjects: <span className="text-sc-navy">{assessSnap.subjectsAssessed.map((s) => SUBJECT_LABELS[s as keyof typeof SUBJECT_LABELS] ?? s).join(", ")}</span>
+                </span>
+              )}
+            </div>
+            {assessSnap.needsSupport.length > 0 && (
+              <div className="rounded-lg bg-sc-rose-50 border border-sc-rose-100 px-3 py-2">
+                <p className="font-semibold text-sc-rose-700 mb-1">Needs Support</p>
+                {assessSnap.needsSupport.map((n) => (
+                  <p key={n.subject} className="text-sc-rose-700">
+                    {SUBJECT_LABELS[n.subject as keyof typeof SUBJECT_LABELS] ?? n.subject} — {n.level.replace(/_/g, " ")}
+                  </p>
+                ))}
+              </div>
+            )}
+            {assessSnap.missingBOY.length > 0 && (
+              <p className="text-sc-gold-700">
+                ⚠ Missing BOY assessment: {assessSnap.missingBOY.map((s) => SUBJECT_LABELS[s as keyof typeof SUBJECT_LABELS] ?? s).join(", ")}
+              </p>
             )}
           </div>
         </div>

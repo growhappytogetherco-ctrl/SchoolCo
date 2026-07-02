@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, HeartPulse, CalendarCheck, StickyNote,
   AlertOctagon, FolderOpen, Award, Briefcase, Users,
-  ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList,
+  ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList, BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudentProfileData, TabId } from "./types";
@@ -23,18 +23,19 @@ import { FamilyTab }          from "./tabs/FamilyTab";
 import { GoalsTab }                 from "./tabs/GoalsTab";
 import { SupportTab }               from "./tabs/SupportTab";
 import { AcademicsTab }             from "./tabs/AcademicsTab";
+import { AssessmentsTab }           from "./tabs/AssessmentsTab";
 import { StudentSuccessPlanTab }    from "./tabs/StudentSuccessPlanTab";
 
 // ── Role visibility ────────────────────────────────────────────
 // Tabs hidden from volunteers — they can only see safety-relevant info.
 const VOLUNTEER_HIDDEN_TABS: TabId[] = [
   "notes", "incidents", "documents", "support", "academics",
-  "leadership", "entrepreneurship", "family", "plan",
+  "assessments", "leadership", "entrepreneurship", "family", "plan",
 ];
 
 // Tabs hidden from parents (they use the portal, but just in case)
 const PARENT_HIDDEN_TABS: TabId[] = [
-  "notes", "support", "incidents", "documents", "plan",
+  "notes", "support", "incidents", "documents", "assessments", "plan",
 ];
 
 function getHiddenTabs(role: string): TabId[] {
@@ -48,13 +49,14 @@ function getHiddenTabs(role: string): TabId[] {
 // ROW 2: reference/deep-dive tabs (5)
 
 const ROW1_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
-  { id: "overview",   label: "Snapshot",   Icon: LayoutDashboard },
-  { id: "goals",      label: "Goals",      Icon: Target          },
-  { id: "support",    label: "Support",    Icon: ShieldAlert     },
-  { id: "academics",  label: "Academics",  Icon: BookOpen        },
-  { id: "medical",    label: "Medical",    Icon: HeartPulse      },
-  { id: "attendance", label: "Attendance", Icon: CalendarCheck   },
-  { id: "notes",      label: "Notes",      Icon: StickyNote      },
+  { id: "overview",     label: "Snapshot",    Icon: LayoutDashboard },
+  { id: "goals",        label: "Goals",       Icon: Target          },
+  { id: "support",      label: "Support",     Icon: ShieldAlert     },
+  { id: "academics",    label: "Academics",   Icon: BookOpen        },
+  { id: "assessments",  label: "Assessments", Icon: BarChart2       },
+  { id: "medical",      label: "Medical",     Icon: HeartPulse      },
+  { id: "attendance",   label: "Attendance",  Icon: CalendarCheck   },
+  { id: "notes",        label: "Notes",       Icon: StickyNote      },
 ];
 
 const ROW2_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
@@ -271,6 +273,7 @@ export function StudentProfile({
         {activeTab === "goals"            && <GoalsTab            studentId={data.id} />}
         {activeTab === "support"          && <SupportTab          studentId={data.id} />}
         {activeTab === "academics"        && <AcademicsTab        studentId={data.id} isAdmin={isAdmin} />}
+        {activeTab === "assessments"      && <AssessmentsTab      studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} />}
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} />}
