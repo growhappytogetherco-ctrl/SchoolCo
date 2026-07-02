@@ -14,7 +14,8 @@ export type TabId =
   | "entrepreneurship"
   | "family"
   | "plan"
-  | "assessments";
+  | "assessments"
+  | "progress";
 
 export interface MedicationAlert {
   id: string;

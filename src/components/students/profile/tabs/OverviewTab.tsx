@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   CalendarDays, Phone, ShieldAlert, AlertTriangle, Users,
-  BookOpen, Trophy, Clock, CheckCircle, Target, ClipboardList, Pin,
+  BookOpen, Trophy, Clock, CheckCircle, Target, ClipboardList, Pin, TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
 import { getStudentOverviewData } from "@/app/actions/profileData";
@@ -11,6 +11,7 @@ import { getStudentGoals, type Goal } from "@/app/actions/studentGoals";
 import { getSnapshotFlags, type SupportFlag } from "@/app/actions/supportFlags";
 import { getCurriculumEnrollments, getAcademicPlanSummary, getActiveInterventionSummary, type CurriculumEnrollment, type AcademicPlanEntry } from "@/app/actions/academics";
 import { getAssessmentSnapshot } from "@/app/actions/assessments";
+import { getProgressSnapshot } from "@/app/actions/progressHistory";
 import { SUBJECT_LABELS } from "@/lib/academics-constants";
 import { getSSPSummary } from "@/app/actions/successPlanActions";
 import type { StudentProfileData } from "../types";
@@ -66,6 +67,7 @@ export function OverviewTab({ studentId, data }: Props) {
   const [snapshotFlags, setSnapshotFlags] = useState<SupportFlag[]>([]);
   const [curricula, setCurricula]         = useState<CurriculumEnrollment[]>([]);
   const [assessSnap, setAssessSnap]       = useState<Awaited<ReturnType<typeof getAssessmentSnapshot>> | null>(null);
+  const [progressSnap, setProgressSnap]   = useState<Awaited<ReturnType<typeof getProgressSnapshot>> | null>(null);
   const [sspSummary, setSSPSummary]       = useState<Awaited<ReturnType<typeof getSSPSummary>>>(null);
   const [academicPlan, setAcademicPlan]   = useState<AcademicPlanEntry[]>([]);
   const [interventions, setInterventions] = useState<Awaited<ReturnType<typeof getActiveInterventionSummary>>>([]);
@@ -81,7 +83,8 @@ export function OverviewTab({ studentId, data }: Props) {
       getSSPSummary(studentId),
       getAcademicPlanSummary(studentId),
       getActiveInterventionSummary(studentId),
-    ]).then(([overviewData, goalsData, flagsData, currData, snapData, sspData, planData, iData]) => {
+      getProgressSnapshot(studentId),
+    ]).then(([overviewData, goalsData, flagsData, currData, snapData, sspData, planData, iData, progSnap]) => {
       setOverview(overviewData);
       setGoals(goalsData.filter((g) => g.status === "active"));
       setSnapshotFlags(flagsData);
@@ -90,6 +93,7 @@ export function OverviewTab({ studentId, data }: Props) {
       setSSPSummary(sspData);
       setAcademicPlan(planData);
       setInterventions(iData);
+      setProgressSnap(progSnap);
       setLoading(false);
     });
   }, [studentId]);
@@ -209,6 +213,44 @@ export function OverviewTab({ studentId, data }: Props) {
                 </p>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Progress History snapshot ─────────────────────────── */}
+      {progressSnap && progressSnap.totalRecords > 0 && (
+        <div className="rounded-2xl border border-sc-navy/10 bg-white shadow-card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="flex items-center gap-2 font-serif text-heading-3 text-sc-navy">
+              <TrendingUp className="size-4 text-sc-teal" /> Progress History
+            </p>
+            <Link href={`/dashboard/students/${studentId}?tab=progress`}
+              className="text-label-sm text-sc-teal hover:text-sc-teal-700 font-medium">
+              View history →
+            </Link>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 text-center">
+              <p className="text-display-2 font-serif font-bold text-sc-teal">{progressSnap.totalRecords}</p>
+              <p className="text-label-sm text-sc-gray mt-0.5">Check-ins</p>
+            </div>
+            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 text-center">
+              <p className="text-display-2 font-serif font-bold text-sc-navy">{progressSnap.subjectCount}</p>
+              <p className="text-label-sm text-sc-gray mt-0.5">Subjects</p>
+            </div>
+            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 text-center">
+              <p className="text-label-sm text-sc-gray mb-0.5">Latest</p>
+              <p className="text-label-sm font-semibold text-sc-navy">
+                {progressSnap.latestDate
+                  ? new Date(progressSnap.latestDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                  : "—"}
+              </p>
+            </div>
+          </div>
+          {progressSnap.isStale && (
+            <p className="mt-3 text-label-sm text-sc-rose-700 font-medium flex items-center gap-1.5">
+              <AlertTriangle className="size-3.5" /> {progressSnap.stalenessMessage}
+            </p>
           )}
         </div>
       )}

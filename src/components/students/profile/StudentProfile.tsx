@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, HeartPulse, CalendarCheck, StickyNote,
   AlertOctagon, FolderOpen, Award, Briefcase, Users,
-  ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList, BarChart2,
+  ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList, BarChart2, TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudentProfileData, TabId } from "./types";
@@ -25,17 +25,18 @@ import { SupportTab }               from "./tabs/SupportTab";
 import { AcademicsTab }             from "./tabs/AcademicsTab";
 import { AssessmentsTab }           from "./tabs/AssessmentsTab";
 import { StudentSuccessPlanTab }    from "./tabs/StudentSuccessPlanTab";
+import { ProgressTab }              from "./tabs/ProgressTab";
 
 // ── Role visibility ────────────────────────────────────────────
 // Tabs hidden from volunteers — they can only see safety-relevant info.
 const VOLUNTEER_HIDDEN_TABS: TabId[] = [
   "notes", "incidents", "documents", "support", "academics",
-  "assessments", "leadership", "entrepreneurship", "family", "plan",
+  "assessments", "progress", "leadership", "entrepreneurship", "family", "plan",
 ];
 
 // Tabs hidden from parents (they use the portal, but just in case)
 const PARENT_HIDDEN_TABS: TabId[] = [
-  "notes", "support", "incidents", "documents", "assessments", "plan",
+  "notes", "support", "incidents", "documents", "assessments", "progress", "plan",
 ];
 
 function getHiddenTabs(role: string): TabId[] {
@@ -61,6 +62,7 @@ const ROW1_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
 
 const ROW2_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
   { id: "plan",             label: "Success Plan",     Icon: ClipboardList },
+  { id: "progress",         label: "Progress",         Icon: TrendingUp    },
   { id: "incidents",        label: "Incidents",        Icon: AlertOctagon  },
   { id: "documents",        label: "Documents",        Icon: FolderOpen    },
   { id: "leadership",       label: "Leadership",       Icon: Award         },
@@ -278,6 +280,7 @@ export function StudentProfile({
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} />}
         {activeTab === "plan"             && <StudentSuccessPlanTab studentId={data.id} isAdmin={isAdmin} />}
+        {activeTab === "progress"         && <ProgressTab           studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} />}
         {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} />}
         {activeTab === "leadership"       && <LeadershipTab       studentId={data.id} />}
