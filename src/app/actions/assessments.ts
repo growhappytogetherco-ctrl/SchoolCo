@@ -100,8 +100,7 @@ function toRow(payload: AssessmentPayload, orgId: string, studentId: string, use
     fluency_wpm:              payload.fluency_wpm,
     accuracy_percent:         payload.accuracy_percent,
     mastery_percent:          payload.mastery_percent,
-    notes:                    payload.notes,
-    teacher_comments:         payload.notes,   // legacy column alias
+    teacher_comments:         payload.notes,
     staff_interpretation:     payload.staff_interpretation,
     recommended_next_steps:   payload.recommended_next_steps,
     parent_visible:           payload.parent_visible,
