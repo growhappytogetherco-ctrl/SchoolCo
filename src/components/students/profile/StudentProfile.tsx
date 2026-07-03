@@ -99,6 +99,7 @@ interface Props {
   role?: string;
   alertBannerFlags?: AlertFlag[];
   pickupAlerts?: PickupAlert[];
+  hasOpenNotes?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────
@@ -108,6 +109,7 @@ export function StudentProfile({
   role = "staff",
   alertBannerFlags = [],
   pickupAlerts = [],
+  hasOpenNotes = false,
 }: Props) {
   const router = useRouter();
   const hiddenTabs = getHiddenTabs(role);
@@ -240,6 +242,7 @@ export function StudentProfile({
         data={data}
         alertBannerFlags={alertBannerFlags}
         allergies={data.allergies}
+        hasOpenNotes={hasOpenNotes}
       />
 
       {/* ── Quick actions ─────────────────────────────────────── */}
@@ -278,7 +281,7 @@ export function StudentProfile({
         {activeTab === "assessments"      && <AssessmentsTab      studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} />}
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isAdmin={isAdmin} />}
-        {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} />}
+        {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} role={role} />}
         {activeTab === "plan"             && <StudentSuccessPlanTab studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "progress"         && <ProgressTab           studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} />}

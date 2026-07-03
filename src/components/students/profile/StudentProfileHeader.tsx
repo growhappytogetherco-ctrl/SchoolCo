@@ -152,10 +152,11 @@ const BADGE_LEVEL_COLORS: Record<string, string> = {
 
 // ── Component ─────────────────────────────────────────────────
 
-export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = [] }: {
+export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = [], hasOpenNotes = false }: {
   data: StudentProfileData;
   alertBannerFlags?: AlertFlag[];
   allergies?: string[];
+  hasOpenNotes?: boolean;
 }) {
   const [showSafety, setShowSafety] = useState(false);
 
@@ -305,6 +306,14 @@ export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = 
           {(hasAllergies || hasMedicalNotes) && (
             <span className="rounded-full bg-sc-gold-100 border border-sc-gold-300 px-3 py-1 text-label-sm text-sc-gold-700 font-medium">
               Medical Notes
+            </span>
+          )}
+
+          {/* Open staff follow-up indicator */}
+          {hasOpenNotes && (
+            <span className="flex items-center gap-1 rounded-full bg-sc-rose-100 border border-sc-rose-300 px-3 py-1 text-label-sm text-sc-rose-700 font-medium">
+              <StickyNote className="size-3" />
+              Open Staff Follow-up
             </span>
           )}
         </div>

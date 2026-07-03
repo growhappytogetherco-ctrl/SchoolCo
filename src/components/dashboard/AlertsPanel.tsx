@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Target, BookOpen, ClipboardList, Pin, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, Target, BookOpen, ClipboardList, Pin, ChevronDown, ChevronUp, StickyNote } from "lucide-react";
 import { getDashboardAlerts, type StudentAlert } from "@/app/actions/academics";
+import { getNoteAlerts, type NoteAlert } from "@/app/actions/staffNotes";
 import { cn } from "@/lib/utils";
 
 const ALERT_CFG: Record<string, { Icon: React.ElementType; cls: string; border: string; label: string }> = {
@@ -14,6 +15,101 @@ const ALERT_CFG: Record<string, { Icon: React.ElementType; cls: string; border: 
 };
 
 const SEVERITY_ORDER = { high: 0, normal: 1, low: 2 };
+
+const NOTE_ALERT_CFG = {
+  urgent_open:      { cls: "text-sc-rose",    border: "border-l-sc-rose",    label: "Urgent Note"    },
+  high_open:        { cls: "text-sc-gold-600",border: "border-l-sc-gold-400",label: "High Priority"  },
+  overdue_assigned: { cls: "text-sc-rose",    border: "border-l-sc-rose",    label: "Overdue"        },
+};
+
+export function NoteAlertsPanel() {
+  const [alerts, setAlerts] = useState<NoteAlert[]>([]);
+  const [loading, setLoad]  = useState(true);
+  const [collapsed, setCol] = useState(false);
+
+  useEffect(() => {
+    getNoteAlerts().then((data) => { setAlerts(data); setLoad(false); });
+  }, []);
+
+  if (loading) return (
+    <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-5">
+      <div className="h-5 w-40 rounded-lg bg-sc-gray-100 animate-pulse mb-3" />
+      <div className="space-y-2">
+        {[1,2].map((i) => <div key={i} className="h-10 rounded-xl bg-sc-gray-50 animate-pulse" />)}
+      </div>
+    </div>
+  );
+
+  if (alerts.length === 0) return null;
+
+  const urgentCount = alerts.filter((a) => a.alert_type === "urgent_open").length;
+
+  return (
+    <div className={cn(
+      "rounded-2xl border bg-white shadow-card overflow-hidden",
+      urgentCount > 0 ? "border-sc-rose/30" : "border-sc-gray-100"
+    )}>
+      <button
+        onClick={() => setCol((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-sc-gray-50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            "flex h-9 w-9 items-center justify-center rounded-xl",
+            urgentCount > 0 ? "bg-sc-rose-50 border border-sc-rose-200" : "bg-sc-gold-50 border border-sc-gold-200"
+          )}>
+            <StickyNote className={cn("size-4", urgentCount > 0 ? "text-sc-rose" : "text-sc-gold-600")} />
+          </div>
+          <div className="text-left">
+            <p className="text-label-md font-semibold text-sc-navy">
+              {alerts.length} Note Alert{alerts.length > 1 ? "s" : ""}
+              {urgentCount > 0 && <span className="ml-2 text-sc-rose">({urgentCount} urgent)</span>}
+            </p>
+            <p className="text-label-sm text-sc-gray">High-priority and overdue staff notes</p>
+          </div>
+        </div>
+        {collapsed ? <ChevronDown className="size-4 text-sc-gray" /> : <ChevronUp className="size-4 text-sc-gray" />}
+      </button>
+
+      {!collapsed && (
+        <div className="border-t border-sc-gray-100 divide-y divide-sc-gray-50">
+          {alerts.map((alert) => {
+            const cfg = NOTE_ALERT_CFG[alert.alert_type];
+            return (
+              <Link
+                key={`${alert.note_id}`}
+                href={`/dashboard/students/${alert.student_id}?tab=notes`}
+                className={cn(
+                  "flex items-start gap-3 px-5 py-3 border-l-4 hover:bg-sc-gray-50 transition-colors",
+                  cfg.border
+                )}
+              >
+                <StickyNote className={cn("size-4 mt-0.5 shrink-0", cfg.cls)} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-label-sm font-semibold text-sc-navy">{alert.student_name}</p>
+                  <p className="text-label-sm text-sc-gray truncate">
+                    {alert.title ?? alert.body_preview}
+                    {alert.assigned_to_name && <span className="ml-1 text-sc-teal-700">→ {alert.assigned_to_name}</span>}
+                  </p>
+                </div>
+                <span className={cn(
+                  "shrink-0 text-label-sm px-2 py-0.5 rounded-full font-medium",
+                  alert.alert_type === "urgent_open"
+                    ? "bg-sc-rose-50 text-sc-rose"
+                    : alert.alert_type === "overdue_assigned"
+                    ? "bg-sc-rose-50 text-sc-rose-700"
+                    : "bg-sc-gold-50 text-sc-gold-700"
+                )}>
+                  {cfg.label}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AlertsPanel() {
   const [alerts, setAlerts] = useState<StudentAlert[]>([]);

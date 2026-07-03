@@ -10,7 +10,8 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TodaysBlessing } from "@/components/shared/TodaysBlessing";
-import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
+import { AlertsPanel, NoteAlertsPanel } from "@/components/dashboard/AlertsPanel";
+import { MyAssignedNotesCard } from "@/components/dashboard/MyAssignedNotesCard";
 import { TodaysActionsCard } from "@/components/dashboard/TodaysActionsCard";
 import { cn } from "@/lib/utils";
 
@@ -262,6 +263,12 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
 
       {/* ── Student alerts (goals, assessments, curriculum) ─── */}
       <AlertsPanel />
+
+      {/* ── Note alerts (high/urgent/overdue) ───────────────── */}
+      <NoteAlertsPanel />
+
+      {/* ── My Assigned Notes ───────────────────────────────── */}
+      <MyAssignedNotesCard />
 
       {/* ── Bottom Row: Recent incidents + Notes + Quick Actions ─ */}
       <div className="grid lg:grid-cols-3 gap-4">

@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient, getUser, getActiveOrgId, getActiveRole } from "@/lib/supabase/server";
 import { StudentProfile } from "@/components/students/profile/StudentProfile";
 import { getPinnedStrategies } from "@/app/actions/successPlanActions";
+import { getStudentNoteIndicator } from "@/app/actions/staffNotes";
 
 export default async function StudentProfilePage({
   params,
@@ -82,6 +83,9 @@ export default async function StudentProfilePage({
 
   // Pinned SSP support strategies (high/critical) for safety banner
   const pinnedStrategies = await getPinnedStrategies(params.id);
+
+  // Note indicator for student header chip
+  const hasOpenNotes = await getStudentNoteIndicator(params.id);
 
   // Custody warnings from guardians (supervised/none = alert; not authorized to pickup)
   const { data: custodyWarnings } = await supabase
@@ -177,6 +181,7 @@ export default async function StudentProfilePage({
       role={role}
       alertBannerFlags={alertBannerFlags}
       pickupAlerts={pickupAlerts}
+      hasOpenNotes={hasOpenNotes}
     />
   );
 }
