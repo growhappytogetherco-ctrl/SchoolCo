@@ -217,41 +217,50 @@ export function OverviewTab({ studentId, data }: Props) {
         </div>
       )}
 
-      {/* ── Progress History snapshot ─────────────────────────── */}
+      {/* ── Teacher Progress snapshot ─────────────────────────── */}
       {progressSnap && progressSnap.totalRecords > 0 && (
         <div className="rounded-2xl border border-sc-navy/10 bg-white shadow-card p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="flex items-center gap-2 font-serif text-heading-3 text-sc-navy">
-              <TrendingUp className="size-4 text-sc-teal" /> Progress History
+              <TrendingUp className="size-4 text-sc-teal" /> Teacher Progress
             </p>
             <Link href={`/dashboard/students/${studentId}?tab=progress`}
               className="text-label-sm text-sc-teal hover:text-sc-teal-700 font-medium">
-              View history →
+              View Progress →
             </Link>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 text-center">
-              <p className="text-display-2 font-serif font-bold text-sc-teal">{progressSnap.totalRecords}</p>
-              <p className="text-label-sm text-sc-gray mt-0.5">Check-ins</p>
-            </div>
-            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 text-center">
-              <p className="text-display-2 font-serif font-bold text-sc-navy">{progressSnap.subjectCount}</p>
-              <p className="text-label-sm text-sc-gray mt-0.5">Subjects</p>
-            </div>
-            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 text-center">
-              <p className="text-label-sm text-sc-gray mb-0.5">Latest</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5">
+              <p className="text-label-sm text-sc-gray mb-0.5">Last Check-in</p>
               <p className="text-label-sm font-semibold text-sc-navy">
-                {progressSnap.latestDate
-                  ? new Date(progressSnap.latestDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                {progressSnap.lastCheckInDate
+                  ? new Date(progressSnap.lastCheckInDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
                   : "—"}
               </p>
             </div>
+            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5">
+              <p className="text-label-sm text-sc-gray mb-0.5">Last Subject</p>
+              <p className="text-label-sm font-semibold text-sc-navy">{progressSnap.lastSubject ?? "—"}</p>
+            </div>
+            <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5">
+              <p className="text-label-sm text-sc-gray mb-0.5">Staff</p>
+              <p className="text-label-sm font-semibold text-sc-navy truncate">{progressSnap.lastStaffName ?? "—"}</p>
+            </div>
+            <div className={cn(
+              "rounded-xl border px-3 py-2.5",
+              progressSnap.openFollowUps > 0
+                ? "border-sc-gold-200 bg-sc-gold-50"
+                : "border-sc-gray-100 bg-sc-gray-50"
+            )}>
+              <p className="text-label-sm text-sc-gray mb-0.5">Open Follow-ups</p>
+              <p className={cn(
+                "text-label-sm font-semibold",
+                progressSnap.openFollowUps > 0 ? "text-sc-gold-700" : "text-sc-navy"
+              )}>
+                {progressSnap.openFollowUps > 0 ? `${progressSnap.openFollowUps} open` : "None"}
+              </p>
+            </div>
           </div>
-          {progressSnap.isStale && (
-            <p className="mt-3 text-label-sm text-sc-rose-700 font-medium flex items-center gap-1.5">
-              <AlertTriangle className="size-3.5" /> {progressSnap.stalenessMessage}
-            </p>
-          )}
         </div>
       )}
 
