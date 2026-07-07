@@ -60,7 +60,7 @@ export default function ScanPage() {
       }
 
       const payload = await res.json();
-      const { student, today_record, medication_alerts } = payload;
+      const { student, today_record, medication_alerts, allergy_details } = payload;
 
       // 2. Determine and execute the correct action automatically
       const now = new Date().toISOString();
@@ -116,6 +116,7 @@ export default function ScanPage() {
           timestamp: now,
           medicationAlerts: medication_alerts ?? [],
           allergies: student.allergies ?? [],
+          allergyDetails: allergy_details ?? [],
         },
       });
 

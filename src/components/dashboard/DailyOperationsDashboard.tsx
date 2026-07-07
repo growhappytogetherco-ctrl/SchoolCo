@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TodaysBlessing } from "@/components/shared/TodaysBlessing";
 import { AlertsPanel, NoteAlertsPanel } from "@/components/dashboard/AlertsPanel";
+import { MedicalAlertsPanel } from "@/components/dashboard/MedicalAlertsPanel";
 import { MyAssignedNotesCard } from "@/components/dashboard/MyAssignedNotesCard";
 import { TodaysActionsCard } from "@/components/dashboard/TodaysActionsCard";
 import { cn } from "@/lib/utils";
@@ -266,6 +267,9 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
 
       {/* ── Note alerts (high/urgent/overdue) ───────────────── */}
       <NoteAlertsPanel />
+
+      {/* ── Medical alerts (life-threatening allergies, emergency meds/conditions) ─ */}
+      <MedicalAlertsPanel />
 
       {/* ── My Assigned Notes ───────────────────────────────── */}
       <MyAssignedNotesCard />

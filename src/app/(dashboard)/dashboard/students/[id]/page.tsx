@@ -87,6 +87,16 @@ export default async function StudentProfilePage({
   // Note indicator for student header chip
   const hasOpenNotes = await getStudentNoteIndicator(params.id);
 
+  // Severe/life-threatening allergies from structured table
+  const { data: severeAllergies } = await supabase
+    .from("student_allergies")
+    .select("allergy_name, severity, emergency_medication_required")
+    .eq("student_id", params.id)
+    .eq("organization_id", orgId)
+    .in("severity", ["severe", "life_threatening"])
+    .eq("is_active", true)
+    .is("archived_at", null);
+
   // Custody warnings from guardians (supervised/none = alert; not authorized to pickup)
   const { data: custodyWarnings } = await supabase
     .from("guardianships")
@@ -143,7 +153,19 @@ export default async function StudentProfilePage({
     drive_folder_url: student.google_drive_folder_url as string | null,
   };
 
+  // Merge severe allergies into alert banner flags
+  const allergyFlags = (severeAllergies ?? []).map((a) => ({
+    id: `allergy-${a.allergy_name}`,
+    title: a.severity === "life_threatening"
+      ? `LIFE-THREATENING ALLERGY: ${a.allergy_name}${a.emergency_medication_required ? " — Emergency medication required" : ""}`
+      : `Severe allergy: ${a.allergy_name}`,
+    priority: (a.severity === "life_threatening" ? "critical" : "high") as "high" | "critical",
+    category: "medical",
+    color: "rose",
+  }));
+
   const alertBannerFlags = [
+    ...allergyFlags,
     ...(criticalFlags ?? []).map((f) => ({
       id: f.id as string,
       title: f.title as string,

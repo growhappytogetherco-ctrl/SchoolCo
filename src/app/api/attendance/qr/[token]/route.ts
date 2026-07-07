@@ -68,6 +68,16 @@ export async function GET(
     .eq("student_id", student.id)
     .eq("is_active", true);
 
+  // Structured severe/life-threatening allergies
+  const { data: allergyDetails } = await supabase
+    .from("student_allergies")
+    .select("id, allergy_name, severity, emergency_medication_required, reaction")
+    .eq("student_id", student.id)
+    .eq("organization_id", orgId)
+    .in("severity", ["severe", "life_threatening"])
+    .eq("is_active", true)
+    .is("archived_at", null);
+
   return NextResponse.json({
     student: {
       id: student.id,
@@ -81,5 +91,6 @@ export async function GET(
     },
     today_record: record ?? null,
     medication_alerts: medAlerts ?? [],
+    allergy_details: allergyDetails ?? [],
   });
 }

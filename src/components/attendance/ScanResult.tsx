@@ -28,6 +28,13 @@ export interface ScanResultData {
     is_emergency: boolean;
   }[];
   allergies: string[];
+  allergyDetails?: {
+    id: string;
+    allergy_name: string;
+    severity: "mild" | "moderate" | "severe" | "life_threatening";
+    emergency_medication_required: boolean;
+    reaction: string | null;
+  }[];
 }
 
 interface ScanResultProps {
@@ -42,7 +49,7 @@ export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProp
   const {
     action, studentId, firstName, lastName, preferredName,
     gradeLevel, isLate, isEarlyPickup, timestamp,
-    medicationAlerts, allergies,
+    medicationAlerts, allergies, allergyDetails = [],
   } = data;
 
   const [undoState, setUndoState] = useState<"idle" | "confirm" | "loading" | "done" | "error">("idle");
@@ -58,7 +65,8 @@ export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProp
   });
 
   const hasEmergencyMed = medicationAlerts.some((m) => m.is_emergency);
-  const hasMedical = medicationAlerts.length > 0 || allergies.length > 0;
+  const hasLifeThreateningAllergy = allergyDetails.some((a) => a.severity === "life_threatening");
+  const hasMedical = medicationAlerts.length > 0 || allergies.length > 0 || allergyDetails.length > 0;
 
   // Auto-reset after delay; pauses while admin override is open
   useEffect(() => {
@@ -214,6 +222,22 @@ export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProp
         </div>
       </div>
 
+      {/* ── Life-threatening allergy banner ──────────────────────────── */}
+      {hasLifeThreateningAllergy && (
+        <div className="rounded-xl border-2 border-sc-rose bg-sc-rose-50 px-4 py-3 flex items-start gap-3">
+          <ShieldAlert className="size-5 text-sc-rose shrink-0 mt-0.5" />
+          <div className="text-label-sm text-sc-rose-800">
+            <p className="font-bold uppercase tracking-wide mb-1">Life-Threatening Allergy</p>
+            {allergyDetails.filter((a) => a.severity === "life_threatening").map((a) => (
+              <p key={a.id}>
+                {a.allergy_name}
+                {a.emergency_medication_required && " — Emergency medication required"}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Non-emergency medical info ─────────────────────────────── */}
       {hasMedical && !hasEmergencyMed && (
         <div className="rounded-xl border-2 border-sc-gold-300 bg-sc-gold-50 px-4 py-3 flex items-start gap-3">
@@ -222,7 +246,10 @@ export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProp
             : <Pill className="size-5 text-sc-gold-600 shrink-0 mt-0.5" />
           }
           <div className="text-label-sm text-sc-gold-800">
-            {allergies.length > 0 && (
+            {allergyDetails.filter((a) => a.severity === "severe").map((a) => (
+              <p key={a.id}><span className="font-semibold">Severe allergy:</span> {a.allergy_name}</p>
+            ))}
+            {allergies.length > 0 && allergyDetails.length === 0 && (
               <p><span className="font-semibold">Allergies:</span> {allergies.join(", ")}</p>
             )}
             {medicationAlerts.map((m) => (
