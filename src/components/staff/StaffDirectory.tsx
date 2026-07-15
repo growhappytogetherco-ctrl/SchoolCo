@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect } from "react";
 import Link from "next/link";
 import {
   Search, Plus, UserX, UserCheck, ChevronRight,
@@ -10,6 +10,10 @@ import {
   setStaffStatus, createStaffMember, importStaffRows,
   type StaffRosterRow, type BgStatus, type StaffPayload,
 } from "@/app/actions/staffActions";
+import {
+  getComplianceCountsForDirectory,
+  type StaffComplianceSummary,
+} from "@/app/actions/staffComplianceActions";
 import { ROLE_LABELS, ADMIN_ROLES, type UserRole } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
@@ -446,9 +450,24 @@ function mapCSVRow(raw: Record<string, string>): MappedStaffRow {
 
 // ── Staff Row ─────────────────────────────────────────────────────────────
 
-function StaffRow({ member, canManage, onStatusChange }: {
+function ComplianceBadge({ summary }: { summary?: StaffComplianceSummary }) {
+  if (!summary) return null;
+  const { overall_status, expired, expiring_soon } = summary;
+  if (overall_status === "compliant")
+    return <span className="rounded-full bg-sc-teal-50 text-sc-teal-700 border border-sc-teal-200 px-2 py-0.5 text-[10px] font-medium">Compliant</span>;
+  if (overall_status === "action_required")
+    return <span className="rounded-full bg-sc-rose-50 text-sc-rose-700 border border-sc-rose-200 px-2 py-0.5 text-[10px] font-medium">{expired} Expired</span>;
+  if (overall_status === "expiring_soon")
+    return <span className="rounded-full bg-sc-gold-50 text-sc-gold-700 border border-sc-gold-200 px-2 py-0.5 text-[10px] font-medium">{expiring_soon} Expiring</span>;
+  if (overall_status === "missing")
+    return <span className="rounded-full bg-sc-gray-100 text-sc-gray-600 border border-sc-gray-200 px-2 py-0.5 text-[10px] font-medium">Missing Items</span>;
+  return null;
+}
+
+function StaffRow({ member, canManage, complianceSummary, onStatusChange }: {
   member: StaffRosterRow;
   canManage: boolean;
+  complianceSummary?: StaffComplianceSummary;
   onStatusChange: (id: string, s: "active" | "inactive" | "suspended") => void;
 }) {
   const bgCfg  = BG_STATUS_CONFIG[member.background_check_status];
@@ -502,6 +521,10 @@ function StaffRow({ member, canManage, onStatusChange }: {
         <span className={cn("text-label-sm", bgCfg.cls)}>{bgCfg.label}</span>
       </div>
 
+      <div className="hidden lg:flex items-center min-w-[110px]">
+        <ComplianceBadge summary={complianceSummary} />
+      </div>
+
       <div className="flex items-center gap-1 shrink-0">
         {canManage && (
           member.status === "active" ? (
@@ -540,8 +563,18 @@ export function StaffDirectory({ initialMembers, currentRole }: {
   const [filterRole, setFilterRole]   = useState("all");
   const [filterStatus, setFilterStatus] = useState("active");
   const [filterBg, setFilterBg]       = useState("all");
+  const [filterCompliance, setFilterCompliance] = useState<"" | "compliant" | "expiring_soon" | "expired" | "missing">("");
+  const [complianceCounts, setComplianceCounts] = useState<Map<string, StaffComplianceSummary>>(new Map());
 
   const canManage = ADMIN_ROLES.includes(currentRole as UserRole);
+
+  useEffect(() => {
+    if (!canManage) return;
+    getComplianceCountsForDirectory().then((rows) => {
+      const m = new Map(rows.map((r) => [r.staff_id, r.summary]));
+      setComplianceCounts(m);
+    });
+  }, [canManage]);
 
   function flash(msg: string, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), 3500); }
 
@@ -558,6 +591,20 @@ export function StaffDirectory({ initialMembers, currentRole }: {
     if (filterStatus !== "all" && m.status !== filterStatus) return false;
     if (filterRole   !== "all" && m.primary_role !== filterRole) return false;
     if (filterBg     !== "all" && m.background_check_status !== filterBg) return false;
+    if (filterCompliance) {
+      const cs = complianceCounts.get(m.id);
+      if (!cs) {
+        if (filterCompliance !== "missing") return false;
+      } else {
+        const map: Record<string, string> = {
+          compliant: "compliant",
+          expiring_soon: "expiring_soon",
+          expired: "action_required",
+          missing: "missing",
+        };
+        if (cs.overall_status !== map[filterCompliance]) return false;
+      }
+    }
     if (search) {
       const q = search.toLowerCase();
       if (!m.full_name.toLowerCase().includes(q) &&
@@ -565,7 +612,7 @@ export function StaffDirectory({ initialMembers, currentRole }: {
           !(m.display_title ?? "").toLowerCase().includes(q)) return false;
     }
     return true;
-  }), [members, search, filterRole, filterStatus, filterBg]);
+  }), [members, search, filterRole, filterStatus, filterBg, filterCompliance, complianceCounts]);
 
   return (
     <div className="space-y-5">
@@ -602,13 +649,23 @@ export function StaffDirectory({ initialMembers, currentRole }: {
           </select>
           <select value={filterBg} onChange={(e) => setFilterBg(e.target.value)}
             className="rounded-lg border border-sc-gray-200 px-2.5 py-2 text-label-sm text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal">
-            <option value="all">All Compliance</option>
+            <option value="all">All BG Status</option>
             <option value="cleared">BG Cleared</option>
             <option value="pending">BG Pending</option>
             <option value="expired">BG Expired</option>
             <option value="not_submitted">Not Submitted</option>
             <option value="flagged">Flagged</option>
           </select>
+          {canManage && (
+            <select value={filterCompliance} onChange={(e) => setFilterCompliance(e.target.value as typeof filterCompliance)}
+              className="rounded-lg border border-sc-gray-200 px-2.5 py-2 text-label-sm text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal">
+              <option value="">All Compliance</option>
+              <option value="compliant">Compliant</option>
+              <option value="expiring_soon">Expiring Soon</option>
+              <option value="expired">Has Expired</option>
+              <option value="missing">Missing Items</option>
+            </select>
+          )}
         </div>
 
         {canManage && (
@@ -645,7 +702,9 @@ export function StaffDirectory({ initialMembers, currentRole }: {
         ) : (
           <div className="divide-y divide-sc-gray-50">
             {filtered.map((m) => (
-              <StaffRow key={m.id} member={m} canManage={canManage} onStatusChange={handleStatusChange} />
+              <StaffRow key={m.id} member={m} canManage={canManage}
+                complianceSummary={complianceCounts.get(m.id)}
+                onStatusChange={handleStatusChange} />
             ))}
           </div>
         )}

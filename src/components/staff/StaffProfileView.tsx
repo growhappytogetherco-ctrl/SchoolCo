@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/staffActions";
 import { ROLE_LABELS, ADMIN_ROLES, type UserRole } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { ComplianceSection } from "./ComplianceSection";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -475,10 +476,10 @@ export function StaffProfileView({ member: init, currentRole }: {
         {member.bio && <p className="mt-4 pt-4 border-t border-sc-gray-100 text-body-sm text-sc-gray">{member.bio}</p>}
       </div>
 
-      {/* Compliance */}
+      {/* Compliance — legacy flat fields */}
       <div>
         <h2 className="font-serif text-heading-3 text-sc-navy mb-3 flex items-center gap-2">
-          <Shield className="size-5 text-sc-gray-400" /> Compliance Status
+          <Shield className="size-5 text-sc-gray-400" /> Compliance Status (Legacy)
         </h2>
         <div className="grid sm:grid-cols-3 gap-3">
           <ComplianceRow icon={BgIcon} label="Background Screening"
@@ -492,6 +493,18 @@ export function StaffProfileView({ member: init, currentRole }: {
             status={CPR_CFG[member.cpr_status].label} statusCls={CPR_CFG[member.cpr_status].cls}
             alert={CPR_CFG[member.cpr_status].alert} expires={member.cpr_expires_at} />
         </div>
+      </div>
+
+      {/* Compliance — normalized records */}
+      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-5">
+        <h2 className="font-serif text-heading-3 text-sc-navy mb-4 flex items-center gap-2">
+          <Shield className="size-5 text-sc-gray-400" /> Compliance Records
+        </h2>
+        <ComplianceSection
+          staffMemberId={member.id}
+          staffType={member.staff_type}
+          isAdmin={canManage}
+        />
       </div>
 
       {/* Emergency contact */}

@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { TodaysBlessing } from "@/components/shared/TodaysBlessing";
 import { AlertsPanel, NoteAlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { MedicalAlertsPanel } from "@/components/dashboard/MedicalAlertsPanel";
+import { ComplianceAlertsPanel } from "@/components/dashboard/ComplianceAlertsPanel";
+import { ComplianceSummaryCard } from "@/components/dashboard/ComplianceSummaryCard";
 import { MyAssignedNotesCard } from "@/components/dashboard/MyAssignedNotesCard";
 import { TodaysActionsCard } from "@/components/dashboard/TodaysActionsCard";
 import { cn } from "@/lib/utils";
@@ -271,8 +273,14 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
       {/* ── Medical alerts (life-threatening allergies, emergency meds/conditions) ─ */}
       <MedicalAlertsPanel />
 
+      {/* ── Compliance alerts (expired/expiring/missing) ─────── */}
+      <ComplianceAlertsPanel />
+
       {/* ── My Assigned Notes ───────────────────────────────── */}
       <MyAssignedNotesCard />
+
+      {/* ── Compliance Summary ───────────────────────────────── */}
+      <ComplianceSummaryCard />
 
       {/* ── Bottom Row: Recent incidents + Notes + Quick Actions ─ */}
       <div className="grid lg:grid-cols-3 gap-4">
