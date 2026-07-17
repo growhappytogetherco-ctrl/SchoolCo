@@ -51,9 +51,10 @@ function AttendanceRow({ row, onUpdate }: { row: StudentAttendanceRow; onUpdate:
     ? `${row.preferred_name} ${row.last_name}`
     : `${row.first_name} ${row.last_name}`;
 
-  const isCheckedIn  = !!row.record?.check_in_at;
-  const isCheckedOut = !!row.record?.check_out_at;
-  const hasMedical   = !!(row.medical_notes || (row.allergies ?? []).length > 0);
+  const isCheckedIn       = !!row.record?.check_in_at;
+  const isCheckedOut      = !!row.record?.check_out_at;
+  const hasMedical        = !!(row.medical_notes || (row.allergies ?? []).length > 0);
+  const hasEmergencyMed   = !!row.has_emergency_medical;
 
   function act(fn: () => Promise<void>) {
     startTransition(async () => {
@@ -80,8 +81,11 @@ function AttendanceRow({ row, onUpdate }: { row: StudentAttendanceRow; onUpdate:
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-label-md font-semibold text-sc-navy truncate">{displayName}</p>
-            {hasMedical && (
-              <AlertTriangle className="size-3.5 text-sc-rose shrink-0" aria-label="Medical alert on file" />
+            {hasEmergencyMed && (
+              <AlertTriangle className="size-3.5 text-sc-rose shrink-0" aria-label="Emergency medical alert on file" />
+            )}
+            {!hasEmergencyMed && hasMedical && (
+              <AlertTriangle className="size-3.5 text-sc-gold-600 shrink-0" aria-label="Medical alert on file" />
             )}
           </div>
           {row.grade_level && (

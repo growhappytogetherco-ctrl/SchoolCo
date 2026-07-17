@@ -14,6 +14,8 @@ import { getAssessmentSnapshot } from "@/app/actions/assessments";
 import { getProgressSnapshot } from "@/app/actions/progressHistory";
 import { SUBJECT_LABELS } from "@/lib/academics-constants";
 import { getSSPSummary } from "@/app/actions/successPlanActions";
+import { getStudentAlertSummary } from "@/app/actions/studentAlerts";
+import type { StudentAlert } from "@/lib/student-alert-constants";
 import type { StudentProfileData } from "../types";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +73,7 @@ export function OverviewTab({ studentId, data }: Props) {
   const [sspSummary, setSSPSummary]       = useState<Awaited<ReturnType<typeof getSSPSummary>>>(null);
   const [academicPlan, setAcademicPlan]   = useState<AcademicPlanEntry[]>([]);
   const [interventions, setInterventions] = useState<Awaited<ReturnType<typeof getActiveInterventionSummary>>>([]);
+  const [alertSummary, setAlertSummary]   = useState<{ critical: number; high: number; informational: number; topAlert: StudentAlert | null } | null>(null);
   const [loading, setLoading]             = useState(true);
 
   useEffect(() => {
@@ -84,7 +87,8 @@ export function OverviewTab({ studentId, data }: Props) {
       getAcademicPlanSummary(studentId),
       getActiveInterventionSummary(studentId),
       getProgressSnapshot(studentId),
-    ]).then(([overviewData, goalsData, flagsData, currData, snapData, sspData, planData, iData, progSnap]) => {
+      getStudentAlertSummary(studentId),
+    ]).then(([overviewData, goalsData, flagsData, currData, snapData, sspData, planData, iData, progSnap, alertData]) => {
       setOverview(overviewData);
       setGoals(goalsData.filter((g) => g.status === "active"));
       setSnapshotFlags(flagsData);
@@ -94,6 +98,7 @@ export function OverviewTab({ studentId, data }: Props) {
       setAcademicPlan(planData);
       setInterventions(iData);
       setProgressSnap(progSnap);
+      setAlertSummary(alertData);
       setLoading(false);
     });
   }, [studentId]);
@@ -127,6 +132,91 @@ export function OverviewTab({ studentId, data }: Props) {
               href={`?tab=assessments`}
             />
           </div>
+        </div>
+      )}
+
+      {/* ── Active Alerts card ───────────────────────────────── */}
+      {alertSummary !== null && (
+        <div className={cn(
+          "rounded-2xl border p-5",
+          alertSummary.critical > 0
+            ? "border-sc-rose-300 bg-sc-rose-50"
+            : alertSummary.high > 0
+              ? "border-sc-gold-300 bg-sc-gold-50"
+              : "border-sc-teal-200 bg-sc-teal-50"
+        )}>
+          <div className="flex items-center justify-between mb-3">
+            <p className={cn(
+              "flex items-center gap-2 font-serif text-heading-3",
+              alertSummary.critical > 0 ? "text-sc-rose-800" : alertSummary.high > 0 ? "text-sc-navy" : "text-sc-teal-700"
+            )}>
+              <ShieldAlert className="size-4" /> Active Alerts
+            </p>
+            {(alertSummary.critical + alertSummary.high) > 0 && (
+              <div className="flex gap-2">
+                {alertSummary.critical > 0 && (
+                  <span className="rounded-full bg-sc-rose text-white text-label-sm font-bold px-2.5 py-0.5">
+                    {alertSummary.critical} Critical
+                  </span>
+                )}
+                {alertSummary.high > 0 && (
+                  <span className="rounded-full bg-sc-gold text-sc-navy text-label-sm font-bold px-2.5 py-0.5">
+                    {alertSummary.high} High
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          {alertSummary.critical === 0 && alertSummary.high === 0 ? (
+            <p className="flex items-center gap-2 text-label-sm text-sc-teal-700">
+              <CheckCircle className="size-4" /> No active alerts
+            </p>
+          ) : alertSummary.topAlert ? (
+            <div className="space-y-2">
+              <div className={cn(
+                "rounded-xl px-3 py-2.5 border",
+                alertSummary.topAlert.level === "critical"
+                  ? "bg-sc-rose-100 border-sc-rose-200"
+                  : "bg-sc-gold-100 border-sc-gold-200"
+              )}>
+                <p className={cn(
+                  "text-label-sm font-bold uppercase tracking-wide",
+                  alertSummary.topAlert.level === "critical" ? "text-sc-rose-800" : "text-sc-navy"
+                )}>{alertSummary.topAlert.title}</p>
+                <p className={cn(
+                  "text-label-sm mt-0.5",
+                  alertSummary.topAlert.level === "critical" ? "text-sc-rose-700" : "text-sc-navy/80"
+                )}>{alertSummary.topAlert.instruction}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {alertSummary.topAlert.source_tab === "medical" && (
+                  <Link href={`?tab=medical`} className="text-label-sm text-sc-teal font-medium hover:underline">
+                    View Medical →
+                  </Link>
+                )}
+                {alertSummary.topAlert.source_tab === "support" && (
+                  <Link href={`?tab=support`} className="text-label-sm text-sc-teal font-medium hover:underline">
+                    View Support →
+                  </Link>
+                )}
+                {alertSummary.topAlert.source_tab === "notes" && (
+                  <Link href={`?tab=notes`} className="text-label-sm text-sc-teal font-medium hover:underline">
+                    View Notes →
+                  </Link>
+                )}
+                {alertSummary.topAlert.source_tab === "family" && (
+                  <Link href={`?tab=family`} className="text-label-sm text-sc-teal font-medium hover:underline">
+                    View Family →
+                  </Link>
+                )}
+                {alertSummary.topAlert.source_tab === "incidents" && (
+                  <Link href={`?tab=incidents`} className="text-label-sm text-sc-teal font-medium hover:underline">
+                    View Incidents →
+                  </Link>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

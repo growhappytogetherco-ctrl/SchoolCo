@@ -1,8 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient, getUser, getActiveOrgId, getActiveRole } from "@/lib/supabase/server";
 import { StudentProfile } from "@/components/students/profile/StudentProfile";
-import { getPinnedStrategies } from "@/app/actions/successPlanActions";
-import { getStudentNoteIndicator } from "@/app/actions/staffNotes";
+import { getStudentSafetyAlerts } from "@/app/actions/studentAlerts";
 
 export default async function StudentProfilePage({
   params,
@@ -71,38 +70,8 @@ export default async function StudentProfilePage({
     .eq("organization_id", orgId)
     .in("status", ["active", "pitching"]);
 
-  // High/critical support flags — shown in alert banner (snapshot-eligible)
-  const { data: criticalFlags } = await supabase
-    .from("support_flags")
-    .select("id, title, priority, category, color, show_on_snapshot")
-    .eq("student_id", params.id)
-    .eq("organization_id", orgId)
-    .in("priority", ["high", "critical"])
-    .or(`expires_at.is.null,expires_at.gte.${today}`)
-    .order("priority", { ascending: false });
-
-  // Pinned SSP support strategies (high/critical) for safety banner
-  const pinnedStrategies = await getPinnedStrategies(params.id);
-
-  // Note indicator for student header chip
-  const hasOpenNotes = await getStudentNoteIndicator(params.id);
-
-  // Severe/life-threatening allergies from structured table
-  const { data: severeAllergies } = await supabase
-    .from("student_allergies")
-    .select("allergy_name, severity, emergency_medication_required")
-    .eq("student_id", params.id)
-    .eq("organization_id", orgId)
-    .in("severity", ["severe", "life_threatening"])
-    .eq("is_active", true)
-    .is("archived_at", null);
-
-  // Custody warnings from guardians (supervised/none = alert; not authorized to pickup)
-  const { data: custodyWarnings } = await supabase
-    .from("guardianships")
-    .select("custody_type, can_pickup, pickup_restrictions, profiles:profile_id ( full_name )")
-    .eq("student_id", params.id)
-    .in("custody_type", ["supervised", "none"]);
+  // Consolidated student alerts (replaces scattered queries for allergies, flags, SSP, notes)
+  const studentAlerts = await getStudentSafetyAlerts(params.id, role);
 
   // Derive top leadership level from badge set
   const BADGE_RANK = ["platinum", "gold", "silver", "bronze"];
@@ -153,46 +122,29 @@ export default async function StudentProfilePage({
     drive_folder_url: student.google_drive_folder_url as string | null,
   };
 
-  // Merge severe allergies into alert banner flags
-  const allergyFlags = (severeAllergies ?? []).map((a) => ({
-    id: `allergy-${a.allergy_name}`,
-    title: a.severity === "life_threatening"
-      ? `LIFE-THREATENING ALLERGY: ${a.allergy_name}${a.emergency_medication_required ? " — Emergency medication required" : ""}`
-      : `Severe allergy: ${a.allergy_name}`,
-    priority: (a.severity === "life_threatening" ? "critical" : "high") as "high" | "critical",
-    category: "medical",
-    color: "rose",
-  }));
+  // Build alertBannerFlags for backward compat with StudentProfileHeader
+  const alertBannerFlags = studentAlerts
+    .filter((a) => a.level !== "informational")
+    .map((a) => ({
+      id: a.id,
+      title: `${a.title}: ${a.instruction}`,
+      priority: (a.level === "critical" ? "critical" : "high") as "high" | "critical",
+      category: a.category as string,
+      color: a.level === "critical" ? "rose" : "gold",
+    }));
 
-  const alertBannerFlags = [
-    ...allergyFlags,
-    ...(criticalFlags ?? []).map((f) => ({
-      id: f.id as string,
-      title: f.title as string,
-      priority: f.priority as "high" | "critical",
-      category: f.category as string,
-      color: f.color as string,
-    })),
-    // Merge pinned SSP support strategies into the banner
-    ...pinnedStrategies.map((s) => ({
-      id: `ssp-${s.id}`,
-      title: s.title,
-      priority: s.priority as "high" | "critical",
-      category: "strategy",
-      color: s.priority === "critical" ? "rose" : "gold",
-    })),
-  ];
+  // Build pickupAlerts for backward compat with StudentProfile pickup banner
+  const pickupAlerts = studentAlerts
+    .filter((a) => a.category === "pickup")
+    .map((a) => ({
+      guardian_name: "",
+      custody_type: a.level === "critical" ? "none" : "supervised",
+      can_pickup: a.level !== "critical",
+      pickup_restrictions: a.instruction,
+    }));
 
-  const pickupAlerts = (custodyWarnings ?? []).map((g) => {
-    const row = g as Record<string, unknown>;
-    const prof = row.profiles as { full_name: string } | null;
-    return {
-      guardian_name: prof?.full_name ?? "Guardian",
-      custody_type: row.custody_type as string,
-      can_pickup: row.can_pickup as boolean,
-      pickup_restrictions: row.pickup_restrictions as string | null,
-    };
-  });
+  // hasOpenNotes from consolidated alerts
+  const hasOpenNotes = studentAlerts.some((a) => a.category === "notes");
 
   return (
     <StudentProfile
@@ -204,6 +156,7 @@ export default async function StudentProfilePage({
       alertBannerFlags={alertBannerFlags}
       pickupAlerts={pickupAlerts}
       hasOpenNotes={hasOpenNotes}
+      studentAlerts={studentAlerts}
     />
   );
 }

@@ -359,6 +359,7 @@ export type StudentAttendanceRow = {
   attendance_qr_token: string | null;
   medical_notes: string | null;
   allergies: string[] | null;
+  has_emergency_medical: boolean;
   record: {
     id: string;
     status: string;
@@ -398,6 +399,29 @@ export async function getTodayAttendance(): Promise<StudentAttendanceRow[]> {
     .eq("organization_id", orgId)
     .eq("date", date);
 
+  // Emergency medical: life-threatening allergies or emergency medications
+  const studentIds = (students ?? []).map((s) => s.id);
+  const [{ data: emergencyAllergies }, { data: emergencyMeds }] = await Promise.all([
+    supabase
+      .from("student_allergies")
+      .select("student_id")
+      .in("student_id", studentIds)
+      .eq("severity", "life_threatening")
+      .eq("is_active", true)
+      .is("archived_at", null),
+    supabase
+      .from("medication_alerts")
+      .select("student_id")
+      .in("student_id", studentIds)
+      .eq("is_active", true)
+      .eq("is_emergency", true),
+  ]);
+
+  const emergencySet = new Set([
+    ...(emergencyAllergies ?? []).map((a) => a.student_id as string),
+    ...(emergencyMeds ?? []).map((m) => m.student_id as string),
+  ]);
+
   const recordMap = new Map(records?.map((r) => [r.student_id, r]) ?? []);
 
   return (students ?? []).map((s) => ({
@@ -410,6 +434,7 @@ export async function getTodayAttendance(): Promise<StudentAttendanceRow[]> {
     attendance_qr_token: s.attendance_qr_token,
     medical_notes: s.medical_notes,
     allergies: s.allergies,
+    has_emergency_medical: emergencySet.has(s.id),
     record: recordMap.get(s.id) ?? null,
   }));
 }

@@ -35,6 +35,11 @@ export interface ScanResultData {
     emergency_medication_required: boolean;
     reaction: string | null;
   }[];
+  alertSummary?: {
+    critical: number;
+    high: number;
+    alerts: { level: string; title: string; instruction: string }[];
+  };
 }
 
 interface ScanResultProps {
@@ -45,12 +50,18 @@ interface ScanResultProps {
 
 // ── Component ─────────────────────────────────────────────────────────────
 
-export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProps) {
+export function ScanResult({ data, onReset, autoResetMs }: ScanResultProps) {
   const {
     action, studentId, firstName, lastName, preferredName,
     gradeLevel, isLate, isEarlyPickup, timestamp,
     medicationAlerts, allergies, allergyDetails = [],
+    alertSummary,
   } = data;
+
+  // Extend auto-reset if there are critical alerts that need to be read
+  const hasCriticalAlerts = (alertSummary?.critical ?? 0) > 0;
+  const effectiveAutoResetMs = autoResetMs ?? (hasCriticalAlerts ? 8000 : 2500);
+  const [criticalConfirmed, setCriticalConfirmed] = useState(!hasCriticalAlerts);
 
   const [undoState, setUndoState] = useState<"idle" | "confirm" | "loading" | "done" | "error">("idle");
   const [undoError, setUndoError] = useState<string | null>(null);
@@ -68,15 +79,16 @@ export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProp
   const hasLifeThreateningAllergy = allergyDetails.some((a) => a.severity === "life_threatening");
   const hasMedical = medicationAlerts.length > 0 || allergies.length > 0 || allergyDetails.length > 0;
 
-  // Auto-reset after delay; pauses while admin override is open
+  // Auto-reset after delay; pauses while admin override is open or critical alerts unconfirmed
   useEffect(() => {
-    if (undoState !== "idle") return; // pause timer during override flow
+    if (undoState !== "idle") return;
+    if (!criticalConfirmed) return; // pause until staff confirms critical alert
 
-    timerRef.current = setTimeout(onReset, autoResetMs);
+    timerRef.current = setTimeout(onReset, effectiveAutoResetMs);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [onReset, autoResetMs, undoState]);
+  }, [onReset, effectiveAutoResetMs, undoState, criticalConfirmed]);
 
   async function handleUndo() {
     setUndoState("loading");
@@ -148,6 +160,32 @@ export function ScanResult({ data, onReset, autoResetMs = 2500 }: ScanResultProp
   // ── Main result screen ─────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-4">
+
+      {/* ── Critical alert summary banner — must confirm before reset ── */}
+      {hasCriticalAlerts && alertSummary && (
+        <div className="flex flex-col gap-2 rounded-xl border-2 border-sc-rose-700 bg-sc-rose px-4 py-3">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="size-6 text-white shrink-0" />
+            <p className="font-bold text-white text-label-md uppercase tracking-wide">
+              ⚠ {alertSummary.critical} CRITICAL ALERT{alertSummary.critical !== 1 ? "S" : ""}
+            </p>
+          </div>
+          {alertSummary.alerts.filter((a) => a.level === "critical").map((a, i) => (
+            <div key={i} className="rounded-lg bg-white/20 px-3 py-2">
+              <p className="text-white font-semibold text-label-sm uppercase tracking-wide">{a.title}</p>
+              <p className="text-white/90 text-label-sm mt-0.5">{a.instruction}</p>
+            </div>
+          ))}
+          {!criticalConfirmed && (
+            <button
+              onClick={() => setCriticalConfirmed(true)}
+              className="mt-1 w-full rounded-lg bg-white py-2.5 text-label-md font-bold text-sc-rose-700 hover:bg-sc-rose-50 transition-colors"
+            >
+              Confirm — I have read this alert
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Emergency medication banner — shown first, always ─────── */}
       {hasEmergencyMed && (

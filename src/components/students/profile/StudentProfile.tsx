@@ -8,6 +8,7 @@ import {
   ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList, BarChart2, TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { StudentAlert } from "@/lib/student-alert-constants";
 import type { StudentProfileData, TabId } from "./types";
 import { StudentProfileHeader } from "./StudentProfileHeader";
 import { StudentQuickActions } from "./StudentQuickActions";
@@ -100,6 +101,7 @@ interface Props {
   alertBannerFlags?: AlertFlag[];
   pickupAlerts?: PickupAlert[];
   hasOpenNotes?: boolean;
+  studentAlerts?: StudentAlert[];
 }
 
 // ── Component ─────────────────────────────────────────────────
@@ -110,6 +112,7 @@ export function StudentProfile({
   alertBannerFlags = [],
   pickupAlerts = [],
   hasOpenNotes = false,
+  studentAlerts = [],
 }: Props) {
   const router = useRouter();
   const hiddenTabs = getHiddenTabs(role);
@@ -232,6 +235,41 @@ export function StudentProfile({
                   {a.pickup_restrictions && ` — ${a.pickup_restrictions}`}
                 </p>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Open staff follow-up notes banner ────────────────── */}
+      {studentAlerts.some((a) => a.category === "notes") && (
+        <div className={cn(
+          "border-b-2 px-4 py-2.5",
+          studentAlerts.some((a) => a.category === "notes" && a.level === "critical")
+            ? "bg-sc-rose-700 border-sc-rose-900"
+            : "bg-sc-gold border-sc-gold-600"
+        )}>
+          <div className="flex items-start gap-3">
+            <AlertTriangle className={cn(
+              "size-5 shrink-0 mt-0.5",
+              studentAlerts.some((a) => a.category === "notes" && a.level === "critical")
+                ? "text-white"
+                : "text-sc-navy"
+            )} />
+            <div className="space-y-0.5">
+              <p className={cn(
+                "text-label-sm font-bold uppercase tracking-wide",
+                studentAlerts.some((a) => a.category === "notes" && a.level === "critical")
+                  ? "text-white"
+                  : "text-sc-navy"
+              )}>Open Staff Follow-up</p>
+              {studentAlerts
+                .filter((a) => a.category === "notes")
+                .map((a) => (
+                  <p key={a.id} className={cn(
+                    "text-label-sm",
+                    a.level === "critical" ? "text-white" : "text-sc-navy"
+                  )}>{a.instruction}</p>
+                ))}
             </div>
           </div>
         </div>

@@ -78,6 +78,43 @@ export async function GET(
     .eq("is_active", true)
     .is("archived_at", null);
 
+  // Build a lightweight critical alert summary for scan display
+  const criticalAlerts: { level: string; title: string; instruction: string }[] = [];
+
+  // Life-threatening allergies → critical
+  for (const a of allergyDetails ?? []) {
+    if (a.severity === "life_threatening") {
+      criticalAlerts.push({
+        level: "critical",
+        title: "LIFE-THREATENING ALLERGY",
+        instruction: `${a.allergy_name}${a.emergency_medication_required ? " — Emergency medication required" : ""}`,
+      });
+    } else {
+      criticalAlerts.push({
+        level: "high",
+        title: "SEVERE ALLERGY",
+        instruction: `${a.allergy_name} — monitor closely`,
+      });
+    }
+  }
+
+  // Emergency medications → critical
+  for (const m of medAlerts ?? []) {
+    if (m.is_emergency) {
+      criticalAlerts.push({
+        level: "critical",
+        title: "EMERGENCY MEDICATION",
+        instruction: `${m.medication_name}${m.storage_location ? ` — stored at ${m.storage_location}` : ""}`,
+      });
+    }
+  }
+
+  const alertSummary = {
+    critical: criticalAlerts.filter((a) => a.level === "critical").length,
+    high: criticalAlerts.filter((a) => a.level === "high").length,
+    alerts: criticalAlerts,
+  };
+
   return NextResponse.json({
     student: {
       id: student.id,
@@ -92,5 +129,6 @@ export async function GET(
     today_record: record ?? null,
     medication_alerts: medAlerts ?? [],
     allergy_details: allergyDetails ?? [],
+    alert_summary: alertSummary,
   });
 }
