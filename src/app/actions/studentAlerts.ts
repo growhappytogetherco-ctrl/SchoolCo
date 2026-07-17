@@ -150,33 +150,6 @@ export async function getStudentSafetyAlerts(
     }
   }
 
-  // ── Source 6: staff_notes (open follow-ups) — staff only ────────────────
-  if (isStaff && !isVolunteer) {
-    const { data: notes } = await supabase
-      .from("staff_notes")
-      .select("id, title, priority, assigned_to:assigned_to(full_name)")
-      .eq("student_id", studentId)
-      .eq("organization_id", orgId)
-      .in("priority", ["high", "urgent"])
-      .in("status", ["open", "in_progress"])
-      .eq("follow_up_required", true)
-      .is("archived_at", null);
-
-    for (const n of notes ?? []) {
-      const assignedName = (n.assigned_to as { full_name: string } | null)?.full_name;
-      alerts.push({
-        id: `notes-${n.id}`,
-        level: (n.priority === "urgent" ? "critical" : "high") as AlertLevel,
-        category: "notes",
-        title: "OPEN STAFF FOLLOW-UP",
-        instruction: (n.title ?? "Urgent follow-up required") +
-          (assignedName ? ` — assigned to ${assignedName}` : ""),
-        source_tab: "notes",
-        detail_roles: STAFF_ROLES,
-      });
-    }
-  }
-
   // ── Source 7: guardianships (pickup restrictions) ───────────────────────
   const { data: guardians } = await supabase
     .from("guardianships")
@@ -251,6 +224,66 @@ export async function getStudentSafetyAlerts(
   });
 
   return unique;
+}
+
+// ── Staff follow-up summary (separate system — not safety alerts) ──────────
+
+export interface StaffFollowUpSummary {
+  urgent: number;
+  high: number;
+  normal: number;
+  overdue: number;
+  total: number;
+  highestPriority: "urgent" | "high" | "normal" | null;
+  hasAny: boolean;
+}
+
+export async function getStaffFollowUpSummary(
+  studentId: string,
+  role?: string
+): Promise<StaffFollowUpSummary | null> {
+  // Volunteers and non-staff roles get no follow-up data
+  if (!role || role === "volunteer" || role === "parent" || role === "student") return null;
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return null;
+
+  const supabase = await createClient();
+  const today = new Date().toISOString().split("T")[0];
+
+  const { data: notes } = await supabase
+    .from("staff_notes")
+    .select("id, priority, due_date, status")
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .in("status", ["open", "in_progress", "waiting"])
+    .eq("follow_up_required", true)
+    .is("archived_at", null);
+
+  if (!notes || notes.length === 0) {
+    return { urgent: 0, high: 0, normal: 0, overdue: 0, total: 0, highestPriority: null, hasAny: false };
+  }
+
+  let urgent = 0, high = 0, normal = 0, overdue = 0;
+  for (const n of notes) {
+    if (n.priority === "urgent") urgent++;
+    else if (n.priority === "high") high++;
+    else normal++;
+    if (n.due_date && n.due_date < today && n.status !== "completed") overdue++;
+  }
+
+  const highestPriority: "urgent" | "high" | "normal" | null =
+    urgent > 0 ? "urgent" : high > 0 ? "high" : normal > 0 ? "normal" : null;
+
+  return {
+    urgent,
+    high,
+    normal,
+    overdue,
+    total: notes.length,
+    highestPriority,
+    hasAny: notes.length > 0,
+  };
 }
 
 // ── Summary helper ─────────────────────────────────────────────────────────

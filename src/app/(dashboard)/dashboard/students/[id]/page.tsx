@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient, getUser, getActiveOrgId, getActiveRole } from "@/lib/supabase/server";
 import { StudentProfile } from "@/components/students/profile/StudentProfile";
-import { getStudentSafetyAlerts } from "@/app/actions/studentAlerts";
+import { getStudentSafetyAlerts, getStaffFollowUpSummary } from "@/app/actions/studentAlerts";
 
 export default async function StudentProfilePage({
   params,
@@ -70,8 +70,11 @@ export default async function StudentProfilePage({
     .eq("organization_id", orgId)
     .in("status", ["active", "pitching"]);
 
-  // Consolidated student alerts (replaces scattered queries for allergies, flags, SSP, notes)
-  const studentAlerts = await getStudentSafetyAlerts(params.id, role);
+  // Consolidated student safety alerts + separate staff follow-up summary
+  const [studentAlerts, followUpSummary] = await Promise.all([
+    getStudentSafetyAlerts(params.id, role),
+    getStaffFollowUpSummary(params.id, role),
+  ]);
 
   // Derive top leadership level from badge set
   const BADGE_RANK = ["platinum", "gold", "silver", "bronze"];
@@ -143,9 +146,6 @@ export default async function StudentProfilePage({
       pickup_restrictions: a.instruction,
     }));
 
-  // hasOpenNotes from consolidated alerts
-  const hasOpenNotes = studentAlerts.some((a) => a.category === "notes");
-
   return (
     <StudentProfile
       data={profileData}
@@ -155,7 +155,7 @@ export default async function StudentProfilePage({
       role={role}
       alertBannerFlags={alertBannerFlags}
       pickupAlerts={pickupAlerts}
-      hasOpenNotes={hasOpenNotes}
+      followUpSummary={followUpSummary}
       studentAlerts={studentAlerts}
     />
   );

@@ -643,22 +643,84 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
         </button>
       </div>
 
-      {/* ── Alert strip ─────────────────────────────────────────── */}
-      {(urgentOrHighCount > 0 || openFollowUps > 0) && (
-        <div className="rounded-xl border border-sc-rose-200 bg-sc-rose-50 px-4 py-3 flex flex-wrap gap-4">
-          {urgentOrHighCount > 0 && (
-            <span className="flex items-center gap-1.5 text-label-sm text-sc-rose-700 font-medium">
-              <AlertTriangle className="size-4" />
-              {urgentOrHighCount} high/urgent open note{urgentOrHighCount > 1 ? "s" : ""}
-            </span>
-          )}
-          {openFollowUps > 0 && (
-            <span className="text-label-sm text-sc-gold-700 font-medium">
-              {openFollowUps} open follow-up{openFollowUps > 1 ? "s" : ""}
-            </span>
-          )}
-        </div>
-      )}
+      {/* ── Open Staff Follow-ups review section ────────────────── */}
+      {openFollowUps > 0 && (() => {
+        const today = new Date().toISOString().split("T")[0];
+        const followUps = notes.filter((n) => !n.archived_at && n.follow_up_required && n.status !== "completed");
+        const urgentCount  = followUps.filter((n) => n.priority === "urgent").length;
+        const highCount    = followUps.filter((n) => n.priority === "high").length;
+        const normalCount  = followUps.filter((n) => !["urgent","high"].includes(n.priority)).length;
+        const overdueCount = followUps.filter((n) => n.due_date && n.due_date < today).length;
+        return (
+          <div className="rounded-2xl border border-sc-rose-200 bg-sc-rose-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-sc-rose-100">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="size-4 text-sc-rose-600 shrink-0" />
+                <span className="text-label-sm font-semibold text-sc-rose-800">
+                  {openFollowUps} Open Staff Follow-up{openFollowUps > 1 ? "s" : ""}
+                  {overdueCount > 0 && <span className="ml-1.5 text-sc-rose font-bold">· {overdueCount} overdue</span>}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {urgentCount > 0 && (
+                  <button
+                    onClick={() => { setFilterPri("urgent"); setFilterStatus(""); }}
+                    className="rounded-full bg-sc-rose-100 border border-sc-rose-300 px-2.5 py-0.5 text-label-sm text-sc-rose font-semibold hover:bg-sc-rose-200 transition-colors"
+                  >
+                    {urgentCount} Urgent
+                  </button>
+                )}
+                {highCount > 0 && (
+                  <button
+                    onClick={() => { setFilterPri("high"); setFilterStatus(""); }}
+                    className="rounded-full bg-sc-gold-50 border border-sc-gold-300 px-2.5 py-0.5 text-label-sm text-sc-gold-700 font-semibold hover:bg-sc-gold-100 transition-colors"
+                  >
+                    {highCount} High
+                  </button>
+                )}
+                {normalCount > 0 && (
+                  <button
+                    onClick={() => { setFilterPri("normal"); setFilterStatus(""); }}
+                    className="rounded-full bg-sc-teal-50 border border-sc-teal-200 px-2.5 py-0.5 text-label-sm text-sc-teal-700 font-semibold hover:bg-sc-teal-100 transition-colors"
+                  >
+                    {normalCount} Normal
+                  </button>
+                )}
+                <button
+                  onClick={() => { setFilterPri(""); setFilterStatus("open"); }}
+                  className="text-label-sm text-sc-rose-600 font-medium hover:underline ml-1"
+                >
+                  View all
+                </button>
+              </div>
+            </div>
+            <div className="divide-y divide-sc-rose-100">
+              {followUps.slice(0, 3).map((n) => (
+                <div key={n.id} className="px-4 py-2.5 flex items-start gap-3">
+                  <span className={cn(
+                    "mt-0.5 shrink-0 h-2 w-2 rounded-full",
+                    n.priority === "urgent" ? "bg-sc-rose" : n.priority === "high" ? "bg-sc-gold-500" : "bg-sc-teal"
+                  )} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-label-sm font-medium text-sc-navy truncate">{n.title ?? n.body.slice(0, 60)}</p>
+                    {n.assigned_to_name && (
+                      <p className="text-label-sm text-sc-gray">→ {n.assigned_to_name}{n.due_date ? ` · due ${fmtDate(n.due_date)}` : ""}</p>
+                    )}
+                  </div>
+                  <span className={cn("shrink-0 text-label-sm px-2 py-0.5 rounded-full border font-medium", STATUS_CFG[n.status].cls)}>
+                    {STATUS_CFG[n.status].label}
+                  </span>
+                </div>
+              ))}
+              {followUps.length > 3 && (
+                <div className="px-4 py-2 text-label-sm text-sc-gray-500 text-center">
+                  +{followUps.length - 3} more — use filters above
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Add Form ────────────────────────────────────────────── */}
       {showForm && (

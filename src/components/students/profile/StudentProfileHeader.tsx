@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { GraduationCap, QrCode, Clock, Award, Briefcase, BadgeCheck, StickyNote, X, AlertTriangle, Heart } from "lucide-react";
+import { GraduationCap, QrCode, Clock, Award, Briefcase, BadgeCheck, StickyNote, X, AlertTriangle, Heart, ChevronRight } from "lucide-react";
+import type { StaffFollowUpSummary } from "@/app/actions/studentAlerts";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { StudentProfileData } from "./types";
@@ -152,11 +153,12 @@ const BADGE_LEVEL_COLORS: Record<string, string> = {
 
 // ── Component ─────────────────────────────────────────────────
 
-export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = [], hasOpenNotes = false }: {
+export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = [], followUpSummary = null, onOpenNotes }: {
   data: StudentProfileData;
   alertBannerFlags?: AlertFlag[];
   allergies?: string[];
-  hasOpenNotes?: boolean;
+  followUpSummary?: StaffFollowUpSummary | null;
+  onOpenNotes?: () => void;
 }) {
   const [showSafety, setShowSafety] = useState(false);
 
@@ -309,12 +311,27 @@ export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = 
             </span>
           )}
 
-          {/* Open staff follow-up indicator */}
-          {hasOpenNotes && (
-            <span className="flex items-center gap-1 rounded-full bg-sc-rose-100 border border-sc-rose-300 px-3 py-1 text-label-sm text-sc-rose-700 font-medium">
-              <StickyNote className="size-3" />
-              Open Staff Follow-up
-            </span>
+          {/* Staff follow-up bubble — compact, color-coded, clickable */}
+          {followUpSummary?.hasAny && onOpenNotes && (
+            <button
+              onClick={onOpenNotes}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border px-3 py-1 text-label-sm font-medium transition-opacity hover:opacity-80",
+                followUpSummary.highestPriority === "urgent"
+                  ? "bg-sc-rose-100 border-sc-rose-300 text-sc-rose-700"
+                  : followUpSummary.highestPriority === "high"
+                    ? "bg-sc-gold-50 border-sc-gold-300 text-sc-gold-700"
+                    : "bg-sc-teal-50 border-sc-teal-200 text-sc-teal-700"
+              )}
+              title="Open Staff Follow-ups — click to view"
+            >
+              <StickyNote className="size-3 shrink-0" />
+              {followUpSummary.total} Follow-up{followUpSummary.total > 1 ? "s" : ""}
+              {followUpSummary.overdue > 0 && (
+                <span className="ml-0.5 text-sc-rose font-bold">· {followUpSummary.overdue} overdue</span>
+              )}
+              <ChevronRight className="size-3 opacity-60" />
+            </button>
           )}
         </div>
       </div>
