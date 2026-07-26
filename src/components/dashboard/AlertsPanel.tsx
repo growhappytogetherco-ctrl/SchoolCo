@@ -78,7 +78,7 @@ export function NoteAlertsPanel() {
             return (
               <Link
                 key={`${alert.note_id}`}
-                href={`/dashboard/students/${alert.student_id}?tab=notes`}
+                href={`/dashboard/students/${alert.student_id}?tab=notes&note=${alert.note_id}`}
                 className={cn(
                   "flex items-start gap-3 px-5 py-3 border-l-4 hover:bg-sc-gray-50 transition-colors",
                   cfg.border

@@ -35,6 +35,12 @@ export interface StaffNote {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  // Safety classification
+  is_safety_alert: boolean;
+  safety_severity: "critical" | "high" | null;
+  safety_instruction: string | null;
+  safety_expires_at: string | null;
+  safety_roles: string[] | null;
 }
 
 export interface StaffMember {
@@ -86,6 +92,11 @@ function fromRow(raw: Record<string, unknown>): StaffNote {
     created_at:         raw.created_at as string,
     updated_at:         raw.updated_at as string,
     archived_at:        (raw.archived_at as string) ?? null,
+    is_safety_alert:    Boolean(raw.is_safety_alert),
+    safety_severity:    (raw.safety_severity as "critical" | "high" | null) ?? null,
+    safety_instruction: (raw.safety_instruction as string | null) ?? null,
+    safety_expires_at:  (raw.safety_expires_at as string | null) ?? null,
+    safety_roles:       (raw.safety_roles as string[] | null) ?? null,
   };
 }
 
@@ -118,6 +129,7 @@ export async function getStaffNotes(
       category, priority, title, body, is_pinned,
       follow_up_required, assigned_to, due_date, status, tags,
       created_at, updated_at, archived_at,
+      is_safety_alert, safety_severity, safety_instruction, safety_expires_at, safety_roles,
       profiles:author_id ( full_name ),
       assigned_profile:assigned_to ( full_name )
     `)
@@ -154,6 +166,7 @@ export async function getAssignedNotes(): Promise<(StaffNote & { student_name: s
       category, priority, title, body, is_pinned,
       follow_up_required, assigned_to, due_date, status, tags,
       created_at, updated_at, archived_at,
+      is_safety_alert, safety_severity, safety_instruction, safety_expires_at, safety_roles,
       profiles:author_id ( full_name ),
       assigned_profile:assigned_to ( full_name ),
       students:student_id ( first_name, last_name )
@@ -290,6 +303,11 @@ export async function createStaffNote(
     due_date?: string | null;
     status?: NoteStatus;
     tags?: string[];
+    is_safety_alert?: boolean;
+    safety_severity?: "critical" | "high" | null;
+    safety_instruction?: string | null;
+    safety_expires_at?: string | null;
+    safety_roles?: string[] | null;
   }
 ): Promise<AR> {
   const user  = await getUser();
@@ -314,6 +332,11 @@ export async function createStaffNote(
     due_date:           payload.due_date || null,
     status:             payload.status ?? "open",
     tags:               payload.tags ?? [],
+    is_safety_alert:    payload.is_safety_alert ?? false,
+    safety_severity:    payload.is_safety_alert ? (payload.safety_severity ?? "high") : null,
+    safety_instruction: payload.is_safety_alert ? (payload.safety_instruction ?? null) : null,
+    safety_expires_at:  payload.safety_expires_at || null,
+    safety_roles:       payload.is_safety_alert ? (payload.safety_roles ?? null) : null,
   } as never);
 
   if (error) return { success: false, error: error.message };
@@ -334,6 +357,11 @@ export async function updateStaffNote(
     due_date?: string | null;
     status?: NoteStatus;
     tags?: string[];
+    is_safety_alert?: boolean;
+    safety_severity?: "critical" | "high" | null;
+    safety_instruction?: string | null;
+    safety_expires_at?: string | null;
+    safety_roles?: string[] | null;
   }
 ): Promise<AR> {
   const user  = await getUser();

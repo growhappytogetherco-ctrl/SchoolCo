@@ -96,6 +96,7 @@ interface PickupAlert {
 interface Props {
   data: StudentProfileData;
   initialTab: string;
+  initialNoteId?: string | null;
   orgId: string;
   currentUserId: string;
   role?: string;
@@ -108,7 +109,7 @@ interface Props {
 // ── Component ─────────────────────────────────────────────────
 
 export function StudentProfile({
-  data, initialTab, orgId, currentUserId,
+  data, initialTab, initialNoteId = null, orgId, currentUserId,
   role = "staff",
   alertBannerFlags = [],
   pickupAlerts = [],
@@ -286,7 +287,7 @@ export function StudentProfile({
         {activeTab === "assessments"      && <AssessmentsTab      studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} isAdmin={isAdmin} role={role} />}
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isAdmin={isAdmin} />}
-        {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} role={role} />}
+        {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} role={role} initialNoteId={initialNoteId} />}
         {activeTab === "plan"             && <StudentSuccessPlanTab studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "progress"         && <ProgressTab           studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} />}

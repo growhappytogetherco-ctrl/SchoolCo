@@ -71,6 +71,10 @@ interface NoteFormPayload {
   due_date: string;
   status: NoteStatus;
   tags: string;
+  is_safety_alert: boolean;
+  safety_severity: "critical" | "high";
+  safety_instruction: string;
+  safety_roles_all: boolean;
 }
 
 function blankForm(): NoteFormPayload {
@@ -85,6 +89,10 @@ function blankForm(): NoteFormPayload {
     due_date: "",
     status: "open",
     tags: "",
+    is_safety_alert: false,
+    safety_severity: "high",
+    safety_instruction: "",
+    safety_roles_all: false,
   };
 }
 
@@ -97,9 +105,10 @@ interface NoteFormProps {
   error: string | null;
   staffMembers: StaffMember[];
   isEdit?: boolean;
+  isAdmin?: boolean;
 }
 
-function NoteForm({ form, onChange, onSave, onCancel, saving, error, staffMembers, isEdit }: NoteFormProps) {
+function NoteForm({ form, onChange, onSave, onCancel, saving, error, staffMembers, isEdit, isAdmin }: NoteFormProps) {
   function set<K extends keyof NoteFormPayload>(key: K, val: NoteFormPayload[K]) {
     onChange({ ...form, [key]: val });
   }
@@ -232,6 +241,64 @@ function NoteForm({ form, onChange, onSave, onCancel, saving, error, staffMember
         />
       </div>
 
+      {/* Safety classification — admin only */}
+      {isAdmin && (
+        <div className={cn(
+          "rounded-xl border p-4 space-y-3",
+          form.is_safety_alert ? "border-sc-rose-300 bg-sc-rose-50" : "border-sc-gray-200 bg-white"
+        )}>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.is_safety_alert}
+              onChange={(e) => set("is_safety_alert", e.target.checked)}
+              className="rounded border-sc-gray-300 text-sc-rose"
+            />
+            <span className="text-label-sm font-semibold text-sc-rose-700">Mark as Safety Alert</span>
+            <span className="text-label-sm text-sc-gray font-normal">(shows in student alert banner)</span>
+          </label>
+
+          {form.is_safety_alert && (
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="block text-label-sm font-medium text-sc-navy mb-1">Safety Instruction <span className="text-sc-rose">*</span></label>
+                <input
+                  type="text"
+                  value={form.safety_instruction}
+                  onChange={(e) => set("safety_instruction", e.target.value)}
+                  placeholder="Short operational instruction for staff…"
+                  className="w-full rounded-xl border border-sc-rose-200 bg-white px-3 py-2 text-label-sm text-sc-navy placeholder:text-sc-gray-400 focus:outline-none focus:ring-2 focus:ring-sc-rose/30"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-label-sm font-medium text-sc-navy mb-1">Safety Severity</label>
+                  <select
+                    value={form.safety_severity}
+                    onChange={(e) => set("safety_severity", e.target.value as "critical" | "high")}
+                    className="w-full rounded-xl border border-sc-rose-200 bg-white px-3 py-2 text-label-sm text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-rose/30"
+                  >
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-label-sm font-medium text-sc-navy mb-1">Visible To</label>
+                  <select
+                    value={form.safety_roles_all ? "all" : "staff_admin"}
+                    onChange={(e) => set("safety_roles_all", e.target.value === "all")}
+                    className="w-full rounded-xl border border-sc-rose-200 bg-white px-3 py-2 text-label-sm text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-rose/30"
+                  >
+                    <option value="staff_admin">Admin &amp; Staff only</option>
+                    <option value="all">All staff including volunteers</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {error && <p className="text-label-sm text-sc-rose-700 font-medium">{error}</p>}
 
       <div className="flex justify-end gap-3 pt-1">
@@ -260,6 +327,7 @@ function NoteCard({
   note,
   currentUserId,
   isAdmin,
+  defaultExpanded,
   onPin,
   onEdit,
   onArchive,
@@ -269,13 +337,14 @@ function NoteCard({
   note: StaffNote;
   currentUserId: string;
   isAdmin: boolean;
+  defaultExpanded?: boolean;
   onPin: () => void;
   onEdit: () => void;
   onArchive: () => void;
   onRestore: () => void;
   onStatusChange: (s: NoteStatus) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   const archived  = !!note.archived_at;
   const pCfg      = PRIORITY_CFG[note.priority];
   const sCfg      = STATUS_CFG[note.status];
@@ -285,10 +354,12 @@ function NoteCard({
   const isOverdue = note.due_date && note.due_date < today && note.status !== "completed";
 
   return (
-    <div className={cn(
-      "rounded-2xl border bg-white shadow-card overflow-hidden border-l-4",
-      archived ? "opacity-60 border-sc-gray-200 border-l-sc-gray-200" : pCfg.border
-    )}>
+    <div
+      id={`note-${note.id}`}
+      className={cn(
+        "rounded-2xl border bg-white shadow-card overflow-hidden border-l-4",
+        archived ? "opacity-60 border-sc-gray-200 border-l-sc-gray-200" : pCfg.border
+      )}>
       {/* Header row */}
       <button
         className="w-full flex items-start justify-between px-4 py-3.5 text-left gap-3"
@@ -298,6 +369,11 @@ function NoteCard({
           {/* Badges */}
           <div className="flex flex-wrap items-center gap-1.5">
             {note.is_pinned && <Pin className="size-3.5 text-sc-teal shrink-0" />}
+            {note.is_safety_alert && (
+              <span className="rounded-full bg-sc-rose px-2 py-0.5 text-label-sm font-bold text-white flex items-center gap-1">
+                <AlertTriangle className="size-3" /> Safety Alert
+              </span>
+            )}
             <span className={cn("rounded-full border px-2 py-0.5 text-label-sm font-medium", pCfg.cls)}>
               {pCfg.label}
             </span>
@@ -449,9 +525,10 @@ interface Props {
   studentId: string;
   currentUserId: string;
   role?: string;
+  initialNoteId?: string | null;
 }
 
-export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Props) {
+export function StaffNotesTab({ studentId, currentUserId, role = "staff", initialNoteId = null }: Props) {
   const isAdmin = ["admin", "full_admin", "platform_admin", "registrar"].includes(role);
 
   const [notes, setNotes]           = useState<StaffNote[]>([]);
@@ -472,6 +549,7 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
   const [filterStatus, setFilterStatus]  = useState("");
   const [filterAssigned, setFilterAsgn]  = useState("");
   const [showArchived, setShowArchived]  = useState(false);
+  const [filterOverdue, setFilterOverdue] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -492,6 +570,15 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
 
   useEffect(() => { load(); }, [load]);
 
+  // Auto-scroll to initialNoteId after notes load
+  useEffect(() => {
+    if (!initialNoteId || loading) return;
+    const el = document.getElementById(`note-${initialNoteId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [initialNoteId, loading]);
+
   function openAdd() {
     setForm(blankForm());
     setSaveError(null);
@@ -511,6 +598,10 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
       due_date:           note.due_date ?? "",
       status:             note.status,
       tags:               note.tags.join(", "),
+      is_safety_alert:    note.is_safety_alert,
+      safety_severity:    note.safety_severity ?? "high",
+      safety_instruction: note.safety_instruction ?? "",
+      safety_roles_all:   !note.safety_roles, // null means all staff
     });
     setSaveError(null);
     setEditing(note);
@@ -543,6 +634,12 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
       due_date:           form.due_date || null,
       status:             form.status,
       tags:               tagsFromString(form.tags),
+      is_safety_alert:    isAdmin ? form.is_safety_alert : false,
+      safety_severity:    isAdmin && form.is_safety_alert ? form.safety_severity : null,
+      safety_instruction: isAdmin && form.is_safety_alert ? form.safety_instruction || null : null,
+      safety_roles:       isAdmin && form.is_safety_alert && !form.safety_roles_all
+        ? ["admin", "full_admin", "platform_admin", "registrar", "staff", "teacher"]
+        : null,
     };
 
     let result: { success: boolean; error?: string };
@@ -583,12 +680,18 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
     load();
   }
 
-  // Client-side filtering
+  // Client-side filtering + sort
+  const todayStr = new Date().toISOString().split("T")[0];
+  const priority_rank: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+
   const filtered = notes.filter((n) => {
     if (filterCategory && n.category !== filterCategory) return false;
     if (filterPriority && n.priority !== filterPriority) return false;
     if (filterStatus && n.status !== filterStatus) return false;
     if (filterAssigned && n.assigned_to !== filterAssigned) return false;
+    if (filterOverdue) {
+      if (!n.due_date || n.due_date >= todayStr || n.status === "completed") return false;
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       return (
@@ -600,9 +703,24 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
       );
     }
     return true;
+  }).sort((a, b) => {
+    // Pinned notes first (server already sorts, but re-apply after filter)
+    if (a.is_pinned && !b.is_pinned) return -1;
+    if (b.is_pinned && !a.is_pinned) return 1;
+    // Completed always last
+    if (a.status === "completed" && b.status !== "completed") return 1;
+    if (b.status === "completed" && a.status !== "completed") return -1;
+    const aOverdue = !!(a.due_date && a.due_date < todayStr && a.status !== "completed");
+    const bOverdue = !!(b.due_date && b.due_date < todayStr && b.status !== "completed");
+    const aPri = priority_rank[a.priority] ?? 3;
+    const bPri = priority_rank[b.priority] ?? 3;
+    const aScore = aPri * 2 + (aOverdue ? 0 : 1);
+    const bScore = bPri * 2 + (bOverdue ? 0 : 1);
+    if (aScore !== bScore) return aScore - bScore;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
-  const hasActiveFilters = filterCategory || filterPriority || filterStatus || filterAssigned;
+  const hasActiveFilters = filterCategory || filterPriority || filterStatus || filterAssigned || filterOverdue;
   const urgentOrHighCount = notes.filter((n) => !n.archived_at && ["high","urgent"].includes(n.priority) && n.status !== "completed").length;
   const openFollowUps     = notes.filter((n) => !n.archived_at && n.follow_up_required && n.status !== "completed").length;
 
@@ -661,10 +779,23 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
                   {overdueCount > 0 && <span className="ml-1.5 text-sc-rose font-bold">· {overdueCount} overdue</span>}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {overdueCount > 0 && (
+                  <button
+                    onClick={() => { setFilterOverdue((v) => !v); setFilterPri(""); setFilterStatus(""); }}
+                    className={cn(
+                      "rounded-full border px-2.5 py-0.5 text-label-sm font-semibold transition-colors",
+                      filterOverdue
+                        ? "bg-sc-rose text-white border-sc-rose"
+                        : "bg-sc-rose-100 border-sc-rose-300 text-sc-rose hover:bg-sc-rose-200"
+                    )}
+                  >
+                    {overdueCount} Overdue
+                  </button>
+                )}
                 {urgentCount > 0 && (
                   <button
-                    onClick={() => { setFilterPri("urgent"); setFilterStatus(""); }}
+                    onClick={() => { setFilterPri("urgent"); setFilterStatus(""); setFilterOverdue(false); }}
                     className="rounded-full bg-sc-rose-100 border border-sc-rose-300 px-2.5 py-0.5 text-label-sm text-sc-rose font-semibold hover:bg-sc-rose-200 transition-colors"
                   >
                     {urgentCount} Urgent
@@ -672,7 +803,7 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
                 )}
                 {highCount > 0 && (
                   <button
-                    onClick={() => { setFilterPri("high"); setFilterStatus(""); }}
+                    onClick={() => { setFilterPri("high"); setFilterStatus(""); setFilterOverdue(false); }}
                     className="rounded-full bg-sc-gold-50 border border-sc-gold-300 px-2.5 py-0.5 text-label-sm text-sc-gold-700 font-semibold hover:bg-sc-gold-100 transition-colors"
                   >
                     {highCount} High
@@ -680,14 +811,14 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
                 )}
                 {normalCount > 0 && (
                   <button
-                    onClick={() => { setFilterPri("normal"); setFilterStatus(""); }}
+                    onClick={() => { setFilterPri("normal"); setFilterStatus(""); setFilterOverdue(false); }}
                     className="rounded-full bg-sc-teal-50 border border-sc-teal-200 px-2.5 py-0.5 text-label-sm text-sc-teal-700 font-semibold hover:bg-sc-teal-100 transition-colors"
                   >
                     {normalCount} Normal
                   </button>
                 )}
                 <button
-                  onClick={() => { setFilterPri(""); setFilterStatus("open"); }}
+                  onClick={() => { setFilterPri(""); setFilterStatus("open"); setFilterOverdue(false); }}
                   className="text-label-sm text-sc-rose-600 font-medium hover:underline ml-1"
                 >
                   View all
@@ -732,6 +863,7 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
           saving={saving}
           error={saveError}
           staffMembers={staffMembers}
+          isAdmin={isAdmin}
         />
       )}
 
@@ -789,7 +921,7 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
           )}
           {hasActiveFilters && (
             <button
-              onClick={() => { setFilterCat(""); setFilterPri(""); setFilterStatus(""); setFilterAsgn(""); }}
+              onClick={() => { setFilterCat(""); setFilterPri(""); setFilterStatus(""); setFilterAsgn(""); setFilterOverdue(false); }}
               className="flex items-center gap-1 text-label-sm text-sc-teal font-medium hover:text-sc-teal-700"
             >
               <X className="size-3.5" /> Clear filters
@@ -831,6 +963,7 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
                   error={saveError}
                   staffMembers={staffMembers}
                   isEdit
+                  isAdmin={isAdmin}
                 />
               </div>
             ) : (
@@ -839,6 +972,7 @@ export function StaffNotesTab({ studentId, currentUserId, role = "staff" }: Prop
                 note={note}
                 currentUserId={currentUserId}
                 isAdmin={isAdmin}
+                defaultExpanded={note.id === initialNoteId}
                 onPin={() => handlePin(note)}
                 onEdit={() => openEdit(note)}
                 onArchive={() => handleArchive(note)}
