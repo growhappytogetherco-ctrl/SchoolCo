@@ -163,7 +163,7 @@ select
   om.profile_id,
   s.id,
   null,                 -- no household needed for test
-  'parent',
+  'legal_guardian',     -- valid relationship_type enum value (not 'parent')
   'joint',
   true,
   true,
