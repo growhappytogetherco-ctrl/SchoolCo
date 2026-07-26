@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getUser, getProfile } from "@/lib/supabase/server";
-import { getActiveOrgId, getActiveRole, HAS_PARENT_COOKIE_NAME } from "@/lib/supabase/org-context";
+import { getActiveOrgId, getActiveRole, HAS_PARENT_COOKIE_NAME, PORTAL_VIEW_COOKIE_NAME } from "@/lib/supabase/org-context";
 import { setPortalView } from "@/app/actions/org";
 import { User, Home, LayoutDashboard } from "lucide-react";
 import { cookies } from "next/headers";
@@ -22,12 +22,16 @@ export default async function PortalLayout({ children }: { children: React.React
   const orgId = await getActiveOrgId();
   if (!orgId) redirect("/select-mission");
 
-  const role  = await getActiveRole();
-  // Belt-and-suspenders: only parents/guardians access this layout.
-  if (role !== "parent") redirect("/dashboard/home");
-
+  const role        = await getActiveRole();
   const cookieStore = await cookies();
-  const isMultiRole = cookieStore.get(HAS_PARENT_COOKIE_NAME)?.value === "1";
+  const hasParent   = cookieStore.get(HAS_PARENT_COOKIE_NAME)?.value === "1";
+  const portalView  = cookieStore.get(PORTAL_VIEW_COOKIE_NAME)?.value;
+
+  // Allow access if: primary role is parent, OR multi-role user in parent view mode.
+  const isAllowed = role === "parent" || (hasParent && portalView === "parent");
+  if (!isAllowed) redirect("/dashboard/home");
+
+  const isMultiRole = hasParent;
 
   const profile = await getProfile(user.id);
   const firstName = (profile?.full_name as string | null)?.split(" ")[0] ?? null;
