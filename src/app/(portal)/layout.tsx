@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getUser } from "@/lib/supabase/server";
+import { getUser, getProfile } from "@/lib/supabase/server";
 import { getActiveOrgId, getActiveRole } from "@/lib/supabase/org-context";
 import { User, Home } from "lucide-react";
 
@@ -24,6 +24,9 @@ export default async function PortalLayout({ children }: { children: React.React
   // Belt-and-suspenders: only parents/guardians access this layout.
   if (role !== "parent") redirect("/dashboard/home");
 
+  const profile = await getProfile(user.id);
+  const firstName = (profile?.full_name as string | null)?.split(" ")[0] ?? null;
+
   return (
     <div className="min-h-screen bg-sc-cream flex flex-col">
       {/* ── Top nav ──────────────────────────────────────────────────── */}
@@ -33,7 +36,7 @@ export default async function PortalLayout({ children }: { children: React.React
             <span className="font-serif text-sc-navy font-bold text-lg">SchoolCo</span>
             <span className="text-sc-gray text-label-sm hidden sm:block">· Family Portal</span>
           </Link>
-          <nav className="flex items-center gap-4">
+          <nav className="flex items-center gap-3">
             <Link
               href="/portal/children"
               className="flex items-center gap-1.5 text-label-sm text-sc-gray hover:text-sc-teal transition-colors"
@@ -46,7 +49,7 @@ export default async function PortalLayout({ children }: { children: React.React
               className="flex items-center gap-1.5 text-label-sm text-sc-gray hover:text-sc-teal transition-colors"
             >
               <User className="size-4" />
-              <span className="hidden sm:block">Settings</span>
+              <span className="hidden sm:block">{firstName ?? "Settings"}</span>
             </Link>
           </nav>
         </div>

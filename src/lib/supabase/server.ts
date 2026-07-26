@@ -383,20 +383,19 @@ export async function getStudentTimelineForParent(
 
 /**
  * Returns all active children for a guardian (parent portal view).
+ * Returns student-shaped objects — safe for parent display only.
  * RLS enforces split-household isolation automatically.
  */
-export async function getGuardianChildren(userId: string, orgId: string) {
+export async function getGuardianChildren(userId: string, orgId: string): Promise<ParentChild[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("guardianships")
     .select(`
-      id, relationship_type, custody_type, is_primary_contact,
-      is_emergency_contact, can_pickup, visibility_json, communication_json,
-      household_id, status,
+      id, relationship_type, custody_type,
       students (
-        id, student_display_id, first_name, last_name, preferred_name,
-        grade_level, enrollment_status, track, family_id, archived_at,
-        families ( family_name, family_display_id, is_split_household )
+        id, first_name, last_name, preferred_name,
+        grade_level, enrollment_status, track, archived_at,
+        avatar_url
       )
     `)
     .eq("profile_id", userId)
@@ -405,10 +404,135 @@ export async function getGuardianChildren(userId: string, orgId: string) {
     .is("archived_at", null);
 
   if (error) return [];
-  return (data ?? []).filter((g) => {
-    const student = g.students as { enrollment_status: string; archived_at: string | null } | null;
-    return student && student.archived_at === null && student.enrollment_status === "enrolled";
-  });
+
+  return (data ?? [])
+    .filter((g) => {
+      const s = g.students as { enrollment_status: string; archived_at: string | null } | null;
+      return s && s.archived_at === null && s.enrollment_status !== "withdrawn";
+    })
+    .map((g) => {
+      const s = g.students as {
+        id: string; first_name: string; last_name: string; preferred_name: string | null;
+        grade_level: string | null; enrollment_status: string; track: string | null;
+        avatar_url: string | null;
+      };
+      return {
+        id: s.id,
+        first_name: s.first_name,
+        last_name: s.last_name,
+        preferred_name: s.preferred_name,
+        grade_level: s.grade_level,
+        enrollment_status: s.enrollment_status,
+        track: s.track,
+        avatar_url: s.avatar_url,
+        relationship_type: g.relationship_type as string,
+        guardianship_id: g.id,
+      };
+    });
+}
+
+export interface ParentChild {
+  id: string;
+  first_name: string;
+  last_name: string;
+  preferred_name: string | null;
+  grade_level: string | null;
+  enrollment_status: string;
+  track: string | null;
+  avatar_url: string | null;
+  relationship_type: string;
+  guardianship_id: string;
+}
+
+/**
+ * Returns a student record verified to be owned by the calling parent.
+ * Includes today's attendance status. Parent-safe fields only.
+ * Returns null if the parent has no guardianship for this student.
+ */
+export async function getStudentForParent(
+  studentId: string,
+  userId: string,
+  orgId: string
+): Promise<ParentStudentDetail | null> {
+  const supabase = await createClient();
+  const today = new Date().toISOString().split("T")[0];
+
+  // Verify guardianship (RLS enforces this too, but we do explicit check for clean 404)
+  const { data: guardianship } = await supabase
+    .from("guardianships")
+    .select("id, relationship_type, custody_type")
+    .eq("profile_id", userId)
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .is("archived_at", null)
+    .maybeSingle();
+
+  if (!guardianship) return null;
+
+  // Fetch parent-safe student fields only
+  const { data: student } = await supabase
+    .from("students")
+    .select("id, first_name, last_name, preferred_name, grade_level, track, enrollment_status, date_of_birth, avatar_url, enrollment_date, expected_graduation")
+    .eq("id", studentId)
+    .eq("organization_id", orgId)
+    .is("archived_at", null)
+    .single();
+
+  if (!student) return null;
+
+  // Today's attendance — parent-safe fields only
+  const { data: attendance } = await supabase
+    .from("attendance_records")
+    .select("status, check_in_at, check_out_at, is_late, is_early_pickup")
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("date", today)
+    .maybeSingle();
+
+  return {
+    id: student.id as string,
+    first_name: student.first_name as string,
+    last_name: student.last_name as string,
+    preferred_name: student.preferred_name as string | null,
+    grade_level: student.grade_level as string | null,
+    track: student.track as string | null,
+    enrollment_status: student.enrollment_status as string,
+    date_of_birth: student.date_of_birth as string | null,
+    avatar_url: student.avatar_url as string | null,
+    enrollment_date: student.enrollment_date as string | null,
+    expected_graduation: student.expected_graduation as string | null,
+    relationship_type: guardianship.relationship_type as string,
+    today_attendance: attendance ? {
+      status: attendance.status as string,
+      check_in_at: attendance.check_in_at as string | null,
+      check_out_at: attendance.check_out_at as string | null,
+      is_late: attendance.is_late as boolean,
+      is_early_pickup: attendance.is_early_pickup as boolean,
+    } : null,
+  };
+}
+
+export interface ParentStudentDetail {
+  id: string;
+  first_name: string;
+  last_name: string;
+  preferred_name: string | null;
+  grade_level: string | null;
+  track: string | null;
+  enrollment_status: string;
+  date_of_birth: string | null;
+  avatar_url: string | null;
+  enrollment_date: string | null;
+  expected_graduation: string | null;
+  relationship_type: string;
+  today_attendance: {
+    status: string;
+    check_in_at: string | null;
+    check_out_at: string | null;
+    is_late: boolean;
+    is_early_pickup: boolean;
+  } | null;
 }
 
 /**
