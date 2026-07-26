@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Menu, Search, Bell, ChevronDown, LogOut, User, Settings, RefreshCw } from "lucide-react";
+import { Menu, Search, Bell, ChevronDown, LogOut, User, Settings, RefreshCw, Home } from "lucide-react";
+import { setPortalView } from "@/app/actions/org";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -16,12 +17,21 @@ interface AppHeaderProps {
   userAvatar?: string | null;
   orgName:     string;
   role:        UserRole;
+  hasParentAccess?: boolean;
   onMenuToggle: () => void;
 }
 
-export function AppHeader({ userName, userAvatar, orgName, role, onMenuToggle }: AppHeaderProps) {
+export function AppHeader({ userName, userAvatar, orgName, role, hasParentAccess = false, onMenuToggle }: AppHeaderProps) {
   const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [, startParentTransition] = useTransition();
+
+  function switchToParent() {
+    setProfileOpen(false);
+    const form = new FormData();
+    form.set("view", "parent");
+    startParentTransition(() => setPortalView(form));
+  }
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -137,6 +147,15 @@ export function AppHeader({ userName, userAvatar, orgName, role, onMenuToggle }:
                     <RefreshCw className="size-4" />
                     Switch Mission
                   </Link>
+                  {hasParentAccess && (
+                    <button
+                      onClick={switchToParent}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-label-md text-sc-teal-700 hover:bg-sc-teal-50 transition-colors"
+                    >
+                      <Home className="size-4" />
+                      Switch to Parent View
+                    </button>
+                  )}
                 </div>
 
                 <Separator />

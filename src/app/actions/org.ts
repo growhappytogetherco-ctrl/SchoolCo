@@ -3,7 +3,9 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { setActiveOrgCookies, clearActiveOrgCookies } from "@/lib/supabase/org-context";
+import {
+  setActiveOrgCookies, clearActiveOrgCookies, setPortalViewCookie,
+} from "@/lib/supabase/org-context";
 import type { ActionResult } from "@/types/actions";
 
 const SetActiveOrgSchema = z.object({
@@ -41,7 +43,7 @@ export async function setActiveOrg(formData: FormData): Promise<ActionResult<voi
   // Validate that this user is an active member of the requested org
   const { data: membership, error } = await supabase
     .from("organization_members")
-    .select("role")
+    .select("role, roles")
     .eq("profile_id", user.id)
     .eq("organization_id", orgId)
     .eq("status", "active")
@@ -51,12 +53,38 @@ export async function setActiveOrg(formData: FormData): Promise<ActionResult<voi
     return { success: false, error: "You are not a member of this organization." };
   }
 
-  // Set cookies (server-side, httpOnly)
-  await setActiveOrgCookies(orgId, membership.role);
+  const allRoles = (membership.roles as string[] | null) ?? [membership.role as string];
+  const isParentOnly = membership.role === "parent" && !allRoles.some(
+    (r) => !["parent", "student_future"].includes(r)
+  );
+  const hasParentAccess = allRoles.includes("parent");
+  const isStaffWithParentAccess = hasParentAccess && !isParentOnly;
 
-  // Route based on role
-  const isParent = membership.role === "parent";
-  redirect(isParent ? "/portal/children" : "/dashboard/home");
+  // Set cookies (server-side, httpOnly)
+  await setActiveOrgCookies(orgId, membership.role as string, isStaffWithParentAccess);
+
+  // Multi-role users get a view picker
+  if (isStaffWithParentAccess) {
+    redirect("/select-view");
+  }
+
+  // Single-role routing
+  redirect(isParentOnly ? "/portal/children" : "/dashboard/home");
+}
+
+/**
+ * setPortalView — switches between staff and parent views for multi-role users.
+ * Called from the view picker and the in-app view switcher.
+ */
+export async function setPortalView(
+  formData: FormData
+): Promise<ActionResult<void>> {
+  const view = formData.get("view") as string;
+  if (view !== "staff" && view !== "parent") {
+    return { success: false, error: "Invalid view." };
+  }
+  await setPortalViewCookie(view);
+  redirect(view === "parent" ? "/portal/children" : "/dashboard/home");
 }
 
 /**

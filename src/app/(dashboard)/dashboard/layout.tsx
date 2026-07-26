@@ -15,11 +15,12 @@ interface OrgContext {
 }
 
 interface UserContext {
-  id:        string;
-  full_name: string;
-  avatar_url:string | null;
-  role:      UserRole;
-  org:       OrgContext;
+  id:            string;
+  full_name:     string;
+  avatar_url:    string | null;
+  role:          UserRole;
+  org:           OrgContext;
+  hasParentAccess: boolean;
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -50,7 +51,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       // Fetch membership + org
       const { data: membership } = await supabase
         .from("organization_members")
-        .select(`role, organizations ( id, name, logo_url )`)
+        .select(`role, roles, organizations ( id, name, logo_url )`)
         .eq("profile_id", user.id)
         .eq("organization_id", orgId)
         .eq("status", "active")
@@ -63,19 +64,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return;
       }
 
-      // Parents go to the portal, not the staff dashboard
-      if (membership.role === "parent" || membership.role === "student_future") {
-        router.push("/portal");
+      const allRoles = (membership.roles as string[] | null) ?? [membership.role as string];
+      const hasParentAccess = allRoles.includes("parent");
+
+      // Parent-only users go to the portal, not the staff dashboard
+      const isParentOnly = membership.role === "parent" && !hasParentAccess;
+      if (isParentOnly || membership.role === "student_future") {
+        router.push("/portal/children");
         return;
       }
 
       const org = membership.organizations as OrgContext;
       setCtx({
-        id:         user.id,
-        full_name:  profile?.full_name ?? "User",
-        avatar_url: profile?.avatar_url ?? null,
-        role:       membership.role as UserRole,
+        id:             user.id,
+        full_name:      profile?.full_name ?? "User",
+        avatar_url:     profile?.avatar_url ?? null,
+        role:           membership.role as UserRole,
         org,
+        hasParentAccess,
       });
       setLoading(false);
     }
@@ -136,6 +142,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           userAvatar={ctx.avatar_url}
           orgName={ctx.org.name}
           role={ctx.role}
+          hasParentAccess={ctx.hasParentAccess}
           onMenuToggle={() => setSidebar((o) => !o)}
         />
         <main className="flex-1 p-4 sm:p-6 lg:p-8">

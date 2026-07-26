@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getUser, getProfile } from "@/lib/supabase/server";
-import { getActiveOrgId, getActiveRole } from "@/lib/supabase/org-context";
-import { User, Home } from "lucide-react";
+import { getActiveOrgId, getActiveRole, HAS_PARENT_COOKIE_NAME } from "@/lib/supabase/org-context";
+import { setPortalView } from "@/app/actions/org";
+import { User, Home, LayoutDashboard } from "lucide-react";
+import { cookies } from "next/headers";
 
 /**
  * Parent Portal layout — Sprint 2.
@@ -23,6 +25,9 @@ export default async function PortalLayout({ children }: { children: React.React
   const role  = await getActiveRole();
   // Belt-and-suspenders: only parents/guardians access this layout.
   if (role !== "parent") redirect("/dashboard/home");
+
+  const cookieStore = await cookies();
+  const isMultiRole = cookieStore.get(HAS_PARENT_COOKIE_NAME)?.value === "1";
 
   const profile = await getProfile(user.id);
   const firstName = (profile?.full_name as string | null)?.split(" ")[0] ?? null;
@@ -51,6 +56,23 @@ export default async function PortalLayout({ children }: { children: React.React
               <User className="size-4" />
               <span className="hidden sm:block">{firstName ?? "Settings"}</span>
             </Link>
+            {isMultiRole && (
+              <form action={async () => {
+                "use server";
+                const form = new FormData();
+                form.set("view", "staff");
+                await setPortalView(form);
+              }}>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 text-label-sm text-sc-teal font-medium hover:text-sc-teal-700 transition-colors"
+                  title="Switch to Staff Dashboard"
+                >
+                  <LayoutDashboard className="size-4" />
+                  <span className="hidden sm:block">Staff View</span>
+                </button>
+              </form>
+            )}
           </nav>
         </div>
       </header>

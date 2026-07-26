@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
-import { ORG_COOKIE_NAME, ROLE_COOKIE_NAME } from "@/lib/supabase/org-context";
+import {
+  ORG_COOKIE_NAME, ROLE_COOKIE_NAME,
+  PORTAL_VIEW_COOKIE_NAME, HAS_PARENT_COOKIE_NAME,
+} from "@/lib/supabase/org-context";
 
 /**
  * Next.js Middleware — runs on every matched request.
@@ -62,31 +65,58 @@ export async function middleware(request: NextRequest) {
 
   // ── Authenticated: redirect root and login ──────────────────
   if (pathname === "/login" || pathname === "/") {
-    const orgId = request.cookies.get(ORG_COOKIE_NAME)?.value;
-    const role  = request.cookies.get(ROLE_COOKIE_NAME)?.value;
+    const orgId      = request.cookies.get(ORG_COOKIE_NAME)?.value;
+    const role       = request.cookies.get(ROLE_COOKIE_NAME)?.value;
+    const pView      = request.cookies.get(PORTAL_VIEW_COOKIE_NAME)?.value;
+    const hasParentC = request.cookies.get(HAS_PARENT_COOKIE_NAME)?.value === "1";
 
     if (orgId && role) {
-      const dest = role === "parent" ? "/portal/children" : "/dashboard/home";
+      let dest: string;
+      if (pView === "parent" || (role === "parent" && !hasParentC)) {
+        dest = "/portal/children";
+      } else if (hasParentC && !pView) {
+        dest = "/select-view";
+      } else {
+        dest = "/dashboard/home";
+      }
       return NextResponse.redirect(new URL(dest, request.url));
     }
     return NextResponse.redirect(new URL("/select-mission", request.url));
   }
 
   // ── Role-based route guarding ───────────────────────────────
-  const role  = request.cookies.get(ROLE_COOKIE_NAME)?.value;
-  const orgId = request.cookies.get(ORG_COOKIE_NAME)?.value;
+  const role        = request.cookies.get(ROLE_COOKIE_NAME)?.value;
+  const orgId       = request.cookies.get(ORG_COOKIE_NAME)?.value;
+  const portalView  = request.cookies.get(PORTAL_VIEW_COOKIE_NAME)?.value; // "staff" | "parent"
+  const hasParent   = request.cookies.get(HAS_PARENT_COOKIE_NAME)?.value === "1";
 
-  const isParent    = role === "parent";
+  // Effective portal mode:
+  // - Multi-role users: driven by portalView cookie
+  // - Parent-only users: always parent mode
+  const isParentMode =
+    portalView === "parent" ||
+    (role === "parent" && portalView !== "staff") ||
+    (hasParent && portalView === "parent");
+
   const isDashboard = pathname.startsWith("/dashboard");
   const isPortal    = pathname.startsWith("/portal");
+  const isSelectView = pathname.startsWith("/select-view");
 
-  // Parent trying to access staff dashboard — redirect to portal
-  if (isParent && isDashboard) {
+  // Allow /select-view for multi-role users without redirection
+  if (isSelectView) return supabaseResponse;
+
+  // Parent-mode user trying to access staff dashboard — redirect to portal
+  if (isParentMode && isDashboard) {
     return NextResponse.redirect(new URL("/portal/children", request.url));
   }
 
-  // Staff trying to access parent portal — redirect to dashboard
-  if (!isParent && role && isPortal) {
+  // Non-parent user trying to access parent portal (and not a multi-role user in parent mode)
+  if (!isParentMode && role && role !== "parent" && !hasParent && isPortal) {
+    return NextResponse.redirect(new URL("/dashboard/home", request.url));
+  }
+
+  // Staff-mode multi-role user trying to access portal — redirect to dashboard
+  if (!isParentMode && hasParent && isPortal) {
     return NextResponse.redirect(new URL("/dashboard/home", request.url));
   }
 
