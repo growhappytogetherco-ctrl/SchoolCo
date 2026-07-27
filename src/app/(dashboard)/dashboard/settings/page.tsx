@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Database, Upload } from "lucide-react";
+import { Upload } from "lucide-react";
 import { requireAdmin } from "@/lib/roleGuard";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -44,15 +44,6 @@ export default async function SettingsPage() {
         ))}
       </div>
 
-      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Database className="size-4 text-sc-gray" />
-          <h2 className="text-label-md font-semibold text-sc-gray">More settings coming soon</h2>
-        </div>
-        <p className="text-body-sm text-sc-gray">
-          Organization profile, notification preferences, user roles, and integrations will be added in future phases.
-        </p>
-      </div>
     </div>
   );
 }

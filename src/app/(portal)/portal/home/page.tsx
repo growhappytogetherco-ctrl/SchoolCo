@@ -23,7 +23,7 @@ function TodayStatusChip({ att }: {
     is_late: boolean;
   } | null;
 }) {
-  if (!att && true) {
+  if (!att) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full bg-sc-gray-100 px-3 py-1 text-label-sm text-sc-gray-500">
         <Clock className="size-3.5" /> Not yet recorded

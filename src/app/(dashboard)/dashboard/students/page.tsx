@@ -1,39 +1,22 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { UserPlus } from "lucide-react";
-import { getUser, getStudents } from "@/lib/supabase/server";
+import { getUser, getStudents, getActiveOrgId } from "@/lib/supabase/server";
 import { StudentTable } from "@/components/students/StudentTable";
-import { createClient } from "@/lib/supabase/server";
+import { requireStaff } from "@/lib/roleGuard";
 
 export const metadata: Metadata = { title: "Students" };
 
-/**
- * Students list page — Sprint 1.
- *
- * Server component. Loads enrolled students for the active org.
- * RLS enforces staff-only access — parents cannot reach this page
- * (middleware redirects them to /dashboard/children instead).
- *
- * Sprint 2: Add enrollment workflow, student creation form.
- * Sprint 3: Add attendance quick-view, health flag indicators.
- */
 export default async function StudentsPage() {
+  await requireStaff();
   const user = await getUser();
   if (!user) redirect("/login");
 
-  // Get the user's primary active org
-  const supabase = await createClient();
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("organization_id, role")
-    .eq("profile_id", user.id)
-    .eq("status", "active")
-    .limit(1)
-    .single();
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/select-mission");
 
-  if (!membership) redirect("/select-mission");
-
-  const students = await getStudents(membership.organization_id, { limit: 100 });
+  const students = await getStudents(orgId, { limit: 100 });
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -49,28 +32,19 @@ export default async function StudentsPage() {
           </p>
         </div>
 
-        {/* Enrollment action — Sprint 2 */}
-        <div title="Enrollment coming in Sprint 2" className="opacity-40 cursor-not-allowed select-none">
-          <div className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-4 py-2 text-white text-label-md font-medium pointer-events-none">
-            <UserPlus className="size-4" />
-            Enroll Student
-          </div>
-        </div>
+        <Link
+          href="/dashboard/students/new"
+          className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-4 py-2 text-white text-label-md font-medium hover:bg-sc-teal-700 transition-colors shadow-sm"
+        >
+          <UserPlus className="size-4" />
+          Enroll Student
+        </Link>
       </div>
 
       {/* ── Student Table ────────────────────────────────────── */}
-      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-1 sm:p-0 overflow-hidden">
-        <div className="p-4 sm:p-6">
-          <StudentTable students={students as Parameters<typeof StudentTable>[0]["students"]} />
-        </div>
+      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card overflow-hidden">
+        <StudentTable students={students as Parameters<typeof StudentTable>[0]["students"]} />
       </div>
-
-      {/* ── Sprint note ─────────────────────────────────────── */}
-      {students.length > 0 && (
-        <p className="text-label-sm text-sc-gray-400 text-center">
-          Click any student to view their full profile · Student detail pages coming in Sprint 2
-        </p>
-      )}
 
     </div>
   );

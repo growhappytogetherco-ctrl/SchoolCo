@@ -57,7 +57,6 @@ export function StudentTable({ students }: StudentTableProps) {
         icon={GraduationCap}
         title="No students yet"
         description="Enrolled students will appear here. Use the Enrollment module to add your first student."
-        sprintLabel="Enrollment in Sprint 2"
       />
     );
   }

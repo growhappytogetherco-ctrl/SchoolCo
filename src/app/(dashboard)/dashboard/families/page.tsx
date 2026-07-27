@@ -1,41 +1,24 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Home, Users, FolderPlus } from "lucide-react";
+import { Home, Users } from "lucide-react";
 import { getUser, getFamilies } from "@/lib/supabase/server";
 import { requireStaff } from "@/lib/roleGuard";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Families" };
 
-/**
- * Families list page — Sprint 1.
- *
- * Server component. Shows all families in the active org with household count.
- * Split-household families are clearly flagged.
- * RLS: staff+ only (enforced at DB level).
- *
- * Sprint 2: Add family creation form, guardian management.
- */
 export default async function FamiliesPage() {
   await requireStaff();
   const user = await getUser();
   if (!user) redirect("/login");
 
-  const supabase = await createClient();
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("organization_id")
-    .eq("profile_id", user.id)
-    .eq("status", "active")
-    .limit(1)
-    .single();
+  const { getActiveOrgId } = await import("@/lib/supabase/server");
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/select-mission");
 
-  if (!membership) redirect("/select-mission");
-
-  const families = await getFamilies(membership.organization_id, { limit: 100 });
+  const families = await getFamilies(orgId, { limit: 100 });
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -51,13 +34,6 @@ export default async function FamiliesPage() {
           </p>
         </div>
 
-        {/* Family creation — Sprint 2 */}
-        <div title="Family creation coming in Sprint 2" className="opacity-40 cursor-not-allowed select-none">
-          <div className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-4 py-2 text-white text-label-md font-medium pointer-events-none">
-            <FolderPlus className="size-4" />
-            Add Family
-          </div>
-        </div>
       </div>
 
       {/* ── Family List ───────────────────────────────────────── */}
@@ -67,8 +43,7 @@ export default async function FamiliesPage() {
             icon={Home}
             title="No families yet"
             description="Families are created when students are enrolled. Use the Enrollment module to get started."
-            sprintLabel="Family creation in Sprint 2"
-          />
+            />
         </div>
       ) : (
         <>
