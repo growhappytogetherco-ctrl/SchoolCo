@@ -152,7 +152,7 @@ export async function getStudentSafetyAlerts(
 
   // ── Source 6: staff_notes explicitly marked as safety alerts ────────────
   if (isStaff && !isVolunteer) {
-    const { data: safetyNotes } = await supabase
+    const { data: safetyNotes, error: safetyErr } = await supabase
       .from("staff_notes")
       .select("id, title, safety_severity, safety_instruction, safety_roles")
       .eq("student_id", studentId)
@@ -160,6 +160,8 @@ export async function getStudentSafetyAlerts(
       .eq("is_safety_alert", true)
       .in("status", ["open", "in_progress", "waiting"])
       .is("archived_at", null);
+
+    if (safetyErr) console.error("[studentAlerts] safety notes query failed:", safetyErr.message);
 
     for (const n of safetyNotes ?? []) {
       const visibleRoles = n.safety_roles as string[] | null;
