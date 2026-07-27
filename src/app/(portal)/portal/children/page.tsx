@@ -98,7 +98,9 @@ export default async function PortalChildrenPage() {
                 </div>
               </div>
 
-              <ChevronRight className="size-5 text-sc-gray-300 group-hover:text-sc-teal transition-colors shrink-0" />
+              <span className="shrink-0 rounded-full bg-sc-teal px-3 py-1 text-label-sm text-white group-hover:bg-sc-teal-700 transition-colors">
+                View
+              </span>
             </Link>
           ))}
         </div>

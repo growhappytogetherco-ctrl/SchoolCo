@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getUser, getProfile } from "@/lib/supabase/server";
 import { getActiveOrgId, getActiveRole, HAS_PARENT_COOKIE_NAME, PORTAL_VIEW_COOKIE_NAME } from "@/lib/supabase/org-context";
 import { setPortalView } from "@/app/actions/org";
-import { User, Home, LayoutDashboard } from "lucide-react";
+import { Home, User, GraduationCap, Calendar, BookOpen, MessageSquare, LayoutDashboard } from "lucide-react";
 import { cookies } from "next/headers";
 
 /**
@@ -12,8 +12,7 @@ import { cookies } from "next/headers";
  * Security:
  * - Middleware already redirects non-parents away from /portal routes.
  * - This layout re-validates the role server-side as a second layer.
- * - Parents can ONLY see this layout and the pages under (portal)/.
- * - Staff pages (/dashboard/*) are never rendered here.
+ * - Multi-role users (e.g. full_admin + parent) are allowed when sc_portal_view=parent.
  */
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser();
@@ -41,24 +40,59 @@ export default async function PortalLayout({ children }: { children: React.React
       {/* ── Top nav ──────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b border-sc-gray-100 bg-white shadow-sm">
         <div className="mx-auto max-w-2xl flex h-14 items-center justify-between px-4 sm:px-6">
-          <Link href="/portal/children" className="flex items-center gap-2">
+          <Link href="/portal/home" className="flex items-center gap-2 shrink-0">
             <span className="font-serif text-sc-navy font-bold text-lg">SchoolCo</span>
             <span className="text-sc-gray text-label-sm hidden sm:block">· Family Portal</span>
           </Link>
-          <nav className="flex items-center gap-3">
+
+          <nav className="flex items-center gap-1 sm:gap-2">
             <Link
-              href="/portal/children"
-              className="flex items-center gap-1.5 text-label-sm text-sc-gray hover:text-sc-teal transition-colors"
+              href="/portal/home"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              title="Home"
             >
               <Home className="size-4" />
-              <span className="hidden sm:block">My Children</span>
+              <span className="hidden sm:block">Home</span>
+            </Link>
+            <Link
+              href="/portal/children"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              title="My Children"
+            >
+              <GraduationCap className="size-4" />
+              <span className="hidden sm:block">Children</span>
+            </Link>
+            <Link
+              href="/portal/attendance"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              title="Attendance"
+            >
+              <Calendar className="size-4" />
+              <span className="hidden sm:block">Attendance</span>
+            </Link>
+            <Link
+              href="/portal/academics"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              title="Academics"
+            >
+              <BookOpen className="size-4" />
+              <span className="hidden sm:block">Academics</span>
+            </Link>
+            <Link
+              href="/portal/messages"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              title="Messages"
+            >
+              <MessageSquare className="size-4" />
+              <span className="hidden md:block">Messages</span>
             </Link>
             <Link
               href="/portal/settings"
-              className="flex items-center gap-1.5 text-label-sm text-sc-gray hover:text-sc-teal transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              title={firstName ?? "Account"}
             >
               <User className="size-4" />
-              <span className="hidden sm:block">{firstName ?? "Settings"}</span>
+              <span className="hidden md:block">{firstName ?? "Account"}</span>
             </Link>
             {isMultiRole && (
               <form action={async () => {
@@ -69,11 +103,11 @@ export default async function PortalLayout({ children }: { children: React.React
               }}>
                 <button
                   type="submit"
-                  className="flex items-center gap-1.5 text-label-sm text-sc-teal font-medium hover:text-sc-teal-700 transition-colors"
+                  className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-teal font-medium hover:text-sc-teal-700 hover:bg-sc-teal-50 transition-colors"
                   title="Switch to Staff Dashboard"
                 >
                   <LayoutDashboard className="size-4" />
-                  <span className="hidden sm:block">Staff View</span>
+                  <span className="hidden lg:block">Staff View</span>
                 </button>
               </form>
             )}

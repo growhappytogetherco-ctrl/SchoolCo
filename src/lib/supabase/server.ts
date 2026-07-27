@@ -535,6 +535,190 @@ export interface ParentStudentDetail {
   } | null;
 }
 
+// ── Attendance history ────────────────────────────────────────────────────
+
+export interface AttendanceDay {
+  date: string;
+  status: string;
+  check_in_at: string | null;
+  check_out_at: string | null;
+  is_late: boolean;
+  is_early_pickup: boolean;
+  absence_reason: string | null;
+}
+
+export async function getAttendanceHistoryForParent(
+  studentId: string,
+  userId: string,
+  orgId: string,
+  limit = 14
+): Promise<AttendanceDay[]> {
+  const supabase = await createClient();
+
+  // Verify guardianship first
+  const { data: gd } = await supabase
+    .from("guardianships")
+    .select("id")
+    .eq("profile_id", userId)
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .is("archived_at", null)
+    .maybeSingle();
+  if (!gd) return [];
+
+  const { data, error } = await supabase
+    .from("attendance_records")
+    .select("date, status, check_in_at, check_out_at, is_late, is_early_pickup, absence_reason")
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .order("date", { ascending: false })
+    .limit(limit);
+
+  if (error) return [];
+  return (data ?? []) as AttendanceDay[];
+}
+
+// ── Teacher progress check-ins (parent-visible) ───────────────────────────
+
+export interface ProgressCheckin {
+  id: string;
+  recorded_date: string;
+  subject_area: string | null;
+  lesson_topic: string | null;
+  what_was_worked_on: string | null;
+  student_response: string | null;
+  progress_observed: string | null;
+  parent_follow_up_notes: string | null;
+  confidence_level: string | null;
+}
+
+export async function getProgressCheckinsForParent(
+  studentId: string,
+  userId: string,
+  orgId: string,
+  limit = 5
+): Promise<ProgressCheckin[]> {
+  const supabase = await createClient();
+
+  const { data: gd } = await supabase
+    .from("guardianships")
+    .select("id")
+    .eq("profile_id", userId)
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .is("archived_at", null)
+    .maybeSingle();
+  if (!gd) return [];
+
+  const { data, error } = await supabase
+    .from("academic_progress")
+    .select("id, recorded_date, subject_area, lesson_topic, what_was_worked_on, student_response, progress_observed, parent_follow_up_notes, confidence_level")
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("parent_visible", true)
+    .is("archived_at", null)
+    .order("recorded_date", { ascending: false })
+    .limit(limit);
+
+  if (error) return [];
+  return (data ?? []) as ProgressCheckin[];
+}
+
+// ── Student goals (parent_visible only) ──────────────────────────────────
+
+export interface ParentGoal {
+  id: string;
+  goal_text: string;
+  category: string;
+  status: string;
+  progress_pct: number;
+  priority: string;
+  target_review_date: string | null;
+}
+
+export async function getStudentGoalsForParent(
+  studentId: string,
+  userId: string,
+  orgId: string
+): Promise<ParentGoal[]> {
+  const supabase = await createClient();
+
+  const { data: gd } = await supabase
+    .from("guardianships")
+    .select("id")
+    .eq("profile_id", userId)
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .is("archived_at", null)
+    .maybeSingle();
+  if (!gd) return [];
+
+  const { data, error } = await supabase
+    .from("student_goals")
+    .select("id, goal_text, category, status, progress_pct, priority, target_review_date")
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("visibility", "parent_visible")
+    .in("status", ["active", "achieved"])
+    .order("priority", { ascending: false })
+    .order("updated_at", { ascending: false });
+
+  if (error) return [];
+  return (data ?? []) as ParentGoal[];
+}
+
+// ── Medical summary for parents ───────────────────────────────────────────
+
+export interface MedicalSummary {
+  allergies: { allergy_name: string; severity: string; emergency_medication_required: boolean }[];
+  conditions: { condition_name: string; emergency_action_needed: boolean; action_instructions: string | null }[];
+}
+
+export async function getMedicalSummaryForParent(
+  studentId: string,
+  userId: string,
+  orgId: string
+): Promise<MedicalSummary> {
+  const supabase = await createClient();
+
+  const { data: gd } = await supabase
+    .from("guardianships")
+    .select("id")
+    .eq("profile_id", userId)
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .is("archived_at", null)
+    .maybeSingle();
+  if (!gd) return { allergies: [], conditions: [] };
+
+  const [{ data: allergies }, { data: conditions }] = await Promise.all([
+    supabase
+      .from("student_allergies")
+      .select("allergy_name, severity, emergency_medication_required")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .eq("is_active", true)
+      .is("archived_at", null)
+      .order("severity"),
+    supabase
+      .from("student_conditions")
+      .select("condition_name, emergency_action_needed, action_instructions")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .eq("is_active", true)
+      .is("archived_at", null),
+  ]);
+
+  return {
+    allergies: (allergies ?? []) as MedicalSummary["allergies"],
+    conditions: (conditions ?? []) as MedicalSummary["conditions"],
+  };
+}
+
 /**
  * Returns all guardianships for a parent (for the settings page).
  */
