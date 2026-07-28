@@ -26,12 +26,27 @@ export async function GET(
     return NextResponse.json({ error: "No active organization" }, { status: 403 });
   }
 
+  // Verify the caller has a staff-level role — parents must not be able to
+  // use this endpoint to look up medical/allergy data for arbitrary students.
+  const supabase = await createClient();
+  const { data: membership } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("profile_id", user.id)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+
+  const staffRoles = ["teacher", "staff", "registrar", "admin", "full_admin", "platform_admin", "volunteer"];
+  if (!membership || !staffRoles.includes(membership.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { token } = params;
   if (!token.startsWith("ATT-")) {
     return NextResponse.json({ error: "Invalid attendance QR code" }, { status: 400 });
   }
 
-  const supabase = await createClient();
   const today = new Date().toISOString().split("T")[0];
 
   // Resolve student — only within caller's org
