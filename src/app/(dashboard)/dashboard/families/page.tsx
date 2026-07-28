@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Home, Users } from "lucide-react";
-import { getUser, getFamilies } from "@/lib/supabase/server";
-import { requireStaff } from "@/lib/roleGuard";
+import { Home, Users, PlusCircle } from "lucide-react";
+import { getUser, getFamilies, getActiveOrgId } from "@/lib/supabase/server";
+import { requireStaff, getCurrentRole } from "@/lib/roleGuard";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { isAdminRole, getRoleLevel } from "@/lib/constants";
 
 export const metadata: Metadata = { title: "Families" };
 
@@ -14,11 +15,15 @@ export default async function FamiliesPage() {
   const user = await getUser();
   if (!user) redirect("/login");
 
-  const { getActiveOrgId } = await import("@/lib/supabase/server");
   const orgId = await getActiveOrgId();
   if (!orgId) redirect("/select-mission");
 
-  const families = await getFamilies(orgId, { limit: 100 });
+  const [families, role] = await Promise.all([
+    getFamilies(orgId, { limit: 100 }),
+    getCurrentRole(),
+  ]);
+
+  const canManage = isAdminRole(role) || getRoleLevel(role ?? "") >= getRoleLevel("registrar");
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -33,7 +38,15 @@ export default async function FamiliesPage() {
               : "No families enrolled yet"}
           </p>
         </div>
-
+        {canManage && (
+          <Link
+            href="/dashboard/families/new"
+            className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-4 py-2 text-white text-label-md font-medium hover:bg-sc-teal-700 transition-colors shadow-sm"
+          >
+            <PlusCircle className="size-4" />
+            Add Family
+          </Link>
+        )}
       </div>
 
       {/* ── Family List ───────────────────────────────────────── */}
@@ -42,7 +55,7 @@ export default async function FamiliesPage() {
           <EmptyState
             icon={Home}
             title="No families yet"
-            description="Families are created when students are enrolled. Use the Enrollment module to get started."
+            description={canManage ? "Create your first family using the Add Family button above, or enroll a student to create one automatically." : "Families will appear here once students are enrolled."}
             />
         </div>
       ) : (

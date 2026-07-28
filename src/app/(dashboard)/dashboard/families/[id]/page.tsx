@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Home, Users, GraduationCap, AlertTriangle, MapPin, Phone, Mail } from "lucide-react";
+import { ArrowLeft, Home, Users, GraduationCap, AlertTriangle, MapPin, Phone, Mail, Pencil } from "lucide-react";
 import { getUser, getFamily, getActiveOrgId } from "@/lib/supabase/server";
+import { getCurrentRole } from "@/lib/roleGuard";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AddHouseholdDialog } from "@/components/families/AddHouseholdDialog";
 import { AddGuardianDialog } from "@/components/guardians/AddGuardianDialog";
-import { RELATIONSHIP_LABELS, CUSTODY_LABELS, requiresSupervisionAlert, ENROLLMENT_LABELS } from "@/lib/constants";
+import { RELATIONSHIP_LABELS, CUSTODY_LABELS, requiresSupervisionAlert, ENROLLMENT_LABELS, getRoleLevel } from "@/lib/constants";
 import type { RelationshipType, CustodyType, EnrollmentStatus } from "@/lib/constants";
 
 export const metadata: Metadata = { title: "Family Detail" };
@@ -36,8 +37,10 @@ export default async function FamilyDetailPage({
   const orgId = await getActiveOrgId();
   if (!orgId) redirect("/select-mission");
 
-  const family = await getFamily(id);
+  const [family, role] = await Promise.all([getFamily(id), getCurrentRole()]);
   if (!family) notFound();
+
+  const canManage = getRoleLevel(role ?? "") >= getRoleLevel("registrar");
 
   const households = ((family.households ?? []) as HouseholdRow[])
     .filter((h) => !h.archived_at)
@@ -83,6 +86,14 @@ export default async function FamilyDetailPage({
               )}
             </div>
           </div>
+          {canManage && (
+            <Link
+              href={`/dashboard/families/${id}/edit`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sc-gray-200 bg-white px-3 py-1.5 text-label-sm font-medium text-sc-navy hover:border-sc-teal hover:text-sc-teal transition-colors"
+            >
+              <Pencil className="size-3.5" /> Edit Family
+            </Link>
+          )}
         </div>
 
         {/* Staff notes (never shown in parent portal) */}
