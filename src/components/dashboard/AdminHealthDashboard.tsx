@@ -6,7 +6,7 @@ import {
   RefreshCw, CheckCircle2, AlertTriangle, XCircle, Shield,
   Users, GraduationCap, Heart, Briefcase, Building2,
   MessageSquare, Database, Clock, Server, HardDrive,
-  Activity, AlertOctagon, ChevronRight, Play,
+  Activity, AlertOctagon, ChevronRight, Play, Rocket,
 } from "lucide-react";
 import {
   getAdminHealthData,
@@ -403,6 +403,27 @@ export function AdminHealthDashboard({ initialData }: Props) {
           </div>
         )}
       </Section>
+
+      {/* ── Launch Readiness Center ──────────────────────────────── */}
+      <div className="rounded-2xl bg-sc-navy text-white p-5 flex items-center justify-between gap-4 shadow-card">
+        <div className="flex items-center gap-4">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 shrink-0">
+            <Rocket className="size-5 text-white" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-base">Launch Readiness Center</h2>
+            <p className="text-sm text-white/70 mt-0.5">
+              Pre-launch command center — checklists, data import, QR badges, and go-live gate.
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/dashboard/admin/launch"
+          className="shrink-0 flex items-center gap-1.5 rounded-xl bg-white text-sc-navy px-4 py-2 text-sm font-semibold hover:bg-sc-cream transition-colors"
+        >
+          Open <ChevronRight className="size-4" />
+        </Link>
+      </div>
 
       {/* ── Quick Maintenance ────────────────────────────────────── */}
       <Section title="Quick Maintenance" icon={Play}>
