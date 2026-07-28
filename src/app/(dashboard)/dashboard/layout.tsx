@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Skeleton } from "@/components/ui/skeleton";
+import { NotificationToast } from "@/components/messages/NotificationToast";
 import { createClient } from "@/lib/supabase/client";
 import type { UserRole } from "@/lib/constants";
 
@@ -28,6 +29,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [ctx, setCtx]             = useState<UserContext | null>(null);
   const [loading, setLoading]     = useState(true);
   const [sidebarOpen, setSidebar] = useState(false);
+  const [messageBadge, setMessageBadge] = useState(0);
 
   useEffect(() => {
     async function loadContext() {
@@ -75,19 +77,55 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
 
       const org = membership.organizations as OrgContext;
+      const resolvedUserId = user.id;
+
       setCtx({
-        id:             user.id,
+        id:             resolvedUserId,
         full_name:      profile?.full_name ?? "User",
         avatar_url:     profile?.avatar_url ?? null,
         role:           membership.role as UserRole,
         org,
         hasParentAccess,
       });
+
+      // Initial unread count from notifications table
+      const { count } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_id", resolvedUserId)
+        .is("read_at", null)
+        .eq("resource_type", "conversation");
+      setMessageBadge(count ?? 0);
+
       setLoading(false);
     }
 
     loadContext();
   }, [router]);
+
+  // Realtime subscription for badge count updates
+  useEffect(() => {
+    if (!ctx) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`layout-notif-${ctx.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${ctx.id}` },
+        () => setMessageBadge(c => c + 1)
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "notifications", filter: `recipient_id=eq.${ctx.id}` },
+        payload => {
+          if ((payload.new as { read_at: string | null }).read_at) {
+            setMessageBadge(c => Math.max(0, c - 1));
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [ctx]);
 
   if (loading) {
     return (
@@ -104,14 +142,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (!ctx) return null;
 
+  // Realtime badge — inline subscription so we can update messageBadge state
+  // (NotificationToast handles the toast pop-up; this handles badge count)
+
   return (
     <div className="min-h-screen flex bg-sc-cream">
+      <NotificationToast userId={ctx.id} linkBase="/dashboard/messages" />
+
       {/* ── Desktop Sidebar ─────────────────────── */}
       <div className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:z-40">
         <AppSidebar
           role={ctx.role}
           orgName={ctx.org.name}
           orgLogo={ctx.org.logo_url}
+          messageBadge={messageBadge}
         />
       </div>
 
@@ -130,6 +174,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               orgName={ctx.org.name}
               orgLogo={ctx.org.logo_url}
               onClose={() => setSidebar(false)}
+              messageBadge={messageBadge}
             />
           </div>
         </>

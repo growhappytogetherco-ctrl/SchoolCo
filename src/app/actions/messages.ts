@@ -14,8 +14,8 @@ export type MessageCategory =
   | "general" | "attendance" | "academics" | "schedule"
   | "transportation" | "billing" | "medical" | "technical" | "other";
 
-export type ConversationStatus = "open" | "resolved";
-export type ConversationPriority = "normal" | "high" | "urgent";
+export type ConversationStatus = "open" | "waiting_parent" | "waiting_staff" | "resolved" | "closed" | "reopened";
+export type ConversationPriority = "low" | "normal" | "high" | "urgent";
 
 export interface ConversationSummary {
   id:              string;
@@ -564,7 +564,8 @@ export async function sendParentReply(
 
 // ── Staff: get conversations ──────────────────────────────────────────────
 
-export type StaffConversationFilter = "all" | "unread" | "unresolved" | "mine" | "high_priority" | "resolved";
+export type StaffConversationFilter =
+  | "all" | "unread" | "unresolved" | "mine" | "high_priority" | "resolved" | "waiting_parent" | "waiting_staff";
 
 export async function getStaffConversations(
   filter: StaffConversationFilter = "unresolved"
@@ -585,10 +586,12 @@ export async function getStaffConversations(
       .eq("organization_id", orgId)
       .order("last_message_at", { ascending: false });
 
-    if (filter === "resolved")    query = query.eq("status", "resolved");
-    if (filter === "unresolved")  query = query.eq("status", "open");
-    if (filter === "mine")        query = query.eq("assigned_to", user.id);
-    if (filter === "high_priority") query = query.in("priority", ["high","urgent"]).eq("status","open");
+    if (filter === "resolved")       query = query.in("status", ["resolved","closed"]);
+    if (filter === "unresolved")     query = query.in("status", ["open","waiting_parent","waiting_staff","reopened"]);
+    if (filter === "mine")           query = query.eq("assigned_to", user.id);
+    if (filter === "high_priority")  query = query.in("priority", ["high","urgent"]).in("status", ["open","waiting_parent","waiting_staff","reopened"]);
+    if (filter === "waiting_parent") query = query.eq("status", "waiting_parent");
+    if (filter === "waiting_staff")  query = query.eq("status", "waiting_staff");
 
     const { data: convRows, error } = await query;
     if (error) {
@@ -1280,4 +1283,264 @@ export async function getMyFamiliesForCompose(): Promise<ActionResult<Array<{
     logger.error("getMyFamiliesForCompose threw", { err });
     return { success: false, error: "Unable to load family information." };
   }
+}
+
+// ── Staff: search conversations ───────────────────────────────────────────
+
+export interface ConversationSearchResult extends ConversationSummary {
+  match_context: string | null;
+}
+
+export async function searchStaffConversations(
+  query: string
+): Promise<ActionResult<ConversationSearchResult[]>> {
+  try {
+    const { supabase, orgId } = await requireStaff();
+    const q = query.trim();
+    if (!q || q.length < 2) return { success: true, data: [] };
+
+    // Search subjects via full-text, plus family/student name via ilike
+    const { data, error } = await supabase
+      .from("conversations")
+      .select(`
+        id, subject, category, status, priority,
+        family_id, student_id, created_by, assigned_to,
+        last_message_at, created_at, resolved_at,
+        families!inner ( family_name ),
+        students ( first_name, last_name, preferred_name ),
+        assigned_profile:profiles!conversations_assigned_to_fkey ( full_name )
+      `)
+      .eq("organization_id", orgId)
+      .or(`subject.ilike.%${q}%,families.family_name.ilike.%${q}%`)
+      .order("last_message_at", { ascending: false })
+      .limit(30);
+
+    if (error) {
+      logger.error("searchStaffConversations error", { error: error.message });
+      return { success: false, error: "Search failed." };
+    }
+
+    const results: ConversationSearchResult[] = (data ?? []).map(c => {
+      const fam  = Array.isArray(c.families) ? c.families[0] : c.families;
+      const stu  = Array.isArray(c.students) ? c.students?.[0] : c.students;
+      const asgn = Array.isArray(c.assigned_profile) ? c.assigned_profile?.[0] : c.assigned_profile;
+      return {
+        id:              c.id,
+        subject:         c.subject,
+        category:        c.category as MessageCategory,
+        status:          c.status as ConversationStatus,
+        priority:        c.priority as ConversationPriority,
+        family_id:       c.family_id,
+        family_name:     (fam as { family_name: string })?.family_name ?? "",
+        student_id:      c.student_id,
+        student_name:    stu ? `${(stu as {preferred_name?: string|null; first_name: string}).preferred_name ?? (stu as {first_name: string}).first_name} ${(stu as {last_name: string}).last_name}` : null,
+        created_by:      c.created_by,
+        assigned_to:     c.assigned_to,
+        assigned_name:   (asgn as { full_name: string } | null)?.full_name ?? null,
+        last_message_at: c.last_message_at,
+        created_at:      c.created_at,
+        resolved_at:     c.resolved_at,
+        unread_count:    0,
+        last_message_preview: null,
+        last_sender_name: null,
+        match_context:   null,
+      };
+    });
+
+    return { success: true, data: results };
+  } catch (err) {
+    logger.error("searchStaffConversations threw", { err });
+    return { success: false, error: "Unable to search." };
+  }
+}
+
+// ── Shared: get unread notifications for live badge ───────────────────────
+
+export async function getUnreadNotificationsCount(): Promise<number> {
+  try {
+    const supabase = await createClient();
+    const user = await getUser();
+    if (!user) return 0;
+
+    const { count } = await supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("recipient_id", user.id)
+      .is("read_at", null)
+      .eq("resource_type", "conversation");
+
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// ── Staff: get recent unread conversations for widget ─────────────────────
+
+export async function getUnreadConversationsForWidget(): Promise<ActionResult<ConversationSummary[]>> {
+  try {
+    const { supabase, user, orgId } = await requireStaff();
+
+    const { data: parts } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id, last_read_at")
+      .eq("profile_id", user.id);
+
+    if (!parts?.length) return { success: true, data: [] };
+
+    const convIds = parts.map(p => p.conversation_id);
+
+    const { data: convRows } = await supabase
+      .from("conversations")
+      .select(`
+        id, subject, category, status, priority, family_id, student_id,
+        created_by, assigned_to, last_message_at, created_at, resolved_at,
+        families!inner ( family_name ),
+        students ( first_name, last_name, preferred_name ),
+        assigned_profile:profiles!conversations_assigned_to_fkey ( full_name )
+      `)
+      .eq("organization_id", orgId)
+      .in("id", convIds)
+      .in("status", ["open","waiting_parent","waiting_staff","reopened"])
+      .order("last_message_at", { ascending: false })
+      .limit(5);
+
+    const readAtMap: Record<string, string | null> = {};
+    for (const p of parts) readAtMap[p.conversation_id] = p.last_read_at;
+
+    const { data: msgs } = await supabase
+      .from("messages")
+      .select("conversation_id, created_at, sender_id, body, profiles!inner(full_name)")
+      .in("conversation_id", convIds)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
+
+    const lastMsgMap: Record<string, { body: string; sender: string }> = {};
+    const unreadMap: Record<string, number> = {};
+    for (const m of msgs ?? []) {
+      if (!lastMsgMap[m.conversation_id]) {
+        const p = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+        lastMsgMap[m.conversation_id] = { body: m.body, sender: (p as { full_name: string })?.full_name ?? "Unknown" };
+      }
+      if (m.sender_id !== user.id) {
+        const readAt = readAtMap[m.conversation_id];
+        if (!readAt || new Date(m.created_at) > new Date(readAt)) {
+          unreadMap[m.conversation_id] = (unreadMap[m.conversation_id] ?? 0) + 1;
+        }
+      }
+    }
+
+    const results: ConversationSummary[] = (convRows ?? [])
+      .filter(c => (unreadMap[c.id] ?? 0) > 0)
+      .map(c => {
+        const fam  = Array.isArray(c.families) ? c.families[0] : c.families;
+        const stu  = Array.isArray(c.students) ? c.students?.[0] : c.students;
+        const asgn = Array.isArray(c.assigned_profile) ? c.assigned_profile?.[0] : c.assigned_profile;
+        const lm   = lastMsgMap[c.id];
+        return {
+          id:              c.id,
+          subject:         c.subject,
+          category:        c.category as MessageCategory,
+          status:          c.status as ConversationStatus,
+          priority:        c.priority as ConversationPriority,
+          family_id:       c.family_id,
+          family_name:     (fam as { family_name: string })?.family_name ?? "",
+          student_id:      c.student_id,
+          student_name:    stu ? `${(stu as {preferred_name?: string|null; first_name: string}).preferred_name ?? (stu as {first_name: string}).first_name} ${(stu as {last_name: string}).last_name}` : null,
+          created_by:      c.created_by,
+          assigned_to:     c.assigned_to,
+          assigned_name:   (asgn as { full_name: string } | null)?.full_name ?? null,
+          last_message_at: c.last_message_at,
+          created_at:      c.created_at,
+          resolved_at:     c.resolved_at,
+          unread_count:    unreadMap[c.id] ?? 0,
+          last_message_preview: lm?.body?.slice(0, 80) ?? null,
+          last_sender_name:     lm?.sender ?? null,
+        };
+      });
+
+    return { success: true, data: results };
+  } catch (err) {
+    logger.error("getUnreadConversationsForWidget threw", { err });
+    return { success: false, error: "Unable to load." };
+  }
+}
+
+// ── Parent: get unread conversations for portal widget ────────────────────
+
+export async function getParentUnreadForWidget(): Promise<ActionResult<{
+  unread_count: number;
+  latest_subject: string | null;
+  latest_at: string | null;
+}>> {
+  try {
+    const { supabase, user, orgId } = await requireParent();
+
+    const { data: parts } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id, last_read_at")
+      .eq("profile_id", user.id);
+
+    if (!parts?.length) return { success: true, data: { unread_count: 0, latest_subject: null, latest_at: null } };
+
+    const convIds = parts.map(p => p.conversation_id);
+    const readAtMap: Record<string, string | null> = {};
+    for (const p of parts) readAtMap[p.conversation_id] = p.last_read_at;
+
+    const { data: msgs } = await supabase
+      .from("messages")
+      .select("conversation_id, created_at, sender_id")
+      .in("conversation_id", convIds)
+      .eq("parent_visible", true)
+      .is("deleted_at", null)
+      .neq("sender_id", user.id);
+
+    const unreadConvIds = new Set<string>();
+    for (const m of msgs ?? []) {
+      const readAt = readAtMap[m.conversation_id];
+      if (!readAt || new Date(m.created_at) > new Date(readAt)) {
+        unreadConvIds.add(m.conversation_id);
+      }
+    }
+
+    if (unreadConvIds.size === 0) {
+      return { success: true, data: { unread_count: 0, latest_subject: null, latest_at: null } };
+    }
+
+    const { data: latestConv } = await supabase
+      .from("conversations")
+      .select("subject, last_message_at")
+      .eq("organization_id", orgId)
+      .in("id", Array.from(unreadConvIds))
+      .order("last_message_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    return {
+      success: true,
+      data: {
+        unread_count:   unreadConvIds.size,
+        latest_subject: latestConv?.subject ?? null,
+        latest_at:      latestConv?.last_message_at ?? null,
+      },
+    };
+  } catch (err) {
+    logger.error("getParentUnreadForWidget threw", { err });
+    return { success: false, error: "Unable to load." };
+  }
+}
+
+// ── Mark notification read ────────────────────────────────────────────────
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const user = await getUser();
+    if (!user) return;
+    await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("id", notificationId)
+      .eq("recipient_id", user.id);
+  } catch { /* silent */ }
 }

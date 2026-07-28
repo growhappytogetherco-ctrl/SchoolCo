@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getUser, getProfile } from "@/lib/supabase/server";
+import { getUser, getProfile, createClient } from "@/lib/supabase/server";
 import { getActiveOrgId, getActiveRole, HAS_PARENT_COOKIE_NAME, PORTAL_VIEW_COOKIE_NAME } from "@/lib/supabase/org-context";
 import { setPortalView } from "@/app/actions/org";
-import { Home, User, GraduationCap, Calendar, BookOpen, MessageSquare, LayoutDashboard } from "lucide-react";
+import { PortalMessagesLink } from "@/components/messages/PortalMessagesLink";
+import { Home, User, GraduationCap, Calendar, BookOpen, LayoutDashboard } from "lucide-react";
 import { cookies } from "next/headers";
 
 /**
@@ -34,6 +35,16 @@ export default async function PortalLayout({ children }: { children: React.React
 
   const profile = await getProfile(user.id);
   const firstName = (profile?.full_name as string | null)?.split(" ")[0] ?? null;
+
+  // Unread notification count for the Messages badge (server-side initial value)
+  const supabase = await createClient();
+  const { count: unreadCount } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("recipient_id", user.id)
+    .is("read_at", null)
+    .eq("resource_type", "conversation");
+  const initialUnread = unreadCount ?? 0;
 
   return (
     <div className="min-h-screen bg-sc-cream flex flex-col">
@@ -78,14 +89,7 @@ export default async function PortalLayout({ children }: { children: React.React
               <BookOpen className="size-4" />
               <span className="hidden sm:block">Academics</span>
             </Link>
-            <Link
-              href="/portal/messages"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
-              title="Messages"
-            >
-              <MessageSquare className="size-4" />
-              <span className="hidden md:block">Messages</span>
-            </Link>
+            <PortalMessagesLink userId={user.id} initialCount={initialUnread} />
             <Link
               href="/portal/settings"
               className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"

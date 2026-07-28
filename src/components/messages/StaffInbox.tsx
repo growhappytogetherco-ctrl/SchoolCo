@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import Link from "next/link";
 import {
   Plus, MessageSquare, Clock, CheckCircle2, User,
-  Flag, AlertTriangle, Circle,
+  Flag, AlertTriangle, Circle, Search, X,
 } from "lucide-react";
 import {
   type ConversationSummary,
   type StaffConversationFilter,
   getStaffConversations,
+  searchStaffConversations,
 } from "@/app/actions/messages";
 import { CategoryBadge } from "@/components/messages/CategoryBadge";
 import { StaffComposeModal } from "@/components/messages/StaffComposeModal";
@@ -27,10 +28,20 @@ function formatRelative(ts: string): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(ts));
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  open:           "Open",
+  waiting_parent: "Waiting on Parent",
+  waiting_staff:  "Waiting on Staff",
+  resolved:       "Resolved",
+  closed:         "Closed",
+  reopened:       "Reopened",
+};
+
 const PRIORITY_COLORS = {
   urgent: "text-sc-rose",
   high:   "text-sc-gold-600",
   normal: "text-sc-gray-400",
+  low:    "text-sc-gray-300",
 };
 
 function PriorityIcon({ priority }: { priority: string }) {
@@ -40,12 +51,14 @@ function PriorityIcon({ priority }: { priority: string }) {
 }
 
 const TABS: { key: StaffConversationFilter; label: string }[] = [
-  { key: "unresolved",   label: "Open" },
-  { key: "unread",       label: "Unread" },
-  { key: "mine",         label: "Assigned to me" },
-  { key: "high_priority",label: "High priority" },
-  { key: "all",          label: "All" },
-  { key: "resolved",     label: "Resolved" },
+  { key: "unresolved",    label: "Open" },
+  { key: "unread",        label: "Unread" },
+  { key: "mine",          label: "Mine" },
+  { key: "high_priority", label: "High priority" },
+  { key: "waiting_parent",label: "Waiting: Parent" },
+  { key: "waiting_staff", label: "Waiting: Staff" },
+  { key: "all",           label: "All" },
+  { key: "resolved",      label: "Resolved" },
 ];
 
 function ConversationRow({ c }: { c: ConversationSummary }) {
@@ -112,6 +125,17 @@ function ConversationRow({ c }: { c: ConversationSummary }) {
             {c.last_message_preview}
           </p>
         )}
+        {(c.status === "waiting_parent" || c.status === "waiting_staff" || c.status === "closed" || c.status === "reopened") && (
+          <span className={cn(
+            "inline-block text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+            c.status === "waiting_parent" ? "bg-sc-gold-50 text-sc-gold-700" :
+            c.status === "waiting_staff"  ? "bg-sc-teal-50 text-sc-teal-700" :
+            c.status === "closed"         ? "bg-sc-gray-100 text-sc-gray" :
+            "bg-sc-rose-50 text-sc-rose-700"
+          )}>
+            {STATUS_LABELS[c.status] ?? c.status}
+          </span>
+        )}
       </div>
     </Link>
   );
@@ -127,15 +151,33 @@ export function StaffInbox({ initialConversations, orgId }: Props) {
   const [conversations, setConvs]     = useState(initialConversations);
   const [showCompose, setShowCompose] = useState(false);
   const [isPending, startTransition]  = useTransition();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ConversationSummary[] | null>(null);
+  const searchTimeout                 = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function switchFilter(f: StaffConversationFilter) {
     setFilter(f);
+    setSearchQuery("");
+    setSearchResults(null);
     startTransition(async () => {
       const res = await getStaffConversations(f);
       if (res.success) setConvs(res.data);
     });
   }
 
+  function handleSearch(q: string) {
+    setSearchQuery(q);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (!q.trim() || q.trim().length < 2) { setSearchResults(null); return; }
+    searchTimeout.current = setTimeout(() => {
+      startTransition(async () => {
+        const res = await searchStaffConversations(q);
+        if (res.success) setSearchResults(res.data);
+      });
+    }, 300);
+  }
+
+  const displayList = searchResults !== null ? searchResults : conversations;
   const totalUnread = initialConversations.reduce((n, c) => n + c.unread_count, 0);
 
   return (
@@ -159,42 +201,72 @@ export function StaffInbox({ initialConversations, orgId }: Props) {
           </button>
         </div>
 
+        {/* Search bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-sc-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => handleSearch(e.target.value)}
+            placeholder="Search by family, subject, student…"
+            className="w-full rounded-xl border border-sc-gray-200 bg-white pl-9 pr-9 py-2.5 text-label-sm text-sc-navy placeholder:text-sc-gray-400 focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal transition"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => { setSearchQuery(""); setSearchResults(null); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-sc-gray-400 hover:text-sc-navy"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+
         <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card overflow-hidden">
-          {/* Tabs */}
-          <div className="flex overflow-x-auto border-b border-sc-gray-100 bg-sc-gray-50/50">
-            {TABS.map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => switchFilter(tab.key)}
-                className={cn(
-                  "shrink-0 px-4 py-3 text-label-sm font-medium transition-colors whitespace-nowrap",
-                  filter === tab.key
-                    ? "border-b-2 border-sc-teal text-sc-teal -mb-px"
-                    : "text-sc-gray hover:text-sc-navy"
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          {/* Tabs — hidden during search */}
+          {searchResults === null && (
+            <div className="flex overflow-x-auto border-b border-sc-gray-100 bg-sc-gray-50/50">
+              {TABS.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => switchFilter(tab.key)}
+                  className={cn(
+                    "shrink-0 px-4 py-3 text-label-sm font-medium transition-colors whitespace-nowrap",
+                    filter === tab.key
+                      ? "border-b-2 border-sc-teal text-sc-teal -mb-px"
+                      : "text-sc-gray hover:text-sc-navy"
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {searchResults !== null && (
+            <div className="px-4 py-2.5 bg-sc-gray-50/50 border-b border-sc-gray-100 text-label-sm text-sc-gray">
+              {isPending ? "Searching…" : `${searchResults.length} result${searchResults.length !== 1 ? "s" : ""} for "${searchQuery}"`}
+            </div>
+          )}
 
           {/* List */}
           {isPending ? (
             <div className="py-12 text-center text-label-sm text-sc-gray">Loading…</div>
-          ) : conversations.length === 0 ? (
+          ) : displayList.length === 0 ? (
             <div className="py-12 text-center space-y-3">
               <MessageSquare className="size-10 text-sc-gray-300 mx-auto" />
               <p className="text-label-sm text-sc-gray">
-                {filter === "unresolved" ? "No open conversations." :
-                 filter === "unread"     ? "No unread conversations." :
-                 filter === "mine"       ? "No conversations assigned to you." :
+                {searchResults !== null     ? "No results found." :
+                 filter === "unresolved"    ? "No open conversations." :
+                 filter === "unread"        ? "No unread conversations." :
+                 filter === "mine"          ? "No conversations assigned to you." :
                  filter === "high_priority" ? "No high-priority conversations." :
+                 filter === "waiting_parent"? "No conversations waiting on parent." :
+                 filter === "waiting_staff" ? "No conversations waiting on staff." :
                  "No conversations yet."}
               </p>
             </div>
           ) : (
             <div className="divide-y divide-sc-gray-100">
-              {conversations.map(c => <ConversationRow key={c.id} c={c} />)}
+              {displayList.map(c => <ConversationRow key={c.id} c={c} />)}
             </div>
           )}
         </div>

@@ -16,6 +16,9 @@ import { ComplianceAlertsPanel } from "@/components/dashboard/ComplianceAlertsPa
 import { ComplianceSummaryCard } from "@/components/dashboard/ComplianceSummaryCard";
 import { MyAssignedNotesCard } from "@/components/dashboard/MyAssignedNotesCard";
 import { TodaysActionsCard } from "@/components/dashboard/TodaysActionsCard";
+import { MessagesWidget } from "@/components/messages/MessagesWidget";
+import { getUnreadConversationsForWidget } from "@/app/actions/messages";
+import type { ConversationSummary } from "@/app/actions/messages";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -62,6 +65,8 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
   const [notes, setNotes]             = useState<RecentNote[]>([]);
   const [loading, setLoading]         = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [unreadConvs, setUnreadConvs] = useState<ConversationSummary[]>([]);
+  const [totalUnread, setTotalUnread] = useState(0);
 
   const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
@@ -156,6 +161,13 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
       unreadNotes,
       totalEnrolled: totalEnrolled ?? 0,
     });
+    // Unread parent conversations for widget
+    const msgResult = await getUnreadConversationsForWidget();
+    if (msgResult.success) {
+      setUnreadConvs(msgResult.data);
+      setTotalUnread(msgResult.data.reduce((s, c) => s + c.unread_count, 0));
+    }
+
     setLastRefresh(new Date());
     setLoading(false);
   }, [orgId, today]);
@@ -260,6 +272,11 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
           emptyMessage="No incidents reported today"
         />
       </section>
+
+      {/* ── New Parent Messages ───────────────────────────────── */}
+      {(totalUnread > 0 || !loading) && (
+        <MessagesWidget conversations={unreadConvs} totalUnread={totalUnread} />
+      )}
 
       {/* ── Today's per-student action items ──────────────────── */}
       <TodaysActionsCard />

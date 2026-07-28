@@ -153,7 +153,7 @@ export function StaffThread({ conversation: initial, staffMembers, myId }: Props
     });
   }
 
-  const isResolved = conv.status === "resolved";
+  const isResolved = conv.status === "resolved" || conv.status === "closed";
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4 items-start">
@@ -279,21 +279,38 @@ export function StaffThread({ conversation: initial, staffMembers, myId }: Props
         {/* Status */}
         <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-4 space-y-3">
           <h3 className="text-label-sm font-semibold text-sc-navy uppercase tracking-wider">Status</h3>
-          {isResolved ? (
-            <button
-              onClick={() => handleStatusChange("open")}
+          <div className="relative">
+            <select
+              value={conv.status}
+              onChange={e => handleStatusChange(e.target.value as ConversationStatus)}
               disabled={isPending}
-              className="w-full flex items-center gap-2 rounded-xl border border-sc-gray-200 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-100 transition-colors disabled:opacity-50"
+              className="w-full appearance-none rounded-xl border border-sc-gray-200 px-3 py-2 text-label-sm text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal/30 disabled:opacity-50 pr-8"
             >
-              <RotateCcw className="size-4" /> Reopen conversation
-            </button>
-          ) : (
+              <option value="open">Open</option>
+              <option value="waiting_parent">Waiting: Parent</option>
+              <option value="waiting_staff">Waiting: Staff</option>
+              <option value="reopened">Reopened</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+            <ChevronDown className="absolute right-2.5 top-2.5 size-4 text-sc-gray pointer-events-none" />
+          </div>
+          {!isResolved && (
             <button
               onClick={() => handleStatusChange("resolved")}
               disabled={isPending}
               className="w-full flex items-center gap-2 rounded-xl bg-sc-teal px-3 py-2 text-label-sm font-medium text-white hover:bg-sc-teal-700 transition-colors disabled:opacity-50"
             >
               <CheckCircle2 className="size-4" /> Mark resolved
+            </button>
+          )}
+          {isResolved && (
+            <button
+              onClick={() => handleStatusChange("reopened")}
+              disabled={isPending}
+              className="w-full flex items-center gap-2 rounded-xl border border-sc-gray-200 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-100 transition-colors disabled:opacity-50"
+            >
+              <RotateCcw className="size-4" /> Reopen conversation
             </button>
           )}
         </div>
@@ -308,6 +325,7 @@ export function StaffThread({ conversation: initial, staffMembers, myId }: Props
               disabled={isPending}
               className="w-full appearance-none rounded-xl border border-sc-gray-200 px-3 py-2 text-label-sm text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal/30 disabled:opacity-50 pr-8"
             >
+              <option value="low">Low</option>
               <option value="normal">Normal</option>
               <option value="high">High</option>
               <option value="urgent">Urgent</option>

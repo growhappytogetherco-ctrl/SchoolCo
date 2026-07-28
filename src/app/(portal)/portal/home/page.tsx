@@ -3,8 +3,10 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { BadgeCheck, Clock, ChevronRight, GraduationCap, Calendar } from "lucide-react";
 import {
-  getUser, getProfile, getGuardianChildren, getStudentForParent, getActiveOrgId,
+  getUser, getProfile, getGuardianChildren, getStudentForParent, getActiveOrgId, createClient,
 } from "@/lib/supabase/server";
+import { getParentUnreadForWidget } from "@/app/actions/messages";
+import { ParentMessagesWidget } from "@/components/messages/ParentMessagesWidget";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -71,10 +73,20 @@ export default async function PortalHomePage() {
   const orgId = await getActiveOrgId();
   if (!orgId) redirect("/select-mission");
 
-  const [children, profile] = await Promise.all([
+  const [children, profile, msgResult] = await Promise.all([
     getGuardianChildren(user.id, orgId),
     getProfile(user.id),
+    getParentUnreadForWidget(),
   ]);
+
+  // Get org name for the messages widget
+  const supabase = await createClient();
+  const { data: orgData } = await supabase
+    .from("organizations")
+    .select("name")
+    .eq("id", orgId)
+    .single();
+  const orgName = (orgData as { name: string } | null)?.name ?? "School";
 
   const firstName = (profile?.full_name as string | null)?.split(" ")[0] ?? null;
   const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
@@ -170,6 +182,14 @@ export default async function PortalHomePage() {
           })}
         </div>
       )}
+
+      {/* Messages widget */}
+      <ParentMessagesWidget
+        unreadCount={msgResult.success ? msgResult.data.unread_count : 0}
+        latestSubject={msgResult.success ? msgResult.data.latest_subject : null}
+        latestAt={msgResult.success ? msgResult.data.latest_at : null}
+        orgName={orgName}
+      />
 
       {/* Upcoming reminders placeholder */}
       <div className="rounded-2xl bg-white border border-sc-gray-100 p-5">

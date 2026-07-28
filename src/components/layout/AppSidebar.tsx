@@ -25,13 +25,14 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 interface AppSidebarProps {
-  role:     UserRole;
-  orgName:  string;
-  orgLogo?: string | null;
-  onClose?: () => void; // Mobile: close drawer
+  role:          UserRole;
+  orgName:       string;
+  orgLogo?:      string | null;
+  onClose?:      () => void; // Mobile: close drawer
+  messageBadge?: number;
 }
 
-function NavLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
+function NavLink({ item, onClick, messageBadge }: { item: NavItem; onClick?: () => void; messageBadge?: number }) {
   const pathname = usePathname();
   const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
   const Icon     = ICON_MAP[item.icon] ?? LayoutDashboard;
@@ -56,19 +57,23 @@ function NavLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
         )}
       />
       <span className="flex-1 truncate">{item.label}</span>
-      {item.badge !== undefined && (
+      {item.href === "/dashboard/messages" && messageBadge != null && messageBadge > 0 ? (
+        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-sc-rose px-1 text-[10px] font-bold text-white">
+          {messageBadge > 99 ? "99+" : messageBadge}
+        </span>
+      ) : item.badge !== undefined ? (
         <Badge
           variant="outline"
           className="ml-auto text-[10px] h-5 px-1.5 border-white/30 text-white bg-white/10"
         >
           {item.badge}
         </Badge>
-      )}
+      ) : null}
     </Link>
   );
 }
 
-export function AppSidebar({ role, orgName, orgLogo, onClose }: AppSidebarProps) {
+export function AppSidebar({ role, orgName, orgLogo, onClose, messageBadge }: AppSidebarProps) {
   const navItems = NAV_ITEMS_BY_ROLE[role] ?? [];
 
   return (
@@ -115,7 +120,7 @@ export function AppSidebar({ role, orgName, orgLogo, onClose }: AppSidebarProps)
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1 scrollbar-thin" aria-label="Main navigation">
         {navItems.map((item) => (
-          <NavLink key={item.href} item={item} onClick={onClose} />
+          <NavLink key={item.href} item={item} onClick={onClose} messageBadge={messageBadge} />
         ))}
       </nav>
 
