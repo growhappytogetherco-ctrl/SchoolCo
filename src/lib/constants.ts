@@ -119,6 +119,7 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
   full_admin: [
     { label: "Dashboard",         href: "/dashboard/home",          icon: "LayoutDashboard" },
     { label: "Daily Operations",  href: "/dashboard/operations",    icon: "Activity" },
+    { label: "Messages",          href: "/dashboard/messages",      icon: "MessageSquare" },
     { label: "Students",          href: "/dashboard/students",      icon: "GraduationCap" },
     { label: "Families",          href: "/dashboard/families",      icon: "Home" },
     { label: "Attendance",        href: "/dashboard/attendance",    icon: "ClipboardCheck" },
@@ -129,6 +130,7 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
   admin: [
     { label: "Dashboard",         href: "/dashboard/home",          icon: "LayoutDashboard" },
     { label: "Daily Operations",  href: "/dashboard/operations",    icon: "Activity" },
+    { label: "Messages",          href: "/dashboard/messages",      icon: "MessageSquare" },
     { label: "Students",          href: "/dashboard/students",      icon: "GraduationCap" },
     { label: "Families",          href: "/dashboard/families",      icon: "Home" },
     { label: "Attendance",        href: "/dashboard/attendance",    icon: "ClipboardCheck" },
@@ -139,6 +141,7 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
   registrar: [
     { label: "Dashboard",         href: "/dashboard/home",          icon: "LayoutDashboard" },
     { label: "Daily Operations",  href: "/dashboard/operations",    icon: "Activity" },
+    { label: "Messages",          href: "/dashboard/messages",      icon: "MessageSquare" },
     { label: "Students",          href: "/dashboard/students",      icon: "GraduationCap" },
     { label: "Families",          href: "/dashboard/families",      icon: "Home" },
     { label: "Attendance",        href: "/dashboard/attendance",    icon: "ClipboardCheck" },
@@ -146,6 +149,7 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
   staff: [
     { label: "Dashboard",         href: "/dashboard/home",          icon: "LayoutDashboard" },
     { label: "Daily Operations",  href: "/dashboard/operations",    icon: "Activity" },
+    { label: "Messages",          href: "/dashboard/messages",      icon: "MessageSquare" },
     { label: "Students",          href: "/dashboard/students",      icon: "GraduationCap" },
     { label: "Attendance",        href: "/dashboard/attendance",    icon: "ClipboardCheck" },
     { label: "Incident Reports",  href: "/dashboard/incidents",     icon: "AlertTriangle" },
@@ -153,6 +157,7 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
   teacher: [
     { label: "Dashboard",         href: "/dashboard/home",          icon: "LayoutDashboard" },
     { label: "Daily Operations",  href: "/dashboard/operations",    icon: "Activity" },
+    { label: "Messages",          href: "/dashboard/messages",      icon: "MessageSquare" },
     { label: "Students",          href: "/dashboard/students",      icon: "GraduationCap" },
     { label: "Attendance",        href: "/dashboard/attendance",    icon: "ClipboardCheck" },
     { label: "Incident Reports",  href: "/dashboard/incidents",     icon: "AlertTriangle" },

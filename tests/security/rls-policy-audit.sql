@@ -44,7 +44,9 @@ where (qual like '%is_org_member%' or with_check like '%is_org_member%')
     -- Audit
     'audit_logs',
     -- Import
-    'import_jobs'
+    'import_jobs',
+    -- Messaging
+    'conversations', 'conversation_participants', 'messages', 'notifications'
   )
 order by tablename, policyname;
 
@@ -77,3 +79,20 @@ select
   provolatile as volatility  -- 's' = stable (correct)
 from pg_proc
 where proname = 'get_guardian_student_ids';
+
+-- ── Messaging: verify parent_visible enforcement ──────────────────────────
+-- Confirm parent_select_messages policy enforces parent_visible = true
+
+select
+  policyname,
+  case when qual like '%parent_visible = true%' then 'OK — parent_visible enforced'
+       else 'MISSING parent_visible check'
+  end as status
+from pg_policies
+where tablename = 'messages' and policyname like 'parent_%';
+
+-- ── Messaging: confirm SECURITY DEFINER helpers exist ─────────────────────
+
+select proname, prosecdef, provolatile
+from pg_proc
+where proname in ('get_my_family_ids', 'is_conversation_participant', 'get_guardian_student_ids');
