@@ -7,7 +7,7 @@ import {
   MessageSquare, Briefcase, FolderOpen, Settings, Home, Heart,
   Star, Gift, Compass, Award, Zap, Building2, X,
   GraduationCap, AlertTriangle, BarChart2, Calendar,
-  ClipboardList, ShieldCheck, User,
+  ClipboardList, ShieldCheck, User, Activity,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -21,7 +21,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   MessageSquare, Briefcase, FolderOpen, Settings, Home, Heart,
   Star, Gift, Compass, Award, Zap, Building2,
   GraduationCap, AlertTriangle, BarChart2, Calendar,
-  ClipboardList, ShieldCheck, User,
+  ClipboardList, ShieldCheck, User, Activity,
 };
 
 interface AppSidebarProps {
