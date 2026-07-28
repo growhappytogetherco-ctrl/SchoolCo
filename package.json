@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:security": "npx tsx tests/security/rls-regression.ts",
+    "audit:rls": "npx supabase db query --linked < tests/security/rls-policy-audit.sql"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
