@@ -114,6 +114,7 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Organizations",     href: "/dashboard/organizations", icon: "Building2" },
     { label: "All Users",         href: "/dashboard/users",         icon: "Users" },
     { label: "Audit Logs",        href: "/dashboard/audit",         icon: "ShieldCheck" },
+    { label: "Admin Health",      href: "/dashboard/admin/health",  icon: "Activity" },
     { label: "Platform Settings", href: "/dashboard/settings",      icon: "Settings" },
   ],
   full_admin: [
@@ -125,6 +126,7 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Attendance",        href: "/dashboard/attendance",    icon: "ClipboardCheck" },
     { label: "Staff",             href: "/dashboard/staff",         icon: "UserCheck" },
     { label: "Incident Reports",  href: "/dashboard/incidents",     icon: "AlertTriangle" },
+    { label: "Admin Health",      href: "/dashboard/admin/health",  icon: "ShieldCheck" },
     { label: "Settings",          href: "/dashboard/settings",      icon: "Settings" },
   ],
   admin: [
@@ -136,6 +138,7 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Attendance",        href: "/dashboard/attendance",    icon: "ClipboardCheck" },
     { label: "Staff",             href: "/dashboard/staff",         icon: "UserCheck" },
     { label: "Incident Reports",  href: "/dashboard/incidents",     icon: "AlertTriangle" },
+    { label: "Admin Health",      href: "/dashboard/admin/health",  icon: "ShieldCheck" },
     { label: "Settings",          href: "/dashboard/settings",      icon: "Settings" },
   ],
   registrar: [
