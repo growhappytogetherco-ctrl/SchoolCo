@@ -6,13 +6,7 @@ import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, EventCategory, EventVisibility, EventStatus } from "@/app/actions/planning";
@@ -193,48 +187,33 @@ export function EventForm({ event }: EventFormProps) {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1.5">
-              <Label>Category</Label>
-              <Select value={category} onValueChange={(v) => {
-                const cat = v as EventCategory;
+              <Label htmlFor="category">Category</Label>
+              <Select id="category" value={category} onChange={(e) => {
+                const cat = e.target.value as EventCategory;
                 setCategory(cat);
                 setVisibility(EVENT_CATEGORY_CONFIG[cat]?.defaultVisibility ?? "school_wide");
               }}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map(([val, cfg]) => (
-                    <SelectItem key={val} value={val}>{cfg.label}</SelectItem>
-                  ))}
-                </SelectContent>
+                {CATEGORIES.map(([val, cfg]) => (
+                  <option key={val} value={val}>{cfg.label}</option>
+                ))}
               </Select>
             </div>
 
             <div className="space-y-1.5">
-              <Label>Visibility</Label>
-              <Select value={visibility} onValueChange={(v) => setVisibility(v as EventVisibility)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {VISIBILITIES.map(([val, label]) => (
-                    <SelectItem key={val} value={val}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
+              <Label htmlFor="visibility">Visibility</Label>
+              <Select id="visibility" value={visibility} onChange={(e) => setVisibility(e.target.value as EventVisibility)}>
+                {VISIBILITIES.map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
               </Select>
             </div>
 
             <div className="space-y-1.5">
-              <Label>Status</Label>
-              <Select value={status} onValueChange={(v) => setStatus(v as EventStatus)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUSES.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                  ))}
-                </SelectContent>
+              <Label htmlFor="evt-status">Status</Label>
+              <Select id="evt-status" value={status} onChange={(e) => setStatus(e.target.value as EventStatus)}>
+                {STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
               </Select>
             </div>
           </div>

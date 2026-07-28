@@ -1,84 +1,213 @@
-/**
- * LoginHero
- * Left-side hero panel on the login page.
- * Features the tagline, a rotating inspirational quote, and the platform branding.
- * Image slot is ready for a Supabase-hosted rotating hero photo.
- */
-import { TodaysBlessing } from "@/components/shared/TodaysBlessing";
-import { APP_TAGLINE } from "@/lib/constants";
+"use client";
 
-// Hero images cycle every render (server-side, deterministic by day).
-const HERO_IMAGES = [
-  "https://images.unsplash.com/photo-1544776193-352d25ca82cd?w=900&auto=format&fit=crop&q=80", // students learning
-  "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=900&auto=format&fit=crop&q=80", // classroom
-  "https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?w=900&auto=format&fit=crop&q=80", // community
-];
+import { useEffect, useRef, useState, useCallback } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { LOGIN_CONFIG, LOGIN_QUOTES, RLA_BRAND } from "@/lib/login-config";
 
-function getDailyHero() {
-  const start = new Date(new Date().getFullYear(), 0, 0);
-  const day   = Math.floor((Date.now() - start.getTime()) / 86400000);
-  return HERO_IMAGES[day % HERO_IMAGES.length];
+// ── Fallback when no photos exist ─────────────────────────────────────────────
+function GradientFallback() {
+  return (
+    <div className="absolute inset-0 bg-gradient-to-br from-sc-navy via-[#0a2a4a] to-sc-teal/40" />
+  );
 }
 
-export function LoginHero() {
-  const heroUrl = getDailyHero();
+// ── Single crossfade slide ────────────────────────────────────────────────────
+function HeroSlide({ src, active }: { src: string; active: boolean }) {
+  return (
+    <div
+      aria-hidden={!active}
+      className="absolute inset-0 transition-opacity"
+      style={{
+        opacity: active ? 1 : 0,
+        transitionDuration: `${LOGIN_CONFIG.transitionDurationMs}ms`,
+        transitionTimingFunction: "ease-in-out",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 w-full h-full object-cover object-center"
+        loading={active ? "eager" : "lazy"}
+        decoding="async"
+      />
+    </div>
+  );
+}
+
+// ── Quote that fades between inspirational lines ───────────────────────────────
+function RotatingQuote() {
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (LOGIN_QUOTES.length <= 1) return;
+    const id = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIdx(i => (i + 1) % LOGIN_QUOTES.length);
+        setVisible(true);
+      }, 500);
+    }, 6000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
-    <div className="relative flex flex-col h-full min-h-[500px] overflow-hidden rounded-2xl lg:rounded-none lg:rounded-l-2xl">
-      {/* Background image */}
-      <div
-        className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: `url(${heroUrl})` }}
-        role="img"
-        aria-label="Students learning and growing together"
-      />
+    <p
+      className="mt-4 text-white/75 text-sm leading-relaxed italic transition-opacity duration-500 max-w-xs"
+      style={{ opacity: visible ? 1 : 0 }}
+    >
+      &ldquo;{LOGIN_QUOTES[idx]}&rdquo;
+    </p>
+  );
+}
 
-      {/* Gradient overlay — navy to transparent */}
-      <div className="absolute inset-0 bg-gradient-to-b from-sc-navy/80 via-sc-navy/50 to-sc-navy/85" />
+// ── Main hero panel ───────────────────────────────────────────────────────────
+export function LoginHero() {
+  const [images, setImages] = useState<string[]>([]);
+  const [current, setCurrent] = useState(0);
+  const [ready, setReady] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pausedRef = useRef(false);
 
-      {/* Content */}
-      <div className="relative z-10 flex flex-col h-full p-8 lg:p-10">
-        {/* Top: Logo mark */}
+  // Fetch image list from the API route (reads /public/login/)
+  useEffect(() => {
+    fetch("/api/login-images")
+      .then(r => r.json())
+      .then(({ images: imgs }: { images: string[] }) => {
+        setImages(imgs);
+        setReady(true);
+      })
+      .catch(() => setReady(true));
+  }, []);
+
+  const advance = useCallback((dir: 1 | -1) => {
+    setCurrent(c => {
+      const len = images.length;
+      return len <= 1 ? c : (c + dir + len) % len;
+    });
+  }, [images.length]);
+
+  // Auto-rotation — pauses when tab is hidden
+  useEffect(() => {
+    if (images.length <= 1) return;
+    intervalRef.current = setInterval(() => {
+      if (!pausedRef.current) setCurrent(c => (c + 1) % images.length);
+    }, LOGIN_CONFIG.rotationIntervalMs);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [images.length]);
+
+  useEffect(() => {
+    const fn = () => { pausedRef.current = document.hidden; };
+    document.addEventListener("visibilitychange", fn);
+    return () => document.removeEventListener("visibilitychange", fn);
+  }, []);
+
+  const hasImages = images.length > 0;
+  const showControls = LOGIN_CONFIG.showControls && images.length > 1;
+
+  return (
+    <div className="relative flex flex-col h-full min-h-[500px] overflow-hidden">
+
+      {/* ── Background layer ── */}
+      {hasImages
+        ? images.map((src, i) => <HeroSlide key={src} src={src} active={i === current} />)
+        : <GradientFallback />}
+
+      {/* ── Overlay: subtle dark gradient so white text reads cleanly ── */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/25 to-black/65" />
+
+      {/* ── Content ── */}
+      <div className="relative z-10 flex flex-col h-full p-8 lg:p-12 select-none">
+
+        {/* SchoolCo wordmark — small, top-left */}
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
-            <svg viewBox="0 0 24 24" fill="none" className="size-4 text-white" aria-hidden="true">
-              <path
-                d="M12 21C12 21 3 14.5 3 8.5C3 5.42 5.42 3 8.5 3C10.24 3 11.91 3.81 13 5.08C14.09 3.81 15.76 3 17.5 3C20.58 3 23 5.42 23 8.5C23 14.5 12 21 12 21Z"
-                fill="currentColor"
-                opacity="0.6"
-              />
-              <path
-                d="M12 21C12 21 1 14.5 1 8.5C1 5.42 3.42 3 6.5 3C8.24 3 9.91 3.81 11 5.08C12.09 3.81 13.76 3 15.5 3C18.58 3 21 5.42 21 8.5C21 14.5 12 21 12 21Z"
-                fill="currentColor"
-              />
-            </svg>
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/25 backdrop-blur-sm">
+            <span className="text-white text-[9px] font-bold font-serif leading-none tracking-tight">SC</span>
           </div>
-          <span className="text-white font-serif font-semibold text-lg tracking-wide">
-            SchoolCo.
+          <span className="text-white/60 text-[11px] font-medium tracking-[0.15em] uppercase">
+            Powered by SchoolCo
           </span>
         </div>
 
-        {/* Middle: Tagline */}
-        <div className="flex-1 flex flex-col justify-center mt-8">
-          <h1 className="font-serif text-white text-balance leading-tight">
-            <span className="block text-3xl lg:text-4xl font-bold">Every Child Known.</span>
-            <span className="block text-3xl lg:text-4xl font-bold mt-1">Every Family Connected.</span>
-            <span className="block text-3xl lg:text-4xl font-bold mt-1">Every Leader Developed.</span>
+        {/* RLA identity — vertically centered */}
+        <div className="flex-1 flex flex-col justify-center">
+
+          <p className="text-sc-teal text-xs font-bold tracking-[0.2em] uppercase mb-5">
+            Welcome to
+          </p>
+
+          <h1 className="font-serif text-white font-bold leading-none">
+            <span className="block text-[2.6rem] lg:text-[3.25rem] tracking-tight">Rising Leaders</span>
+            <span className="block text-[2.6rem] lg:text-[3.25rem] tracking-tight mt-0.5">Academy</span>
           </h1>
 
-          <p className="mt-5 text-body-md text-white/80 max-w-sm leading-relaxed">
-            {APP_TAGLINE.split(".")[3] /* after the three tagline parts */ ||
-              "We're honored to partner with your family on a journey of faith, learning, and leadership."}
+          <p className="mt-5 text-white/85 text-base lg:text-lg font-light tracking-wide">
+            {RLA_BRAND.tagline}
           </p>
+
+          {/* Faith · Leadership · Excellence */}
+          <div className="mt-5 flex items-center gap-0" aria-label="School pillars">
+            {RLA_BRAND.pillars.map((pillar, i) => (
+              <span key={pillar} className="flex items-center">
+                <span className="text-white text-sm font-semibold tracking-widest uppercase">
+                  {pillar}
+                </span>
+                {i < RLA_BRAND.pillars.length - 1 && (
+                  <span className="mx-3 text-sc-teal font-bold text-base leading-none">·</span>
+                )}
+              </span>
+            ))}
+          </div>
+
+          <RotatingQuote />
         </div>
 
-        {/* Bottom: Today's Blessing */}
-        <TodaysBlessing className="mt-6" />
+        {/* ── Slideshow controls + dot indicators ── */}
+        {ready && (
+          <div className="mt-6 flex items-center gap-3">
+            {showControls && (
+              <button
+                onClick={() => advance(-1)}
+                aria-label="Previous photo"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 hover:bg-white/30 transition-colors ring-1 ring-white/20 text-white"
+              >
+                <ChevronLeft className="size-4" aria-hidden="true" />
+              </button>
+            )}
 
-        {/* Footer branding */}
-        <p className="mt-6 text-label-sm text-white/50">
-          Powered by SchoolCo · Every family, every story.
-        </p>
+            {images.length > 1 && (
+              <div className="flex items-center gap-1.5" role="tablist" aria-label="Photo slideshow">
+                {images.map((_, i) => (
+                  <button
+                    key={i}
+                    role="tab"
+                    aria-selected={i === current}
+                    aria-label={`Photo ${i + 1} of ${images.length}`}
+                    onClick={() => setCurrent(i)}
+                    className={[
+                      "rounded-full transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white",
+                      i === current
+                        ? "w-5 h-1.5 bg-sc-teal"
+                        : "w-1.5 h-1.5 bg-white/35 hover:bg-white/65",
+                    ].join(" ")}
+                  />
+                ))}
+              </div>
+            )}
+
+            {showControls && (
+              <button
+                onClick={() => advance(1)}
+                aria-label="Next photo"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 hover:bg-white/30 transition-colors ring-1 ring-white/20 text-white"
+              >
+                <ChevronRight className="size-4" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
