@@ -272,8 +272,7 @@ export async function getMyConversationThread(
     const { data: msgRows, error: msgErr } = await supabase
       .from("messages")
       .select(`sender_id, body, message_type, parent_visible, created_at, edited_at, id,
-               profiles!inner ( full_name ),
-               organization_members!messages_organization_id_fkey ( role )`)
+               profiles!inner ( full_name )`)
       .eq("conversation_id", conversationId)
       .eq("parent_visible", true)
       .is("deleted_at", null)

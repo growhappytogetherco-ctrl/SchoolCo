@@ -107,7 +107,7 @@ export async function middleware(request: NextRequest) {
 
   // Parent-mode user trying to access staff dashboard — redirect to portal
   if (isParentMode && isDashboard) {
-    return NextResponse.redirect(new URL("/portal/children", request.url));
+    return NextResponse.redirect(new URL("/portal/home", request.url));
   }
 
   // Non-parent user trying to access parent portal (and not a multi-role user in parent mode)

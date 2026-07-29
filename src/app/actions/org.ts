@@ -17,7 +17,7 @@ const SetActiveOrgSchema = z.object({
  *
  * Called from the select-mission page when a user picks an org.
  * Sets httpOnly cookies: sc_active_org + sc_active_role.
- * Redirects to /dashboard/home for staff or /portal/children for parents.
+ * Redirects to /dashboard/home for staff or /portal/home for parents.
  *
  * Security: validates membership in the database before setting cookies.
  * Never trusts the orgId alone.
@@ -69,7 +69,7 @@ export async function setActiveOrg(formData: FormData): Promise<ActionResult<voi
   }
 
   // Single-role routing
-  redirect(isParentOnly ? "/portal/children" : "/dashboard/home");
+  redirect(isParentOnly ? "/portal/home" : "/dashboard/home");
 }
 
 /**
@@ -84,7 +84,7 @@ export async function setPortalView(
     return { success: false, error: "Invalid view." };
   }
   await setPortalViewCookie(view);
-  redirect(view === "parent" ? "/portal/children" : "/dashboard/home");
+  redirect(view === "parent" ? "/portal/home" : "/dashboard/home");
 }
 
 /**

@@ -72,7 +72,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       // Parent-only users go to the portal, not the staff dashboard
       const isParentOnly = membership.role === "parent" && !hasParentAccess;
       if (isParentOnly || membership.role === "student_future") {
-        router.push("/portal/children");
+        router.push("/portal/home");
         return;
       }
 
