@@ -437,7 +437,7 @@ export async function createParentConversation(params: {
       logger.error("createParentConversation message error", { error: msgErr.message });
     }
 
-    // Notify staff (all staff in org get notified — no specific staff added as participant yet)
+    // Add all active staff as participants so they see this in unread widget queries
     const { data: staffMembers } = await supabase
       .from("organization_members")
       .select("profile_id")
@@ -445,13 +445,26 @@ export async function createParentConversation(params: {
       .in("role", ["staff","registrar","admin","full_admin","platform_admin"])
       .eq("status", "active");
 
+    const staffIds = (staffMembers ?? []).map(m => m.profile_id);
+    if (staffIds.length > 0) {
+      await supabase.from("conversation_participants").insert(
+        staffIds.map(pid => ({
+          conversation_id:  conv.id,
+          organization_id:  orgId,
+          profile_id:       pid,
+          participant_type: "staff",
+          // null last_read_at means all messages are unread for this staff member
+          last_read_at:     null,
+        }))
+      );
+    }
+
     const { data: senderProfile } = await supabase
       .from("profiles")
       .select("full_name")
       .eq("id", user.id)
       .single();
 
-    const staffIds = (staffMembers ?? []).map(m => m.profile_id);
     await createNotifications(supabase, {
       orgId,
       senderId:       user.id,
@@ -464,6 +477,7 @@ export async function createParentConversation(params: {
     });
 
     revalidatePath("/portal/messages");
+    revalidatePath("/dashboard/home"); // bust staff widget cache
 
     return { success: true, data: { conversation_id: conv.id } };
   } catch (err) {
@@ -553,6 +567,7 @@ export async function sendParentReply(
 
     revalidatePath(`/portal/messages/${conversationId}`);
     revalidatePath("/portal/messages");
+    revalidatePath("/dashboard/home"); // bust staff widget cache
 
     return { success: true, data: undefined };
   } catch (err) {
@@ -871,6 +886,7 @@ export async function sendStaffMessage(
 
     revalidatePath(`/dashboard/messages/${conversationId}`);
     revalidatePath("/dashboard/messages");
+    revalidatePath("/portal/home"); // bust parent widget cache
 
     return { success: true, data: undefined };
   } catch (err) {
@@ -1000,6 +1016,7 @@ export async function createStaffConversation(params: {
     });
 
     revalidatePath("/dashboard/messages");
+    revalidatePath("/portal/home"); // bust parent widget cache
 
     return { success: true, data: { conversation_id: conv.id } };
   } catch (err) {
