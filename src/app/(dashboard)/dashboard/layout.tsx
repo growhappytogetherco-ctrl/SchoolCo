@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NotificationToast } from "@/components/messages/NotificationToast";
 import { createClient } from "@/lib/supabase/client";
+import { getUnreadCount } from "@/app/actions/messages";
 import type { UserRole } from "@/lib/constants";
 
 interface OrgContext {
@@ -88,14 +89,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         hasParentAccess,
       });
 
-      // Initial unread count from notifications table
-      const { count } = await supabase
-        .from("notifications")
-        .select("id", { count: "exact", head: true })
-        .eq("recipient_id", resolvedUserId)
-        .is("read_at", null)
-        .eq("resource_type", "conversation");
-      setMessageBadge(count ?? 0);
+      // Initial unread count — conversation-based, not notification-based
+      const unreadConvCount = await getUnreadCount();
+      setMessageBadge(unreadConvCount);
 
       setLoading(false);
     }
@@ -103,7 +99,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     loadContext();
   }, [router]);
 
-  // Realtime subscription for badge count updates
+  // Realtime: re-fetch canonical unread count on any notification change
   useEffect(() => {
     if (!ctx) return;
     const supabase = createClient();
@@ -111,16 +107,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .channel(`layout-notif-${ctx.id}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${ctx.id}` },
-        () => setMessageBadge(c => c + 1)
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "notifications", filter: `recipient_id=eq.${ctx.id}` },
-        payload => {
-          if ((payload.new as { read_at: string | null }).read_at) {
-            setMessageBadge(c => Math.max(0, c - 1));
-          }
+        { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${ctx.id}` },
+        async () => {
+          const count = await getUnreadCount();
+          setMessageBadge(count);
         }
       )
       .subscribe();

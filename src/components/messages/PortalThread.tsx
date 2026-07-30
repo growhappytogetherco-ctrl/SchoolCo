@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition, useRef, useEffect } from "react";
+import { useState, useTransition, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { ArrowLeft, Send, User, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
+import { ArrowLeft, Send, User, CheckCircle2, AlertTriangle, Clock, ArrowDown } from "lucide-react";
 import { type ConversationDetail, sendParentReply, type MessageItem } from "@/app/actions/messages";
 import { CategoryBadge } from "@/components/messages/CategoryBadge";
 import { cn } from "@/lib/utils";
@@ -57,11 +57,27 @@ export function PortalThread({ conversation: initial, myId }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError]         = useState<string | null>(null);
   const [sent, setSent]           = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef   = useRef<HTMLDivElement>(null);
+  const dividerRef  = useRef<HTMLDivElement>(null);
+
+  // On open: scroll to first unread message if it exists, otherwise scroll to bottom
+  useEffect(() => {
+    if (initial.first_unread_at && dividerRef.current) {
+      dividerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conv.messages.length]);
+    // After sending, scroll to bottom
+    if (conv.messages.length > initial.messages.length) scrollToBottom();
+  }, [conv.messages.length, initial.messages.length, scrollToBottom]);
 
   const isMedical = conv.category === "medical";
   const isResolved = conv.status === "resolved";
@@ -158,9 +174,34 @@ export function PortalThread({ conversation: initial, myId }: Props) {
         {conv.messages.length === 0 && (
           <p className="text-center text-label-sm text-sc-gray py-8">No messages yet.</p>
         )}
-        {conv.messages.map(m => (
-          <MessageBubble key={m.id} msg={m} myId={myId} />
-        ))}
+        {conv.messages.map((m, i) => {
+          // Insert "New Messages" divider before the first unread message from another sender
+          const isFirstUnread =
+            initial.first_unread_at !== null &&
+            m.created_at === initial.first_unread_at &&
+            m.sender_id !== myId;
+          // Also cover: divider at start if first_unread_at is before all loaded messages
+          const isBeforeFirstMsg =
+            i === 0 &&
+            initial.first_unread_at !== null &&
+            initial.first_unread_at <= m.created_at &&
+            m.sender_id !== myId;
+          const showDivider = isFirstUnread || isBeforeFirstMsg;
+          return (
+            <div key={m.id}>
+              {showDivider && (
+                <div ref={dividerRef} className="flex items-center gap-3 py-2">
+                  <div className="flex-1 h-px bg-sc-teal/30" />
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold text-sc-teal bg-sc-teal/10 border border-sc-teal/20 rounded-full px-3 py-1">
+                    <ArrowDown className="size-3" /> New Messages
+                  </span>
+                  <div className="flex-1 h-px bg-sc-teal/30" />
+                </div>
+              )}
+              <MessageBubble msg={m} myId={myId} />
+            </div>
+          );
+        })}
         <div ref={bottomRef} />
       </div>
 

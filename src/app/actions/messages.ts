@@ -51,9 +51,10 @@ export interface MessageItem {
 }
 
 export interface ConversationDetail extends ConversationSummary {
-  messages:    MessageItem[];
-  participants: Array<{ profile_id: string; name: string; participant_type: string }>;
+  messages:         MessageItem[];
+  participants:     Array<{ profile_id: string; name: string; participant_type: string }>;
   resolved_by_name: string | null;
+  first_unread_at:  string | null; // created_at of first message newer than pre-open last_read_at
 }
 
 export interface StaffMember {
@@ -280,12 +281,37 @@ export async function getMyConversationThread(
 
     if (msgErr) logger.error("getMyConversationThread messages error", { error: msgErr.message });
 
+    // Capture pre-read state to compute the "New Messages" divider position
+    const { data: myPart } = await supabase
+      .from("conversation_participants")
+      .select("last_read_at")
+      .eq("conversation_id", conversationId)
+      .eq("profile_id", user.id)
+      .single();
+    const prevReadAt = myPart?.last_read_at ?? null;
+
+    // Compute first_unread_at: earliest message from another sender that is unread
+    const firstUnread = (msgRows ?? []).find(m =>
+      m.sender_id !== user.id &&
+      (!prevReadAt || new Date(m.created_at) > new Date(prevReadAt))
+    );
+    const firstUnreadAt = firstUnread?.created_at ?? null;
+
     // Mark as read
     await supabase
       .from("conversation_participants")
       .update({ last_read_at: new Date().toISOString() })
       .eq("conversation_id", conversationId)
       .eq("profile_id", user.id);
+
+    // Mark related notifications read so nav badge Realtime fires a decrement
+    await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("recipient_id", user.id)
+      .eq("resource_id", conversationId)
+      .eq("resource_type", "conversation")
+      .is("read_at", null);
 
     const fam = Array.isArray(conv.families) ? conv.families[0] : conv.families;
     const stu = Array.isArray(conv.students) ? conv.students?.[0] : conv.students;
@@ -327,6 +353,7 @@ export async function getMyConversationThread(
       unread_count:    0,
       last_message_preview: null,
       last_sender_name: null,
+      first_unread_at: firstUnreadAt,
       messages,
       participants: [],
     };
@@ -729,13 +756,23 @@ export async function getStaffConversationThread(
         .order("created_at", { ascending: true }),
       supabase
         .from("conversation_participants")
-        .select("profile_id, participant_type, profiles!inner(full_name)")
+        .select("profile_id, participant_type, last_read_at, profiles!inner(full_name)")
         .eq("conversation_id", conversationId),
     ]);
 
+    // Capture pre-read state for the "New Messages" divider
+    const myExistingPart = (partRows ?? []).find(p => p.profile_id === user.id);
+    const prevReadAt = myExistingPart?.last_read_at ?? null;
+
+    // First message from another sender that is newer than last_read_at
+    const firstUnread = (msgRows ?? []).find(m =>
+      m.sender_id !== user.id &&
+      (!prevReadAt || new Date(m.created_at) > new Date(prevReadAt))
+    );
+    const firstUnreadAt = firstUnread?.created_at ?? null;
+
     // Mark staff as having read this conversation
-    const existingPart = (partRows ?? []).find(p => p.profile_id === user.id);
-    if (existingPart) {
+    if (myExistingPart) {
       await supabase
         .from("conversation_participants")
         .update({ last_read_at: new Date().toISOString() })
@@ -751,6 +788,15 @@ export async function getStaffConversationThread(
         last_read_at:     new Date().toISOString(),
       });
     }
+
+    // Mark related notifications read so nav badge Realtime fires a decrement
+    await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("recipient_id", user.id)
+      .eq("resource_id", conversationId)
+      .eq("resource_type", "conversation")
+      .is("read_at", null);
 
     const fam  = Array.isArray(conv.families) ? conv.families[0] : conv.families;
     const stu  = Array.isArray(conv.students) ? conv.students?.[0] : conv.students;
@@ -801,6 +847,7 @@ export async function getStaffConversationThread(
       unread_count:    0,
       last_message_preview: null,
       last_sender_name: null,
+      first_unread_at: firstUnreadAt,
       messages,
       participants,
     };
@@ -1542,6 +1589,99 @@ export async function getParentUnreadForWidget(): Promise<ActionResult<{
     };
   } catch (err) {
     logger.error("getParentUnreadForWidget threw", { err });
+    return { success: false, error: "Unable to load." };
+  }
+}
+
+// ── Parent: get unread conversations for portal widget (list view) ────────
+
+export async function getParentConversationsForWidget(): Promise<ActionResult<ConversationSummary[]>> {
+  try {
+    const { supabase, user, orgId } = await requireParent();
+
+    const { data: parts } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id, last_read_at")
+      .eq("profile_id", user.id);
+
+    if (!parts?.length) return { success: true, data: [] };
+
+    const convIds = parts.map(p => p.conversation_id);
+    const readAtMap: Record<string, string | null> = {};
+    for (const p of parts) readAtMap[p.conversation_id] = p.last_read_at;
+
+    const [{ data: convRows }, { data: msgs }] = await Promise.all([
+      supabase
+        .from("conversations")
+        .select(`
+          id, subject, category, status, priority, family_id, student_id,
+          created_by, assigned_to, last_message_at, created_at, resolved_at,
+          families!inner ( family_name ),
+          students ( first_name, last_name, preferred_name ),
+          assigned_profile:profiles!conversations_assigned_to_fkey ( full_name )
+        `)
+        .eq("organization_id", orgId)
+        .in("id", convIds)
+        .order("last_message_at", { ascending: false }),
+      supabase
+        .from("messages")
+        .select("conversation_id, created_at, sender_id, body, profiles!inner(full_name)")
+        .in("conversation_id", convIds)
+        .eq("parent_visible", true)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    const lastMsgMap: Record<string, { body: string; sender: string }> = {};
+    const unreadMap: Record<string, number> = {};
+    for (const m of msgs ?? []) {
+      if (!lastMsgMap[m.conversation_id]) {
+        const p = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+        lastMsgMap[m.conversation_id] = { body: m.body, sender: (p as { full_name: string })?.full_name ?? "Unknown" };
+      }
+      if (m.sender_id !== user.id) {
+        const readAt = readAtMap[m.conversation_id];
+        if (!readAt || new Date(m.created_at) > new Date(readAt)) {
+          unreadMap[m.conversation_id] = (unreadMap[m.conversation_id] ?? 0) + 1;
+        }
+      }
+    }
+
+    const results: ConversationSummary[] = (convRows ?? [])
+      .filter(c => (unreadMap[c.id] ?? 0) > 0)
+      .slice(0, 5)
+      .map(c => {
+        const fam  = Array.isArray(c.families) ? c.families[0] : c.families;
+        const stu  = Array.isArray(c.students) ? c.students?.[0] : c.students;
+        const asgn = Array.isArray(c.assigned_profile) ? c.assigned_profile?.[0] : c.assigned_profile;
+        const lm   = lastMsgMap[c.id];
+        return {
+          id:              c.id,
+          subject:         c.subject,
+          category:        c.category as MessageCategory,
+          status:          c.status as ConversationStatus,
+          priority:        c.priority as ConversationPriority,
+          family_id:       c.family_id,
+          family_name:     (fam as { family_name: string })?.family_name ?? "",
+          student_id:      c.student_id,
+          student_name:    stu
+            ? `${(stu as {preferred_name?: string|null; first_name: string}).preferred_name ?? (stu as {first_name: string}).first_name} ${(stu as {last_name: string}).last_name}`
+            : null,
+          created_by:      c.created_by,
+          assigned_to:     c.assigned_to,
+          assigned_name:   (asgn as { full_name: string } | null)?.full_name ?? null,
+          last_message_at: c.last_message_at,
+          created_at:      c.created_at,
+          resolved_at:     c.resolved_at,
+          unread_count:    unreadMap[c.id] ?? 0,
+          last_message_preview: lm?.body?.slice(0, 80) ?? null,
+          last_sender_name:     lm?.sender ?? null,
+        };
+      });
+
+    return { success: true, data: results };
+  } catch (err) {
+    logger.error("getParentConversationsForWidget threw", { err });
     return { success: false, error: "Unable to load." };
   }
 }

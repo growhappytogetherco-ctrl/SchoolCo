@@ -89,8 +89,15 @@ interface Props {
 export function PortalInbox({ conversations }: Props) {
   const [showCompose, setShowCompose] = useState(false);
 
-  const open     = conversations.filter(c => c.status === "open");
-  const resolved = conversations.filter(c => c.status === "resolved");
+  // Sort: unread first (by most recent), then read open, then resolved
+  const open = conversations
+    .filter(c => c.status !== "resolved" && c.status !== "closed")
+    .sort((a, b) => {
+      if (a.unread_count > 0 && b.unread_count === 0) return -1;
+      if (a.unread_count === 0 && b.unread_count > 0) return 1;
+      return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
+    });
+  const resolved = conversations.filter(c => c.status === "resolved" || c.status === "closed");
   const totalUnread = conversations.reduce((n, c) => n + c.unread_count, 0);
 
   return (

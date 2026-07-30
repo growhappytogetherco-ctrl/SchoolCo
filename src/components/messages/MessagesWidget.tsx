@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { MessageSquare, ChevronRight } from "lucide-react";
+import { MessageSquare, ChevronRight, User } from "lucide-react";
 import type { ConversationSummary } from "@/app/actions/messages";
 import { CategoryBadge } from "@/components/messages/CategoryBadge";
 import { formatDistanceToNow } from "date-fns";
+import { cn } from "@/lib/utils";
 
 interface Props {
   conversations: ConversationSummary[];
@@ -21,7 +22,10 @@ export function MessagesWidget({ conversations, totalUnread }: Props) {
           <MessageSquare className="size-4 text-sc-teal" />
           <h2 className="text-label-md font-semibold text-sc-navy">Parent Messages</h2>
           {totalUnread > 0 && (
-            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-sc-rose px-1 text-[10px] font-bold text-white">
+            <span
+              className="flex h-5 min-w-5 items-center justify-center rounded-full bg-sc-rose px-1 text-[10px] font-bold text-white"
+              aria-label={`${totalUnread} unread conversation${totalUnread !== 1 ? "s" : ""}`}
+            >
               {totalUnread > 99 ? "99+" : totalUnread}
             </span>
           )}
@@ -42,24 +46,56 @@ export function MessagesWidget({ conversations, totalUnread }: Props) {
             <li key={c.id}>
               <Link
                 href={`/dashboard/messages/${c.id}`}
-                className="flex items-start gap-3 rounded-xl p-3 hover:bg-sc-gray-100 transition-colors"
-              >
-                {c.unread_count > 0 && (
-                  <span className="mt-1 size-2 shrink-0 rounded-full bg-sc-rose" />
+                className={cn(
+                  "flex items-start gap-3 rounded-xl p-3 transition-colors",
+                  c.unread_count > 0
+                    ? "bg-sc-teal/5 border border-sc-teal/20 hover:bg-sc-teal/10"
+                    : "hover:bg-sc-gray-100"
                 )}
+              >
+                <span className={cn(
+                  "mt-1.5 size-2 shrink-0 rounded-full",
+                  c.unread_count > 0 ? "bg-sc-rose" : "bg-transparent"
+                )} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className={`text-label-sm truncate ${c.unread_count > 0 ? "font-semibold text-sc-navy" : "text-sc-navy"}`}>
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className={cn(
+                      "text-label-sm truncate",
+                      c.unread_count > 0 ? "font-bold text-sc-navy" : "font-medium text-sc-navy/80"
+                    )}>
                       {c.family_name}
                     </span>
+                    {c.unread_count > 0 && (
+                      <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-sc-rose px-1 text-[9px] font-bold text-white">
+                        {c.unread_count}
+                      </span>
+                    )}
                     <CategoryBadge category={c.category} className="text-[10px]" />
                   </div>
-                  <p className="text-body-md text-sc-gray truncate">{c.subject}</p>
+                  <p className={cn(
+                    "text-[13px] truncate",
+                    c.unread_count > 0 ? "font-semibold text-sc-navy/90" : "text-sc-gray"
+                  )}>
+                    {c.subject}
+                  </p>
+                  {c.student_name && (
+                    <span className="flex items-center gap-1 text-[11px] text-sc-gray mb-0.5">
+                      <User className="size-3" />{c.student_name}
+                    </span>
+                  )}
                   {c.last_message_preview && (
-                    <p className="text-[12px] text-sc-gray-400 truncate">{c.last_message_preview}</p>
+                    <p className={cn(
+                      "text-[12px] truncate",
+                      c.unread_count > 0 ? "text-sc-navy/70 font-medium" : "text-sc-gray-400"
+                    )}>
+                      {c.last_sender_name && (
+                        <span className="font-semibold">{c.last_sender_name}: </span>
+                      )}
+                      {c.last_message_preview}
+                    </p>
                   )}
                 </div>
-                <span className="shrink-0 text-[11px] text-sc-gray-400 whitespace-nowrap">
+                <span className="shrink-0 text-[11px] text-sc-gray-400 whitespace-nowrap mt-0.5">
                   {formatDistanceToNow(new Date(c.last_message_at), { addSuffix: true })}
                 </span>
               </Link>

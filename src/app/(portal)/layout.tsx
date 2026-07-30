@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getUser, getProfile, createClient } from "@/lib/supabase/server";
+import { getUser, getProfile } from "@/lib/supabase/server";
 import { getActiveOrgId, getActiveRole, HAS_PARENT_COOKIE_NAME, PORTAL_VIEW_COOKIE_NAME } from "@/lib/supabase/org-context";
 import { setPortalView } from "@/app/actions/org";
 import { PortalMessagesLink } from "@/components/messages/PortalMessagesLink";
+import { getParentUnreadForWidget } from "@/app/actions/messages";
 import { Home, User, GraduationCap, Calendar, BookOpen, LayoutDashboard } from "lucide-react";
 import { cookies } from "next/headers";
 
@@ -36,15 +37,9 @@ export default async function PortalLayout({ children }: { children: React.React
   const profile = await getProfile(user.id);
   const firstName = (profile?.full_name as string | null)?.split(" ")[0] ?? null;
 
-  // Unread notification count for the Messages badge (server-side initial value)
-  const supabase = await createClient();
-  const { count: unreadCount } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("recipient_id", user.id)
-    .is("read_at", null)
-    .eq("resource_type", "conversation");
-  const initialUnread = unreadCount ?? 0;
+  // Unread conversation count for the Messages badge — conversation-based, parent_visible-filtered
+  const unreadResult = await getParentUnreadForWidget();
+  const initialUnread = unreadResult.success ? unreadResult.data.unread_count : 0;
 
   return (
     <div className="min-h-screen bg-sc-cream flex flex-col">

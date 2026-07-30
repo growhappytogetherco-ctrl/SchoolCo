@@ -3,9 +3,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { BadgeCheck, Clock, ChevronRight, GraduationCap, Calendar } from "lucide-react";
 import {
-  getUser, getProfile, getGuardianChildren, getStudentForParent, getActiveOrgId, createClient,
+  getUser, getProfile, getGuardianChildren, getStudentForParent, getActiveOrgId,
 } from "@/lib/supabase/server";
-import { getParentUnreadForWidget } from "@/app/actions/messages";
+import { getParentConversationsForWidget } from "@/app/actions/messages";
 import { ParentMessagesWidget } from "@/components/messages/ParentMessagesWidget";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -76,17 +76,8 @@ export default async function PortalHomePage() {
   const [children, profile, msgResult] = await Promise.all([
     getGuardianChildren(user.id, orgId),
     getProfile(user.id),
-    getParentUnreadForWidget(),
+    getParentConversationsForWidget(),
   ]);
-
-  // Get org name for the messages widget
-  const supabase = await createClient();
-  const { data: orgData } = await supabase
-    .from("organizations")
-    .select("name")
-    .eq("id", orgId)
-    .single();
-  const orgName = (orgData as { name: string } | null)?.name ?? "School";
 
   const firstName = (profile?.full_name as string | null)?.split(" ")[0] ?? null;
   const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
@@ -185,10 +176,8 @@ export default async function PortalHomePage() {
 
       {/* Messages widget */}
       <ParentMessagesWidget
-        unreadCount={msgResult.success ? msgResult.data.unread_count : 0}
-        latestSubject={msgResult.success ? msgResult.data.latest_subject : null}
-        latestAt={msgResult.success ? msgResult.data.latest_at : null}
-        orgName={orgName}
+        conversations={msgResult.success ? msgResult.data : []}
+        totalUnread={msgResult.success ? msgResult.data.reduce((n, c) => n + c.unread_count, 0) : 0}
       />
 
       {/* Upcoming reminders placeholder */}
