@@ -28,7 +28,7 @@ function ConversationCard({ c }: { c: ConversationSummary }) {
       className={cn(
         "block rounded-2xl border p-4 transition-all hover:shadow-sm",
         c.unread_count > 0
-          ? "border-sc-teal/30 bg-sc-teal/5"
+          ? "border-sc-teal/40 bg-sc-teal/[0.07] shadow-sm"
           : isResolved
           ? "border-sc-gray-100 bg-sc-gray-50/50 opacity-80"
           : "border-sc-gray-100 bg-white hover:border-sc-gray-200"
@@ -38,13 +38,16 @@ function ConversationCard({ c }: { c: ConversationSummary }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             {c.unread_count > 0 && (
+              <span className="size-2 rounded-full bg-sc-teal shrink-0" aria-hidden="true" />
+            )}
+            {c.unread_count > 0 && (
               <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-sc-teal px-1.5 text-[10px] font-bold text-white">
                 {c.unread_count}
               </span>
             )}
             <span className={cn(
-              "text-label-sm font-semibold truncate",
-              c.unread_count > 0 ? "text-sc-navy" : "text-sc-navy/80"
+              "text-label-sm truncate",
+              c.unread_count > 0 ? "font-bold text-sc-navy" : "font-semibold text-sc-navy/80"
             )}>
               {c.subject}
             </span>
@@ -62,14 +65,22 @@ function ConversationCard({ c }: { c: ConversationSummary }) {
             )}
           </div>
           {c.last_message_preview && (
-            <p className="mt-2 text-label-sm text-sc-gray line-clamp-2">
-              {c.last_sender_name ? <span className="font-medium text-sc-navy/70">{c.last_sender_name}: </span> : null}
+            <p className={cn(
+              "mt-2 text-label-sm line-clamp-2",
+              c.unread_count > 0 ? "font-medium text-sc-navy/80" : "text-sc-gray"
+            )}>
+              {c.last_sender_name ? <span className={cn(
+                c.unread_count > 0 ? "font-bold text-sc-navy/70" : "font-medium text-sc-navy/70"
+              )}>{c.last_sender_name}: </span> : null}
               {c.last_message_preview}
             </p>
           )}
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <span className="flex items-center gap-1 text-[11px] text-sc-gray-400">
+          <span className={cn(
+            "flex items-center gap-1 text-[11px]",
+            c.unread_count > 0 ? "font-semibold text-sc-teal" : "text-sc-gray-400"
+          )}>
             <Clock className="size-3" />
             {formatRelative(c.last_message_at)}
           </span>

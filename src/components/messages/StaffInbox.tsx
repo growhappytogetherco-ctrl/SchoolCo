@@ -67,8 +67,10 @@ function ConversationRow({ c }: { c: ConversationSummary }) {
     <Link
       href={`/dashboard/messages/${c.id}`}
       className={cn(
-        "flex items-start gap-4 px-5 py-4 border-b border-sc-gray-100 hover:bg-sc-gray-50/50 transition-colors",
-        c.unread_count > 0 && "bg-sc-teal/3"
+        "flex items-start gap-4 px-5 py-4 border-b border-sc-gray-100 transition-colors",
+        c.unread_count > 0
+          ? "bg-sc-teal/[0.06] border-l-4 border-l-sc-teal hover:bg-sc-teal/10"
+          : "hover:bg-sc-gray-50/50 border-l-4 border-l-transparent"
       )}
     >
       {/* Unread indicator */}
@@ -87,8 +89,8 @@ function ConversationRow({ c }: { c: ConversationSummary }) {
             <div className="flex items-center gap-1.5 flex-wrap">
               <PriorityIcon priority={c.priority} />
               <span className={cn(
-                "text-label-sm font-semibold truncate",
-                c.unread_count > 0 ? "text-sc-navy" : "text-sc-navy/80"
+                "text-label-sm truncate",
+                c.unread_count > 0 ? "font-bold text-sc-navy" : "font-semibold text-sc-navy/80"
               )}>
                 {c.subject}
               </span>
@@ -100,7 +102,10 @@ function ConversationRow({ c }: { c: ConversationSummary }) {
               {isResolved && <CheckCircle2 className="size-3.5 text-sc-teal shrink-0" />}
             </div>
             <div className="flex items-center gap-2 flex-wrap mt-0.5">
-              <span className="text-label-sm font-medium text-sc-navy/70">{c.family_name}</span>
+              <span className={cn(
+                "text-label-sm",
+                c.unread_count > 0 ? "font-semibold text-sc-navy/80" : "font-medium text-sc-navy/70"
+              )}>{c.family_name}</span>
               {c.student_name && (
                 <span className="flex items-center gap-1 text-[11px] text-sc-gray">
                   <User className="size-3" />{c.student_name}
@@ -110,7 +115,10 @@ function ConversationRow({ c }: { c: ConversationSummary }) {
             </div>
           </div>
           <div className="flex flex-col items-end gap-1 shrink-0 text-right">
-            <span className="flex items-center gap-1 text-[11px] text-sc-gray-400">
+            <span className={cn(
+              "flex items-center gap-1 text-[11px]",
+              c.unread_count > 0 ? "font-semibold text-sc-teal" : "text-sc-gray-400"
+            )}>
               <Clock className="size-3" />
               {formatRelative(c.last_message_at)}
             </span>
@@ -120,8 +128,13 @@ function ConversationRow({ c }: { c: ConversationSummary }) {
           </div>
         </div>
         {c.last_message_preview && (
-          <p className="text-label-sm text-sc-gray line-clamp-1">
-            {c.last_sender_name && <span className="font-medium text-sc-navy/60">{c.last_sender_name}: </span>}
+          <p className={cn(
+            "text-label-sm line-clamp-1",
+            c.unread_count > 0 ? "font-medium text-sc-navy/80" : "text-sc-gray"
+          )}>
+            {c.last_sender_name && <span className={cn(
+              c.unread_count > 0 ? "font-bold text-sc-navy/70" : "font-medium text-sc-navy/60"
+            )}>{c.last_sender_name}: </span>}
             {c.last_message_preview}
           </p>
         )}
