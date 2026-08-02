@@ -1,17 +1,40 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MessageSquare, ChevronRight, User } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { ConversationSummary } from "@/app/actions/messages";
+import { getParentConversationsForWidget } from "@/app/actions/messages";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 interface Props {
   conversations: ConversationSummary[];
   totalUnread:   number;
+  userId:        string;
 }
 
-export function ParentMessagesWidget({ conversations, totalUnread }: Props) {
+export function ParentMessagesWidget({ conversations: initialConversations, totalUnread: initialUnread, userId }: Props) {
+  const [conversations, setConversations] = useState(initialConversations);
+  const totalUnread = conversations.reduce((n, c) => n + c.unread_count, 0);
+
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`portal-home-notif-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` },
+        async () => {
+          const result = await getParentConversationsForWidget();
+          if (result.success) setConversations(result.data);
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId]);
+
   const items = conversations.slice(0, 5);
 
   return (

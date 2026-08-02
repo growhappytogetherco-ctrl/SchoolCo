@@ -38,6 +38,7 @@ export default async function DashboardHomePage() {
       firstName={firstName}
       orgId={orgId}
       orgName={orgName}
+      userId={user.id}
     />
   );
 }

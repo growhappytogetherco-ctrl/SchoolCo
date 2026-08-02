@@ -55,11 +55,12 @@ interface Props {
   firstName: string;
   orgId:     string | null;
   orgName:   string;
+  userId:    string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
 
-export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
+export function DailyOperationsDashboard({ firstName, orgId, orgName, userId }: Props) {
   const [stats, setStats]             = useState<DailyStats | null>(null);
   const [incidents, setIncidents]     = useState<RecentIncident[]>([]);
   const [notes, setNotes]             = useState<RecentNote[]>([]);
@@ -173,6 +174,27 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName }: Props) {
   }, [orgId, today]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Realtime: re-fetch message widget when a notification arrives for this staff member
+  useEffect(() => {
+    if (!userId) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`dashboard-home-notif-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` },
+        async () => {
+          const msgResult = await getUnreadConversationsForWidget();
+          if (msgResult.success) {
+            setUnreadConvs(msgResult.data);
+            setTotalUnread(msgResult.data.reduce((s, c) => s + c.unread_count, 0));
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId]);
 
   const refreshTime = lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 

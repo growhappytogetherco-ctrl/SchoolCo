@@ -178,6 +178,7 @@ export default async function PortalHomePage() {
       <ParentMessagesWidget
         conversations={msgResult.success ? msgResult.data : []}
         totalUnread={msgResult.success ? msgResult.data.reduce((n, c) => n + c.unread_count, 0) : 0}
+        userId={user.id}
       />
 
       {/* Upcoming reminders placeholder */}

@@ -469,7 +469,7 @@ export async function createParentConversation(params: {
       .from("organization_members")
       .select("profile_id")
       .eq("organization_id", orgId)
-      .in("role", ["staff","registrar","admin","full_admin","platform_admin"])
+      .in("role", ["teacher","staff","registrar","admin","full_admin","platform_admin"])
       .eq("status", "active");
 
     const staffIds = (staffMembers ?? []).map(m => m.profile_id);
@@ -480,7 +480,6 @@ export async function createParentConversation(params: {
           organization_id:  orgId,
           profile_id:       pid,
           participant_type: "staff",
-          // null last_read_at means all messages are unread for this staff member
           last_read_at:     null,
         }))
       );
@@ -1231,6 +1230,16 @@ export async function getUnreadCount(): Promise<number> {
     const orgId = await getActiveOrgId();
     if (!orgId) return 0;
 
+    // Determine whether the current user is a parent (non-staff) to apply parent_visible filter
+    const { data: membership } = await supabase
+      .from("organization_members")
+      .select("role")
+      .eq("profile_id", user.id)
+      .eq("organization_id", orgId)
+      .eq("status", "active")
+      .single();
+    const isParent = !STAFF_ROLES.has(membership?.role ?? "");
+
     const { data: parts } = await supabase
       .from("conversation_participants")
       .select("conversation_id, last_read_at")
@@ -1239,11 +1248,17 @@ export async function getUnreadCount(): Promise<number> {
     if (!parts?.length) return 0;
 
     const convIds = parts.map(p => p.conversation_id);
-    const { data: msgs } = await supabase
+    let msgQuery = supabase
       .from("messages")
       .select("conversation_id, created_at, sender_id, parent_visible")
       .in("conversation_id", convIds)
       .is("deleted_at", null);
+
+    if (isParent) {
+      msgQuery = msgQuery.eq("parent_visible", true);
+    }
+
+    const { data: msgs } = await msgQuery;
 
     const readAtMap: Record<string, string | null> = {};
     for (const p of parts) readAtMap[p.conversation_id] = p.last_read_at;
@@ -1251,10 +1266,6 @@ export async function getUnreadCount(): Promise<number> {
     const unreadConvIds = new Set<string>();
     for (const m of msgs ?? []) {
       if (m.sender_id === user.id) continue;
-      if (m.parent_visible === false) {
-        // Check if the current user is staff — non-visible messages still count for staff
-        // (simplified: just count all non-deleted messages from others)
-      }
       const readAt = readAtMap[m.conversation_id];
       if (!readAt || new Date(m.created_at) > new Date(readAt)) {
         unreadConvIds.add(m.conversation_id);
