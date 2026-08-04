@@ -8,7 +8,7 @@ import type { WorkSample, Visibility } from "@/lib/drive/types";
 // ─── Drive folder management ──────────────────────────────────────────────────
 
 /**
- * Create the standard 11-subfolder Drive tree for a student.
+ * Create the standard 13-subfolder Drive tree for a student.
  * Idempotent — if folder already exists, returns existing data.
  */
 export async function createStudentDriveFolders(studentId: string): Promise<
@@ -23,7 +23,7 @@ export async function createStudentDriveFolders(studentId: string): Promise<
   // Check if already created
   const { data: student } = await supabase
     .from("students")
-    .select("id, first_name, last_name, google_drive_folder_id, google_drive_folder_url, drive_folder_status")
+    .select("id, first_name, last_name, student_display_id, google_drive_folder_id, google_drive_folder_url, drive_folder_status")
     .eq("id", studentId)
     .eq("organization_id", orgId)
     .single();
@@ -38,11 +38,13 @@ export async function createStudentDriveFolders(studentId: string): Promise<
     return { success: false, error: "Google Drive is not configured. Add GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_DRIVE_ROOT_FOLDER_ID to your environment." };
   }
 
+  const studentDisplayId = (student.student_display_id as string | null) ?? studentId;
+  const studentName = `${student.first_name as string} ${student.last_name as string}`;
+
   // Mark as creating
   await supabase.from("students").update({ drive_folder_status: "creating" } as never).eq("id", studentId);
 
-  const studentName = `${student.first_name as string} ${student.last_name as string}`;
-  const result = await createStudentFolderTree(studentName, orgId);
+  const result = await createStudentFolderTree(studentDisplayId, studentName, orgId);
 
   if (!result.success) {
     await supabase.from("students").update({ drive_folder_status: "error" } as never).eq("id", studentId);
@@ -51,12 +53,17 @@ export async function createStudentDriveFolders(studentId: string): Promise<
 
   const { rootFolder, subfolders } = result.data;
 
+  const folderName = `${studentDisplayId} — ${studentName}`;
+
   // Save root folder to student
   await supabase.from("students").update({
     google_drive_folder_id:  rootFolder.folderId,
     google_drive_folder_url: rootFolder.folderUrl,
     drive_folder_status:     "active",
     drive_folder_created_at: new Date().toISOString(),
+    drive_folder_name:       folderName,
+    drive_provisioned_by:    user.id,
+    drive_error_message:     null,
   } as never).eq("id", studentId);
 
   // Save each subfolder

@@ -10,18 +10,129 @@ export interface SubfolderDef {
   description: string;
 }
 
+/**
+ * Standard 13-subfolder structure for every RLA student.
+ * Folder keys are stable identifiers used in DB and code.
+ * Names match the spec's required folder layout exactly.
+ */
 export const STUDENT_SUBFOLDERS: SubfolderDef[] = [
-  { key: "enrollment",       name: "01 — Enrollment",        sortOrder:  1, isInternalOnly: true,  parentCanView: false, yearbookEligible: false, description: "Enrollment forms, applications, contracts" },
-  { key: "medical",          name: "02 — Medical",           sortOrder:  2, isInternalOnly: true,  parentCanView: false, yearbookEligible: false, description: "Health records, medications, doctor notes — NEVER shared" },
-  { key: "incident_reports", name: "03 — Incident Reports",  sortOrder:  3, isInternalOnly: true,  parentCanView: false, yearbookEligible: false, description: "Behavioral and safety incidents — staff only" },
-  { key: "assessments",      name: "04 — Assessments",       sortOrder:  4, isInternalOnly: true,  parentCanView: false, yearbookEligible: false, description: "Test results, evaluations, benchmarks" },
-  { key: "progress_reports", name: "05 — Progress Reports",  sortOrder:  5, isInternalOnly: false, parentCanView: true,  yearbookEligible: false, description: "Report cards and progress updates — parent shareable" },
-  { key: "work_samples",     name: "06 — Work Samples",      sortOrder:  6, isInternalOnly: false, parentCanView: true,  yearbookEligible: true,  description: "Student work — shareable with parents and yearbook" },
-  { key: "leadership",       name: "07 — Leadership",        sortOrder:  7, isInternalOnly: false, parentCanView: true,  yearbookEligible: true,  description: "Leadership evidence, badge documentation, speeches" },
-  { key: "entrepreneurship", name: "08 — Entrepreneurship",  sortOrder:  8, isInternalOnly: false, parentCanView: true,  yearbookEligible: true,  description: "Business plans, pitch decks, project materials" },
-  { key: "photos",           name: "09 — Photos",            sortOrder:  9, isInternalOnly: false, parentCanView: true,  yearbookEligible: true,  description: "Student photos, event photos, portraits" },
-  { key: "parent_shared",    name: "10 — Parent Shared",     sortOrder: 10, isInternalOnly: false, parentCanView: true,  yearbookEligible: false, description: "Documents explicitly shared by admin with parents" },
-  { key: "yearbook_archive", name: "11 — Yearbook Archive",  sortOrder: 11, isInternalOnly: false, parentCanView: false, yearbookEligible: true,  description: "End-of-year portfolio exports and memories" },
+  {
+    key: "enrollment_family",
+    name: "01 Enrollment & Family",
+    sortOrder: 1,
+    isInternalOnly: true,
+    parentCanView: false,
+    yearbookEligible: false,
+    description: "Enrollment forms, parent agreements, handbook acknowledgments, identity and enrollment records",
+  },
+  {
+    key: "academic_records",
+    name: "02 Academic Records",
+    sortOrder: 2,
+    isInternalOnly: false,
+    parentCanView: false,
+    yearbookEligible: false,
+    description: "Curriculum plans, progress reports, academic records",
+  },
+  {
+    key: "assessments",
+    name: "03 Assessments",
+    sortOrder: 3,
+    isInternalOnly: true,
+    parentCanView: false,
+    yearbookEligible: false,
+    description: "BOY/MOY/EOY assessments, placement testing, benchmarks",
+  },
+  {
+    key: "success_plan",
+    name: "04 Student Success Plan",
+    sortOrder: 4,
+    isInternalOnly: true,
+    parentCanView: false,
+    yearbookEligible: false,
+    description: "Goals, reviews, support plans, individualized plans",
+  },
+  {
+    key: "work_samples",
+    name: "05 Work Samples",
+    sortOrder: 5,
+    isInternalOnly: false,
+    parentCanView: true,
+    yearbookEligible: true,
+    description: "Student assignments, photos of projects, writing samples, academic work",
+  },
+  {
+    key: "portfolio_yearbook",
+    name: "06 Portfolio & Yearbook",
+    sortOrder: 6,
+    isInternalOnly: false,
+    parentCanView: false,
+    yearbookEligible: true,
+    description: "Selected portfolio artifacts, yearbook-approved content, end-of-year summary assets",
+  },
+  {
+    key: "leadership",
+    name: "07 Leadership",
+    sortOrder: 7,
+    isInternalOnly: false,
+    parentCanView: true,
+    yearbookEligible: true,
+    description: "Badges, reflections, leadership projects",
+  },
+  {
+    key: "entrepreneurship",
+    name: "08 Entrepreneurship",
+    sortOrder: 8,
+    isInternalOnly: false,
+    parentCanView: true,
+    yearbookEligible: true,
+    description: "Business plans, project records, Market Day materials",
+  },
+  {
+    key: "attendance",
+    name: "09 Attendance",
+    sortOrder: 9,
+    isInternalOnly: true,
+    parentCanView: false,
+    yearbookEligible: false,
+    description: "Attendance exports or supporting documentation",
+  },
+  {
+    key: "medical_emergency",
+    name: "10 Medical & Emergency",
+    sortOrder: 10,
+    isInternalOnly: true,
+    parentCanView: false,
+    yearbookEligible: false,
+    description: "Medication authorization, allergy plans, emergency action plans, private medical documents — NEVER shared",
+  },
+  {
+    key: "incidents_safety",
+    name: "11 Incidents & Safety",
+    sortOrder: 11,
+    isInternalOnly: true,
+    parentCanView: false,
+    yearbookEligible: false,
+    description: "Incident attachments, safety documentation — restricted staff access only",
+  },
+  {
+    key: "parent_visible",
+    name: "12 Parent-Visible Documents",
+    sortOrder: 12,
+    isInternalOnly: false,
+    parentCanView: true,
+    yearbookEligible: false,
+    description: "Documents explicitly approved for parent access, shared work samples, progress reports intended for families",
+  },
+  {
+    key: "archived",
+    name: "99 Archived",
+    sortOrder: 99,
+    isInternalOnly: true,
+    parentCanView: false,
+    yearbookEligible: false,
+    description: "Superseded or inactive records",
+  },
 ];
 
 export function getSubfolder(key: string): SubfolderDef | undefined {
@@ -42,6 +153,8 @@ export interface CreatedFolder {
 export interface CreatedSubfolders {
   rootFolder: CreatedFolder;
   subfolders: Array<{ key: string; folderId: string; folderUrl: string }>;
+  /** Whether this was an existing folder (reused) or newly created */
+  wasExisting?: boolean;
 }
 
 export interface UploadedFile {
