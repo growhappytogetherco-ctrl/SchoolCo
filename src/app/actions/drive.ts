@@ -1,15 +1,175 @@
 "use server";
 
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
-import { createStudentFolderTree, isDriveConfigured, getDriveFileMetadata, uploadFileToDrive, deleteDriveFile } from "@/lib/drive/driveClient";
-import { STUDENT_SUBFOLDERS, getSubfolder } from "@/lib/drive/types";
+import {
+  createStudentFolderTree, isDriveConfigured, ensureOrgDriveStructure,
+  getDriveFileMetadata, uploadFileToDrive, deleteDriveFile,
+} from "@/lib/drive/driveClient";
+import { STUDENT_SUBFOLDERS, getSubfolder, getOrgFolderName } from "@/lib/drive/types";
 import type { WorkSample, Visibility } from "@/lib/drive/types";
 
-// ─── Drive folder management ──────────────────────────────────────────────────
+// ─── Org Drive structure ──────────────────────────────────────────────────────
 
 /**
- * Create the standard 13-subfolder Drive tree for a student.
- * Idempotent — if folder already exists, returns existing data.
+ * Internal helper: ensure org Drive structure exists and persist any new folder IDs
+ * to org_drive_folders. No role check — caller must be authenticated.
+ */
+async function _ensureOrgDriveInDB(
+  orgId: string,
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<{ success: true; folderMap: Record<string, string> } | { success: false; error: string }> {
+  // Load existing folder IDs from DB (fast path — avoids Drive API calls)
+  const { data: existingRows } = await supabase
+    .from("org_drive_folders")
+    .select("folder_key, google_drive_folder_id")
+    .eq("organization_id", orgId);
+
+  const existingMap: Record<string, string> = {};
+  for (const row of existingRows ?? []) {
+    existingMap[row.folder_key as string] = row.google_drive_folder_id as string;
+  }
+
+  const result = await ensureOrgDriveStructure(orgId, existingMap);
+  if (!result.success) return { success: false, error: result.error };
+
+  // Upsert only the folders that were newly created
+  const newEntries = Object.entries(result.data).filter(([key]) => !existingMap[key]);
+  if (newEntries.length > 0) {
+    const toUpsert = newEntries.map(([key, folderId]) => ({
+      organization_id:         orgId,
+      folder_key:              key,
+      folder_name:             getOrgFolderName(key),
+      google_drive_folder_id:  folderId,
+      google_drive_folder_url: `https://drive.google.com/drive/folders/${folderId}`,
+      provisioned_by:          userId,
+      provisioned_at:          new Date().toISOString(),
+    }));
+    await supabase.from("org_drive_folders").upsert(toUpsert as never, { onConflict: "organization_id,folder_key" });
+  }
+
+  return { success: true, folderMap: result.data };
+}
+
+/**
+ * Return all org Drive folders stored in the database.
+ */
+export async function getOrgDriveFolders(): Promise<
+  Array<{ key: string; name: string; folderId: string; url: string }>
+> {
+  const orgId = await getActiveOrgId();
+  if (!orgId) return [];
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("org_drive_folders")
+    .select("folder_key, folder_name, google_drive_folder_id, google_drive_folder_url")
+    .eq("organization_id", orgId)
+    .order("folder_key");
+
+  return (data ?? []).map((r) => ({
+    key:      r.folder_key as string,
+    name:     r.folder_name as string,
+    folderId: r.google_drive_folder_id as string,
+    url:      r.google_drive_folder_url as string,
+  }));
+}
+
+/**
+ * Admin action: create any missing org-level Drive folders and persist results.
+ * Safe to call repeatedly — fully idempotent.
+ */
+export async function provisionOrgDriveStructure(): Promise<
+  { success: true; created: number; existing: number; total: number }
+  | { success: false; error: string }
+> {
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  if (!user || !orgId) return { success: false, error: "Not authenticated" };
+
+  const supabase = await createClient();
+
+  const { data: member } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("profile_id", user.id)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+
+  if (!member || !["admin","full_admin","platform_admin"].includes(member.role as string)) {
+    return { success: false, error: "Administrator access required" };
+  }
+
+  if (!isDriveConfigured()) {
+    return { success: false, error: "Google Drive credentials are not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_DRIVE_ROOT_FOLDER_ID in your environment variables." };
+  }
+
+  // Count folders before provisioning so we can report created vs. existing
+  const { data: before } = await supabase
+    .from("org_drive_folders")
+    .select("folder_key", { count: "exact", head: true })
+    .eq("organization_id", orgId);
+  const existingBefore = (before as unknown as number | null) ?? 0;
+
+  const result = await _ensureOrgDriveInDB(orgId, user.id, supabase);
+  if (!result.success) return { success: false, error: result.error };
+
+  const total   = Object.keys(result.folderMap).length;
+  const created = total - existingBefore;
+  return { success: true, created: Math.max(0, created), existing: Math.min(total, existingBefore), total };
+}
+
+/**
+ * Return current Drive configuration and provisioning status.
+ */
+export async function getDriveStatus(): Promise<{
+  configured: boolean;
+  provisionedFolderCount: number;
+  totalExpectedFolders: number;
+  folders: Array<{ key: string; name: string; folderId: string; url: string }>;
+}> {
+  const orgId = await getActiveOrgId();
+
+  let folders: Array<{ key: string; name: string; folderId: string; url: string }> = [];
+  if (orgId) {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("org_drive_folders")
+      .select("folder_key, folder_name, google_drive_folder_id, google_drive_folder_url")
+      .eq("organization_id", orgId)
+      .order("folder_key");
+    folders = (data ?? []).map((r) => ({
+      key:      r.folder_key as string,
+      name:     r.folder_name as string,
+      folderId: r.google_drive_folder_id as string,
+      url:      r.google_drive_folder_url as string,
+    }));
+  }
+
+  // Count total expected folders from spec
+  function countSpec(specs: import("@/lib/drive/types").OrgFolderSpec[]): number {
+    return specs.reduce((n, s) => n + 1 + countSpec(s.children ?? []), 0);
+  }
+  const { ORG_FOLDER_STRUCTURE } = await import("@/lib/drive/types");
+  const totalExpectedFolders = countSpec(ORG_FOLDER_STRUCTURE);
+
+  return {
+    configured: isDriveConfigured(),
+    provisionedFolderCount: folders.length,
+    totalExpectedFolders,
+    folders,
+  };
+}
+
+// ─── Student Drive folder management ─────────────────────────────────────────
+
+/**
+ * Create the standard 13-subfolder Drive tree for a student, under Students/.
+ * Idempotent — if folder already exists anywhere in Drive, reuses it.
+ * Auto-provisions the org folder structure if the Students/ folder is not yet
+ * recorded in the database.
  */
 export async function createStudentDriveFolders(studentId: string): Promise<
   { success: true; folderUrl: string } | { success: false; error: string }
@@ -20,7 +180,6 @@ export async function createStudentDriveFolders(studentId: string): Promise<
 
   const supabase = await createClient();
 
-  // Check if already created
   const { data: student } = await supabase
     .from("students")
     .select("id, first_name, last_name, student_display_id, google_drive_folder_id, google_drive_folder_url, drive_folder_status")
@@ -38,24 +197,42 @@ export async function createStudentDriveFolders(studentId: string): Promise<
     return { success: false, error: "Google Drive is not configured. Add GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_DRIVE_ROOT_FOLDER_ID to your environment." };
   }
 
-  const studentDisplayId = (student.student_display_id as string | null) ?? studentId;
-  const studentName = `${student.first_name as string} ${student.last_name as string}`;
+  // Get or auto-provision the Students/ org folder
+  const { data: orgFolderRow } = await supabase
+    .from("org_drive_folders")
+    .select("google_drive_folder_id")
+    .eq("organization_id", orgId)
+    .eq("folder_key", "students")
+    .single();
 
-  // Mark as creating
+  let studentsFolderId: string;
+  if (orgFolderRow?.google_drive_folder_id) {
+    studentsFolderId = orgFolderRow.google_drive_folder_id as string;
+  } else {
+    // Org structure not yet provisioned — do it now
+    const prov = await _ensureOrgDriveInDB(orgId, user.id, supabase);
+    if (!prov.success) {
+      await supabase.from("students").update({ drive_folder_status: "error", drive_error_message: prov.error } as never).eq("id", studentId);
+      return { success: false, error: `Could not provision Drive folder structure: ${prov.error}` };
+    }
+    studentsFolderId = prov.folderMap["students"] ?? process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  }
+
+  const studentDisplayId = (student.student_display_id as string | null) ?? studentId;
+  const studentName      = `${student.first_name as string} ${student.last_name as string}`;
+
   await supabase.from("students").update({ drive_folder_status: "creating" } as never).eq("id", studentId);
 
-  const result = await createStudentFolderTree(studentDisplayId, studentName, orgId);
+  const result = await createStudentFolderTree(studentDisplayId, studentName, orgId, studentsFolderId);
 
   if (!result.success) {
-    await supabase.from("students").update({ drive_folder_status: "error" } as never).eq("id", studentId);
+    await supabase.from("students").update({ drive_folder_status: "error", drive_error_message: result.error } as never).eq("id", studentId);
     return { success: false, error: result.error };
   }
 
   const { rootFolder, subfolders } = result.data;
-
   const folderName = `${studentDisplayId} — ${studentName}`;
 
-  // Save root folder to student
   await supabase.from("students").update({
     google_drive_folder_id:  rootFolder.folderId,
     google_drive_folder_url: rootFolder.folderUrl,
@@ -66,7 +243,6 @@ export async function createStudentDriveFolders(studentId: string): Promise<
     drive_error_message:     null,
   } as never).eq("id", studentId);
 
-  // Save each subfolder
   const subfoldersToInsert = subfolders.map((sf) => {
     const def = getSubfolder(sf.key)!;
     return {
@@ -361,10 +537,3 @@ export async function uploadWorkSampleFile(
   return { success: true, id: result.id, fileUrl };
 }
 
-/** Check if Drive is configured and return status */
-export async function getDriveStatus(): Promise<{ configured: boolean; rootFolderId: string | null }> {
-  return {
-    configured:   isDriveConfigured(),
-    rootFolderId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ?? null,
-  };
-}

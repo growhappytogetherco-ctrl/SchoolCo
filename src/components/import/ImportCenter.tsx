@@ -3,11 +3,11 @@
 import { useState, useRef, useTransition } from "react";
 import {
   Upload, FileText, CheckCircle, AlertTriangle, XCircle,
-  ChevronRight, ChevronDown, RefreshCw, Trash2, RotateCcw,
-  ArrowLeft, Download, BookOpen, Info,
+  ChevronRight, ChevronDown, RefreshCw, RotateCcw,
+  ArrowLeft, Download, BookOpen, Info, FolderOpen,
+  CheckCircle2, Loader2, HardDrive, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { parseCSV } from "@/lib/import/csvParser";
 import {
   createImportJob,
   validateCSV,
@@ -15,19 +15,185 @@ import {
   executeImport,
   rollbackImport,
 } from "@/app/actions/importData";
+import { provisionOrgDriveStructure } from "@/app/actions/drive";
 import type { ImportJob, DryRunResult, ValidationError } from "@/lib/import/types";
+import { ORG_FOLDER_STRUCTURE } from "@/lib/drive/types";
+import type { OrgFolderSpec } from "@/lib/drive/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Step = "upload" | "validate" | "dryrun" | "import" | "done" | "history";
 
+interface DriveStatus {
+  configured: boolean;
+  provisionedFolderCount: number;
+  totalExpectedFolders: number;
+  folders: Array<{ key: string; name: string; folderId: string; url: string }>;
+}
+
 interface Props {
   previousJobs: ImportJob[];
+  driveStatus:  DriveStatus;
+}
+
+// ─── Drive Setup Panel ─────────────────────────────────────────────────────────
+
+function FolderTree({ specs, knownKeys, depth = 0 }: {
+  specs:     OrgFolderSpec[];
+  knownKeys: Set<string>;
+  depth?:    number;
+}) {
+  return (
+    <ul className="space-y-0.5">
+      {specs.map((spec) => {
+        const isProvisioned = knownKeys.has(spec.key);
+        return (
+          <li key={spec.key}>
+            <div className={cn(
+              "flex items-center gap-2 rounded px-2 py-1 text-[12px]",
+              depth === 0 ? "font-semibold" : "font-normal",
+            )} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+              {isProvisioned
+                ? <CheckCircle2 className="size-3.5 text-green-600 shrink-0" />
+                : <FolderOpen className="size-3.5 text-sc-gray-300 shrink-0" />}
+              <span className={isProvisioned ? "text-sc-navy" : "text-sc-gray-400"}>{spec.name}</span>
+            </div>
+            {spec.children && (
+              <FolderTree specs={spec.children} knownKeys={knownKeys} depth={depth + 1} />
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function DriveSetupPanel({ initialStatus }: { initialStatus: DriveStatus }) {
+  const [status, setStatus]           = useState(initialStatus);
+  const [isPending, startTransition]  = useTransition();
+  const [result, setResult]           = useState<{ created: number; existing: number; total: number } | null>(null);
+  const [error, setError]             = useState<string | null>(null);
+
+  const knownKeys = new Set(status.folders.map((f) => f.key));
+  const isFullyProvisioned = status.configured && status.provisionedFolderCount >= status.totalExpectedFolders;
+
+  function handleProvision() {
+    setError(null);
+    setResult(null);
+    startTransition(async () => {
+      const res = await provisionOrgDriveStructure();
+      if (!res.success) { setError(res.error); return; }
+      setResult({ created: res.created, existing: res.existing, total: res.total });
+      // Refresh Drive status
+      const { getDriveStatus } = await import("@/app/actions/drive");
+      const fresh = await getDriveStatus();
+      setStatus(fresh);
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Status header */}
+      <div className={cn(
+        "flex items-start gap-4 rounded-2xl border p-5",
+        !status.configured
+          ? "border-sc-gold-300/50 bg-sc-gold-50"
+          : isFullyProvisioned
+          ? "border-green-200 bg-green-50"
+          : "border-sc-teal/30 bg-sc-teal/[0.04]"
+      )}>
+        <div className={cn(
+          "flex size-10 items-center justify-center rounded-xl shrink-0",
+          !status.configured ? "bg-sc-gold-100" : isFullyProvisioned ? "bg-green-100" : "bg-sc-teal/10"
+        )}>
+          {!status.configured
+            ? <AlertTriangle className="size-5 text-sc-gold-700" />
+            : isFullyProvisioned
+            ? <ShieldCheck className="size-5 text-green-700" />
+            : <HardDrive className="size-5 text-sc-teal" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={cn(
+            "text-label-sm font-semibold",
+            !status.configured ? "text-sc-gold-800" : isFullyProvisioned ? "text-green-800" : "text-sc-navy"
+          )}>
+            {!status.configured
+              ? "Drive credentials not configured"
+              : isFullyProvisioned
+              ? "Google Drive fully provisioned"
+              : `${status.provisionedFolderCount} of ${status.totalExpectedFolders} folders provisioned`}
+          </p>
+          <p className={cn(
+            "text-body-sm mt-0.5",
+            !status.configured ? "text-sc-gold-700" : "text-sc-gray"
+          )}>
+            {!status.configured
+              ? "Add GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_DRIVE_ROOT_FOLDER_ID to Vercel environment variables."
+              : isFullyProvisioned
+              ? "All required Drive folders exist. The org hierarchy is ready for student imports."
+              : "Click Provision below to create any missing folders. Safe to run multiple times."}
+          </p>
+        </div>
+        {status.configured && (
+          <button
+            onClick={handleProvision}
+            disabled={isPending}
+            className="flex items-center gap-2 rounded-xl bg-sc-teal px-4 py-2 text-label-sm font-semibold text-white hover:bg-sc-teal-700 disabled:opacity-50 transition-colors shrink-0"
+          >
+            {isPending ? <Loader2 className="size-4 animate-spin" /> : <FolderOpen className="size-4" />}
+            {isPending ? "Provisioning…" : isFullyProvisioned ? "Re-verify" : "Provision"}
+          </button>
+        )}
+      </div>
+
+      {/* Provision result */}
+      {result && (
+        <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-[12px] text-green-800">
+          <CheckCircle2 className="size-4 text-green-600 shrink-0" />
+          <span>
+            Provisioning complete — <strong>{result.created} new folder{result.created !== 1 ? "s" : ""} created</strong>,{" "}
+            {result.existing} already existed. Total: {result.total} folders.
+          </span>
+        </div>
+      )}
+      {error && (
+        <div className="flex items-start gap-3 rounded-xl border border-sc-rose-200 bg-sc-rose-50 px-4 py-3 text-[12px] text-sc-rose-700">
+          <XCircle className="size-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Folder tree */}
+      <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-sc-gray-100">
+          <p className="text-label-sm font-semibold text-sc-navy">Folder Hierarchy</p>
+          <span className="text-[11px] text-sc-gray">
+            {status.configured
+              ? `${status.provisionedFolderCount} / ${status.totalExpectedFolders} provisioned`
+              : "Drive not configured"}
+          </span>
+        </div>
+        <div className="p-4 max-h-96 overflow-y-auto">
+          <FolderTree specs={ORG_FOLDER_STRUCTURE} knownKeys={knownKeys} />
+        </div>
+      </div>
+
+      {/* Security note */}
+      <div className="flex items-start gap-2 rounded-xl border border-sc-gray-100 bg-sc-gray-50/50 px-4 py-3 text-[12px] text-sc-gray">
+        <ShieldCheck className="size-4 text-sc-teal shrink-0 mt-0.5" />
+        <span>
+          All folders are private. No folder is set to "Anyone with the link."
+          Access is controlled by the service account and explicit Google Workspace sharing only.
+          Parents access documents exclusively through SchoolCo, never directly through Drive.
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ImportCenter({ previousJobs }: Props) {
+export function ImportCenter({ previousJobs, driveStatus }: Props) {
   const [step, setStep]                 = useState<Step>("upload");
   const [jobs, setJobs]                 = useState<ImportJob[]>(previousJobs);
   const [file, setFile]                 = useState<File | null>(null);
@@ -35,7 +201,7 @@ export function ImportCenter({ previousJobs }: Props) {
   const [jobId, setJobId]               = useState<string | null>(null);
   const [isPending, startTransition]    = useTransition();
   const [feedback, setFeedback]         = useState<string>("");
-  const [activeTab, setActiveTab]       = useState<"wizard" | "map" | "history">("wizard");
+  const [activeTab, setActiveTab]       = useState<"wizard" | "map" | "history" | "drive">("wizard");
 
   const [validResult, setValidResult]   = useState<{
     validCount: number; errorCount: number; warnCount: number; errors: ValidationError[]; warnings: ValidationError[]; previewRows: Record<string, string>[];
@@ -149,12 +315,12 @@ export function ImportCenter({ previousJobs }: Props) {
       {/* Tabs */}
       <div className="border-b border-sc-gray-100 bg-white px-6">
         <div className="flex gap-6">
-          {(["wizard","map","history"] as const).map((t) => (
+          {(["wizard","map","history","drive"] as const).map((t) => (
             <button key={t} onClick={() => setActiveTab(t)}
-              className={cn("py-3 text-label-md font-medium border-b-2 transition-colors capitalize",
+              className={cn("py-3 text-label-md font-medium border-b-2 transition-colors",
                 activeTab === t ? "border-sc-teal text-sc-teal" : "border-transparent text-sc-gray hover:text-sc-navy"
               )}>
-              {t === "wizard" ? "Import Wizard" : t === "map" ? "Field Mapping" : "Import History"}
+              {t === "wizard" ? "Import Wizard" : t === "map" ? "Field Mapping" : t === "history" ? "Import History" : "Drive Setup"}
             </button>
           ))}
         </div>
@@ -176,6 +342,7 @@ export function ImportCenter({ previousJobs }: Props) {
         {activeTab === "history" && (
           <HistoryPanel jobs={jobs} onRollback={handleRollback} isPending={isPending} />
         )}
+        {activeTab === "drive" && <DriveSetupPanel initialStatus={driveStatus} />}
       </div>
     </div>
   );

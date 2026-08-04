@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getUser, getActiveOrgId, createClient } from "@/lib/supabase/server";
 import { listImportJobs } from "@/app/actions/importData";
+import { getDriveStatus } from "@/app/actions/drive";
 import { ImportCenter } from "@/components/import/ImportCenter";
 
 export const metadata: Metadata = { title: "Import Center" };
@@ -28,7 +29,7 @@ export default async function ImportCenterPage() {
     redirect("/dashboard/home");
   }
 
-  const jobs = await listImportJobs();
+  const [jobs, driveStatus] = await Promise.all([listImportJobs(), getDriveStatus()]);
 
-  return <ImportCenter previousJobs={jobs} />;
+  return <ImportCenter previousJobs={jobs} driveStatus={driveStatus} />;
 }

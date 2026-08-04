@@ -1,4 +1,97 @@
-// ─── Folder structure ─────────────────────────────────────────────────────────
+// ─── Org-level folder structure ────────────────────────────────────────────────
+
+export interface OrgFolderSpec {
+  key: string;
+  name: string;
+  children?: OrgFolderSpec[];
+}
+
+/**
+ * The standard SchoolCo org folder tree created under the Drive root.
+ * Keys are stable identifiers stored in org_drive_folders.folder_key.
+ */
+export const ORG_FOLDER_STRUCTURE: OrgFolderSpec[] = [
+  { key: "students",   name: "Students" },
+  { key: "families",   name: "Families" },
+  {
+    key: "staff", name: "Staff",
+    children: [
+      { key: "staff_teachers",   name: "Teachers"   },
+      { key: "staff_volunteers", name: "Volunteers" },
+    ],
+  },
+  { key: "volunteers", name: "Volunteers" },
+  {
+    key: "curriculum", name: "Curriculum",
+    children: [
+      { key: "curriculum_reading",          name: "Reading"          },
+      { key: "curriculum_math",             name: "Math"             },
+      { key: "curriculum_science",          name: "Science"          },
+      { key: "curriculum_history",          name: "History"          },
+      { key: "curriculum_bible",            name: "Bible"            },
+      { key: "curriculum_leadership",       name: "Leadership"       },
+      { key: "curriculum_entrepreneurship", name: "Entrepreneurship" },
+      { key: "curriculum_electives",        name: "Electives"        },
+    ],
+  },
+  {
+    key: "school_documents", name: "School Documents",
+    children: [
+      { key: "school_documents_handbooks",       name: "Handbooks"        },
+      { key: "school_documents_policies",        name: "Policies"         },
+      { key: "school_documents_forms",           name: "Forms"            },
+      { key: "school_documents_marketing",       name: "Marketing"        },
+      { key: "school_documents_logos_branding",  name: "Logos & Branding" },
+      { key: "school_documents_meeting_minutes", name: "Meeting Minutes"  },
+      { key: "school_documents_board_documents", name: "Board Documents"  },
+    ],
+  },
+  {
+    key: "attendance_reports", name: "Attendance Reports",
+    children: [
+      { key: "attendance_reports_2026_2027", name: "2026-2027" },
+      { key: "attendance_reports_2027_2028", name: "2027-2028" },
+    ],
+  },
+  {
+    key: "incident_reports", name: "Incident Reports",
+    children: [
+      { key: "incident_reports_active",   name: "Active"   },
+      { key: "incident_reports_archived", name: "Archived" },
+    ],
+  },
+  {
+    key: "yearbooks", name: "Yearbooks",
+    children: [
+      { key: "yearbooks_2026_2027", name: "2026-2027" },
+      { key: "yearbooks_2027_2028", name: "2027-2028" },
+    ],
+  },
+  {
+    key: "archive", name: "Archive",
+    children: [
+      { key: "archive_students",  name: "Students"  },
+      { key: "archive_families",  name: "Families"  },
+      { key: "archive_staff",     name: "Staff"     },
+      { key: "archive_reports",   name: "Reports"   },
+    ],
+  },
+];
+
+/** Flat key→name map built once at module load for O(1) lookup */
+const _orgFolderNameMap: Record<string, string> = {};
+(function buildMap(specs: OrgFolderSpec[]) {
+  for (const s of specs) {
+    _orgFolderNameMap[s.key] = s.name;
+    if (s.children) buildMap(s.children);
+  }
+})(ORG_FOLDER_STRUCTURE);
+
+export function getOrgFolderName(key: string): string {
+  return _orgFolderNameMap[key] ?? key;
+}
+
+// ─── Student subfolder structure ───────────────────────────────────────────────
 
 export interface SubfolderDef {
   key: string;

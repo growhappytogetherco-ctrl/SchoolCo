@@ -5,6 +5,8 @@ import { mapRows } from "@/lib/import/mapper";
 import { validateMappedStudents } from "@/lib/import/validators";
 import { parseCSV } from "@/lib/import/csvParser";
 import type { MappedStudent, DryRunResult, DryRunRow, ImportJob } from "@/lib/import/types";
+import { isDriveConfigured, ensureOrgDriveStructure, createStudentFolderTree } from "@/lib/drive/driveClient";
+import { getSubfolder, getOrgFolderName } from "@/lib/drive/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -227,6 +229,46 @@ export async function executeImport(jobId: string, csvText: string): Promise<
 
     let skippedStudents = 0, skippedFamilies = 0, skippedGuardians = 0;
 
+    // ── Drive: provision org folder structure once before any student rows ───
+    let studentsFolderIdForImport: string | null = null;
+    if (isDriveConfigured()) {
+      const { data: existingOrgRows } = await supabase
+        .from("org_drive_folders")
+        .select("folder_key, google_drive_folder_id")
+        .eq("organization_id", orgId);
+
+      const existingOrgMap: Record<string, string> = {};
+      for (const row of existingOrgRows ?? []) {
+        existingOrgMap[row.folder_key as string] = row.google_drive_folder_id as string;
+      }
+
+      const orgResult = await ensureOrgDriveStructure(orgId, existingOrgMap);
+      if (!orgResult.success) {
+        await supabase.from("import_jobs").update({ status: "failed", error_message: `Drive setup failed: ${orgResult.error}` }).eq("id", jobId);
+        return { success: false, error: `Google Drive provisioning failed: ${orgResult.error}. Please verify your Drive credentials and root folder access before importing.` };
+      }
+
+      // Persist any newly created org folders
+      const newOrgEntries = Object.entries(orgResult.data).filter(([k]) => !existingOrgMap[k]);
+      if (newOrgEntries.length > 0) {
+        await supabase.from("org_drive_folders").upsert(
+          newOrgEntries.map(([key, folderId]) => ({
+            organization_id:         orgId,
+            folder_key:              key,
+            folder_name:             getOrgFolderName(key),
+            google_drive_folder_id:  folderId,
+            google_drive_folder_url: `https://drive.google.com/drive/folders/${folderId}`,
+            provisioned_by:          user.id,
+            provisioned_at:          new Date().toISOString(),
+          })) as never,
+          { onConflict: "organization_id,folder_key" }
+        );
+      }
+
+      studentsFolderIdForImport = orgResult.data["students"] ?? null;
+      importLog.push(log("info", "Google Drive org structure verified/provisioned"));
+    }
+
     // Cache existing data to avoid repeated lookups
     const { data: existingStudents } = await supabase.from("students").select("id, first_name, last_name").eq("organization_id", orgId);
     const existingStudentMap = new Map(
@@ -327,6 +369,54 @@ export async function executeImport(jobId: string, csvText: string): Promise<
         insertedStudentIds.push(studentId);
         existingStudentMap.set(normName, studentId);
         importLog.push(log("info", `Row ${s._rowIndex}: Inserted student "${s.first_name} ${s.last_name}" (${studentId})`));
+
+        // ── 2b. Drive folder ───────────────────────────────────────────
+        if (isDriveConfigured() && studentsFolderIdForImport) {
+          const displayId   = (stu as unknown as Record<string,unknown>).student_display_id as string | null;
+          // student_display_id is set by a DB trigger; re-fetch it
+          const { data: stuRow } = await supabase.from("students").select("student_display_id").eq("id", studentId).single();
+          const studentDisplayId = (stuRow?.student_display_id as string | null) ?? studentId;
+          const studentFullName  = `${s.first_name} ${s.last_name}`;
+
+          const driveResult = await createStudentFolderTree(
+            studentDisplayId, studentFullName, orgId, studentsFolderIdForImport,
+          );
+
+          if (driveResult.success) {
+            const folderName = `${studentDisplayId} — ${studentFullName}`;
+            await supabase.from("students").update({
+              google_drive_folder_id:  driveResult.data.rootFolder.folderId,
+              google_drive_folder_url: driveResult.data.rootFolder.folderUrl,
+              drive_folder_status:     "active",
+              drive_folder_created_at: new Date().toISOString(),
+              drive_folder_name:       folderName,
+              drive_provisioned_by:    user.id,
+              drive_error_message:     null,
+            } as never).eq("id", studentId);
+
+            const sfToInsert = driveResult.data.subfolders.map((sf) => {
+              const def = getSubfolder(sf.key)!;
+              return {
+                organization_id:         orgId,
+                student_id:              studentId,
+                folder_key:              sf.key,
+                folder_name:             def.name,
+                sort_order:              def.sortOrder,
+                google_drive_folder_id:  sf.folderId,
+                google_drive_folder_url: sf.folderUrl,
+                is_internal_only:        def.isInternalOnly,
+                parent_can_view:         def.parentCanView,
+                yearbook_eligible:       def.yearbookEligible,
+                synced_at:               new Date().toISOString(),
+              };
+            });
+            await supabase.from("student_drive_folders").upsert(sfToInsert as never, { onConflict: "student_id,folder_key" });
+            importLog.push(log("info", `Row ${s._rowIndex}: Drive folder created → ${driveResult.data.rootFolder.folderUrl}`));
+          } else {
+            importLog.push(log("warn", `Row ${s._rowIndex}: Drive folder creation failed for "${s.first_name} ${s.last_name}": ${driveResult.error}`));
+            await supabase.from("students").update({ drive_folder_status: "error", drive_error_message: driveResult.error } as never).eq("id", studentId);
+          }
+        }
 
         // ── 3. Guardians ───────────────────────────────────────────────
         for (const g of s.guardians ?? []) {
