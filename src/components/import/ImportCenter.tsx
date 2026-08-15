@@ -208,6 +208,9 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
   } | null>(null);
   const [dryResult, setDryResult]       = useState<DryRunResult | null>(null);
   const [importResult, setImportResult] = useState<{ students: number; families: number; guardians: number; medical: number; notes: number } | null>(null);
+  const [driveFailures, setDriveFailures] = useState<Array<{ studentId: string; name: string; error: string }>>([]);
+  const [retryingDrive, setRetryingDrive] = useState<Set<string>>(new Set());
+  const [retriedDrive, setRetriedDrive]   = useState<Set<string>>(new Set());
   const [skipped, setSkipped]           = useState(0);
   const [errMsg, setErrMsg]             = useState<string | null>(null);
 
@@ -283,7 +286,21 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
       if (!res.success) { setErrMsg(res.error); return; }
       setImportResult(res.inserted);
       setSkipped(res.skipped);
+      setDriveFailures(res.driveFailures ?? []);
       setStep("done");
+    });
+  }
+
+  function handleDriveRetry(studentId: string) {
+    setRetryingDrive((prev) => new Set([...prev, studentId]));
+    startTransition(async () => {
+      const { createStudentDriveFolders } = await import("@/app/actions/drive");
+      const res = await createStudentDriveFolders(studentId);
+      if (res.success) {
+        setDriveFailures((prev) => prev.filter((f) => f.studentId !== studentId));
+        setRetriedDrive((prev) => new Set([...prev, studentId]));
+      }
+      setRetryingDrive((prev) => { const n = new Set(prev); n.delete(studentId); return n; });
     });
   }
 
@@ -299,6 +316,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
   function reset() {
     setStep("upload"); setFile(null); setCsvText(""); setJobId(null);
     setValidResult(null); setDryResult(null); setImportResult(null);
+    setDriveFailures([]); setRetryingDrive(new Set()); setRetriedDrive(new Set());
     setErrMsg(null); setFeedback("");
     if (fileRef.current) fileRef.current.value = "";
   }
@@ -331,11 +349,12 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
           <WizardPanel
             step={step} file={file} csvText={csvText} isPending={isPending}
             validResult={validResult} dryResult={dryResult} importResult={importResult}
+            driveFailures={driveFailures} retryingDrive={retryingDrive} retriedDrive={retriedDrive}
             skipped={skipped} errMsg={errMsg} feedback={feedback}
             fileRef={fileRef}
             onFileChange={handleFileChange} onDrop={handleDrop}
             onValidate={handleValidate} onDryRun={handleDryRun}
-            onImport={handleImport} onReset={reset}
+            onImport={handleImport} onReset={reset} onDriveRetry={handleDriveRetry}
           />
         )}
         {activeTab === "map" && <FieldMappingPanel />}
@@ -351,14 +370,17 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
 // ─── Wizard panel ─────────────────────────────────────────────────────────────
 
 function WizardPanel({
-  step, file, csvText, isPending, validResult, dryResult, importResult, skipped,
-  errMsg, feedback, fileRef,
-  onFileChange, onDrop, onValidate, onDryRun, onImport, onReset,
+  step, file, csvText, isPending, validResult, dryResult, importResult, driveFailures,
+  retryingDrive, retriedDrive, skipped, errMsg, feedback, fileRef,
+  onFileChange, onDrop, onValidate, onDryRun, onImport, onReset, onDriveRetry,
 }: {
   step: Step; file: File | null; csvText: string; isPending: boolean;
   validResult: { validCount: number; errorCount: number; warnCount: number; errors: ValidationError[]; warnings: ValidationError[]; previewRows: Record<string,string>[] } | null;
   dryResult: DryRunResult | null;
   importResult: { students: number; families: number; guardians: number; medical: number; notes: number } | null;
+  driveFailures: Array<{ studentId: string; name: string; error: string }>;
+  retryingDrive: Set<string>;
+  retriedDrive:  Set<string>;
   skipped: number; errMsg: string | null; feedback: string;
   fileRef: React.RefObject<HTMLInputElement>;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -367,6 +389,7 @@ function WizardPanel({
   onDryRun: () => void;
   onImport: () => void;
   onReset: () => void;
+  onDriveRetry: (studentId: string) => void;
 }) {
   const STEPS: { id: Step; label: string }[] = [
     { id: "upload",   label: "Upload" },
@@ -546,21 +569,71 @@ function WizardPanel({
 
       {/* ── Step: Done ───────────────────────────────────────── */}
       {step === "done" && importResult && (
-        <div className="space-y-4 text-center">
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-sc-teal/10 mx-auto">
-            <CheckCircle className="size-10 text-sc-teal" />
+        <div className="space-y-5">
+          <div className="text-center space-y-4">
+            <div className={cn(
+              "flex h-20 w-20 items-center justify-center rounded-full mx-auto",
+              driveFailures.length > 0 ? "bg-sc-gold-50" : "bg-sc-teal/10"
+            )}>
+              {driveFailures.length > 0
+                ? <AlertTriangle className="size-10 text-sc-gold-600" />
+                : <CheckCircle className="size-10 text-sc-teal" />}
+            </div>
+            <div>
+              <h2 className="font-serif text-heading-2 text-sc-navy">
+                {driveFailures.length > 0 ? "Import Complete — Drive Action Required" : "Import Complete"}
+              </h2>
+              <p className="text-body-sm text-sc-gray mt-1">{skipped > 0 && `${skipped} duplicate${skipped !== 1 ? "s" : ""} skipped.`}</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-left">
+              <StatCard label="Students Inserted" value={importResult.students} color="teal" />
+              <StatCard label="Families Created" value={importResult.families} color="navy" />
+              <StatCard label="Guardians Added" value={importResult.guardians} color="navy" />
+              <StatCard label="Medical Records" value={importResult.medical} color="teal" />
+              <StatCard label="Notes Imported" value={importResult.notes} color="gray" />
+            </div>
           </div>
-          <div>
-            <h2 className="font-serif text-heading-2 text-sc-navy">Import Complete</h2>
-            <p className="text-body-sm text-sc-gray mt-1">{skipped > 0 && `${skipped} duplicate${skipped !== 1 ? "s" : ""} skipped.`}</p>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-left">
-            <StatCard label="Students Inserted" value={importResult.students} color="teal" />
-            <StatCard label="Families Created" value={importResult.families} color="navy" />
-            <StatCard label="Guardians Added" value={importResult.guardians} color="navy" />
-            <StatCard label="Medical Records" value={importResult.medical} color="teal" />
-            <StatCard label="Notes Imported" value={importResult.notes} color="gray" />
-          </div>
+
+          {/* Drive failures — PROMINENT, not silent */}
+          {driveFailures.length > 0 && (
+            <div className="rounded-2xl border border-sc-gold-300/60 bg-sc-gold-50 overflow-hidden">
+              <div className="flex items-center gap-3 px-5 py-3 bg-sc-gold-100/60 border-b border-sc-gold-300/40">
+                <AlertTriangle className="size-4 text-sc-gold-700 shrink-0" />
+                <p className="text-label-sm font-semibold text-sc-gold-800">
+                  Google Drive Setup Required — {driveFailures.length} student{driveFailures.length !== 1 ? "s" : ""}
+                </p>
+              </div>
+              <div className="p-4 space-y-2">
+                <p className="text-[12px] text-sc-gold-700 mb-3">
+                  These students were successfully imported into SchoolCo but their Google Drive folders could not be created.
+                  Their student records are intact. Use Retry to provision Drive folders now, or go to each student profile later.
+                </p>
+                {driveFailures.map((f) => (
+                  <div key={f.studentId} className="flex items-start gap-3 rounded-xl bg-white border border-sc-gold-200 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-label-sm font-semibold text-sc-navy">{f.name}</p>
+                      <p className="text-[11px] text-sc-gray mt-0.5 break-words">{f.error}</p>
+                    </div>
+                    {retriedDrive.has(f.studentId) ? (
+                      <span className="flex items-center gap-1 text-[11px] text-green-700 font-medium shrink-0">
+                        <CheckCircle2 className="size-3.5" /> Done
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => onDriveRetry(f.studentId)}
+                        disabled={retryingDrive.has(f.studentId)}
+                        className="flex items-center gap-1.5 rounded-lg bg-sc-teal px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-sc-teal-700 disabled:opacity-50 transition-colors shrink-0"
+                      >
+                        {retryingDrive.has(f.studentId) ? <Loader2 className="size-3 animate-spin" /> : <FolderOpen className="size-3" />}
+                        {retryingDrive.has(f.studentId) ? "Retrying…" : "Retry Drive"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 justify-center">
             <button onClick={onReset}
               className="rounded-xl border border-sc-gray-200 px-5 py-2.5 text-label-md text-sc-gray hover:border-sc-navy hover:text-sc-navy">

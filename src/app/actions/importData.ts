@@ -203,7 +203,12 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
 // ─── Execute import ───────────────────────────────────────────────────────────
 
 export async function executeImport(jobId: string, csvText: string): Promise<
-  { success: true; inserted: { students: number; families: number; guardians: number; medical: number; notes: number }; skipped: number }
+  {
+    success: true;
+    inserted: { students: number; families: number; guardians: number; medical: number; notes: number };
+    skipped: number;
+    driveFailures: Array<{ studentId: string; name: string; error: string }>;
+  }
   | { success: false; error: string }
 > {
   const user  = await getUser();
@@ -226,6 +231,7 @@ export async function executeImport(jobId: string, csvText: string): Promise<
     const insertedMedicalIds:    string[] = [];
     const insertedNoteIds:       string[] = [];
     const importLog: ReturnType<typeof log>[] = [];
+    const driveFailures: Array<{ studentId: string; name: string; error: string }> = [];
 
     let skippedStudents = 0, skippedFamilies = 0, skippedGuardians = 0;
 
@@ -415,6 +421,7 @@ export async function executeImport(jobId: string, csvText: string): Promise<
           } else {
             importLog.push(log("warn", `Row ${s._rowIndex}: Drive folder creation failed for "${s.first_name} ${s.last_name}": ${driveResult.error}`));
             await supabase.from("students").update({ drive_folder_status: "error", drive_error_message: driveResult.error } as never).eq("id", studentId);
+            driveFailures.push({ studentId, name: `${s.first_name} ${s.last_name}`, error: driveResult.error });
           }
         }
 
@@ -539,7 +546,8 @@ export async function executeImport(jobId: string, csvText: string): Promise<
         medical:   insertedMedicalIds.length,
         notes:     insertedNoteIds.length,
       },
-      skipped: skippedStudents,
+      skipped:       skippedStudents,
+      driveFailures,
     };
   } catch (e) {
     await supabase.from("import_jobs").update({ status: "failed", error_message: String(e) }).eq("id", jobId);
