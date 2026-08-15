@@ -54,7 +54,19 @@ export default async function DriveVerifyPage() {
   const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
   try {
     const { google } = await import("googleapis");
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON!);
+    const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON!;
+    // Repair literal newlines inside private_key (common Vercel paste issue)
+    let credentials: unknown;
+    try {
+      credentials = JSON.parse(raw);
+    } catch {
+      const repaired = raw.replace(
+        /"private_key"\s*:\s*"([\s\S]*?)"\s*,/,
+        (_m: string, key: string) => `"private_key": "${key.replace(/\r?\n/g, "\\n")}",`,
+      );
+      credentials = JSON.parse(repaired);
+      ok("JSON repair applied", "private_key newlines were literal — normalized to \\n. Update Vercel env var to avoid this.");
+    }
     const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/drive"] });
     drive = google.drive({ version: "v3", auth });
     ok("Google Drive auth");

@@ -38,7 +38,22 @@ async function getAuth() {
   if (!isDriveConfigured()) return null;
   try {
     const { google } = await import("googleapis");
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON!);
+    const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON!;
+
+    // Vercel sometimes stores multiline env vars with literal newlines inside the
+    // private_key string instead of \n escape sequences, breaking JSON.parse.
+    // Repair: replace literal newlines within the private_key value only.
+    let credentials: unknown;
+    try {
+      credentials = JSON.parse(raw);
+    } catch {
+      const repaired = raw.replace(
+        /"private_key"\s*:\s*"([\s\S]*?)"\s*,/,
+        (_m, key: string) => `"private_key": "${key.replace(/\r?\n/g, "\\n")}",`,
+      );
+      credentials = JSON.parse(repaired);
+    }
+
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/drive"],
