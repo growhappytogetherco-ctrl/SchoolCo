@@ -1,6 +1,7 @@
 /**
  * Temporary Drive verification page — DELETE AFTER USE.
- * Admin-only. Tests Drive connection, org structure, student folder, upload.
+ * Admin-only. Tests Drive connection, Shared Drive detection, org structure,
+ * student folder, upload, and privacy for Google Workspace Shared Drive setup.
  */
 import { redirect } from "next/navigation";
 import { getUser, getActiveOrgId, createClient } from "@/lib/supabase/server";
@@ -33,15 +34,15 @@ export default async function DriveVerifyPage() {
   if (!member || !ALLOWED.has(member.role as string)) redirect("/dashboard/home");
 
   const results: R[] = [];
-  const ok  = (l: string, d = "") => { results.push({ label: l, status: "PASS", detail: d }); };
-  const bad = (l: string, d = "") => { results.push({ label: l, status: "FAIL", detail: d }); };
-  const skip = (l: string, d = "")=> { results.push({ label: l, status: "SKIP", detail: d }); };
+  const ok   = (l: string, d = "") => { results.push({ label: l, status: "PASS", detail: d }); };
+  const bad  = (l: string, d = "") => { results.push({ label: l, status: "FAIL", detail: d }); };
+  const skip = (l: string, d = "") => { results.push({ label: l, status: "SKIP", detail: d }); };
 
   // ── 1. Credential presence ─────────────────────────────────────────────────
-  const saPresent  = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  const rfPresent  = !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
-  saPresent  ? ok("GOOGLE_SERVICE_ACCOUNT_JSON", "PRESENT") : bad("GOOGLE_SERVICE_ACCOUNT_JSON", "MISSING");
-  rfPresent  ? ok("GOOGLE_DRIVE_ROOT_FOLDER_ID", "PRESENT") : bad("GOOGLE_DRIVE_ROOT_FOLDER_ID", "MISSING");
+  const saPresent = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  const rfPresent = !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
+  saPresent ? ok("GOOGLE_SERVICE_ACCOUNT_JSON", "PRESENT") : bad("GOOGLE_SERVICE_ACCOUNT_JSON", "MISSING");
+  rfPresent ? ok("GOOGLE_DRIVE_ROOT_FOLDER_ID", "PRESENT") : bad("GOOGLE_DRIVE_ROOT_FOLDER_ID", "MISSING");
   isDriveConfigured() ? ok("isDriveConfigured()") : bad("isDriveConfigured()", "returns false");
 
   if (!isDriveConfigured()) {
@@ -49,13 +50,12 @@ export default async function DriveVerifyPage() {
     return <Results items={results} stopped />;
   }
 
-  // ── 2. Auth + root folder ──────────────────────────────────────────────────
+  // ── 2. Auth + root access ──────────────────────────────────────────────────
   let drive: any;
   const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
   try {
     const { google } = await import("googleapis");
     const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON!;
-    // Repair literal newlines inside private_key (common Vercel paste issue)
     let credentials: unknown;
     try {
       credentials = JSON.parse(raw);
@@ -65,7 +65,7 @@ export default async function DriveVerifyPage() {
         (_m: string, key: string) => `"private_key": "${key.replace(/\r?\n/g, "\\n")}",`,
       );
       credentials = JSON.parse(repaired);
-      ok("JSON repair applied", "private_key newlines were literal — normalized to \\n. Update Vercel env var to avoid this.");
+      ok("JSON repair applied", "private_key newlines were literal — normalized to \\n");
     }
     const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/drive"] });
     drive = google.drive({ version: "v3", auth });
@@ -75,19 +75,37 @@ export default async function DriveVerifyPage() {
     return <Results items={results} stopped />;
   }
 
+  // ── 3. Confirm destination is a Workspace Shared Drive ────────────────────
+  // drive.drives.get succeeds only if rootId is a Shared Drive ID.
+  // If this FAIL, GOOGLE_DRIVE_ROOT_FOLDER_ID still points to the old My Drive folder.
+  let isSharedDrive = false;
   try {
-    const meta = await drive.files.get({ fileId: rootId, fields: "id,name,trashed,capabilities" });
-    if (meta.data.trashed) { bad("Root folder access", "folder is trashed"); return <Results items={results} stopped />; }
+    const driveInfo = await drive.drives.get({ driveId: rootId, fields: "id,name,kind" });
+    isSharedDrive = true;
+    ok("Destination is Google Workspace Shared Drive", `"${driveInfo.data.name}"`);
+  } catch (e: any) {
+    bad("Destination is Google Workspace Shared Drive",
+      `GOOGLE_DRIVE_ROOT_FOLDER_ID is not a Shared Drive ID — still points to My Drive. Error: ${e.message}`);
+  }
+
+  // ── 4. Root write permission ───────────────────────────────────────────────
+  try {
+    const meta = await drive.files.get({
+      fileId:            rootId,
+      fields:            "id,name,trashed,capabilities",
+      supportsAllDrives: true,
+    });
+    if (meta.data.trashed) { bad("Root folder access", "trashed"); return <Results items={results} stopped />; }
     ok("Root folder access", `"${meta.data.name}"`);
     meta.data.capabilities?.canAddChildren
       ? ok("Root folder write permission")
-      : bad("Root folder write permission", "canAddChildren = false");
+      : bad("Root folder write permission", "canAddChildren=false");
   } catch (e: any) {
     bad("Root folder access", e.message);
     return <Results items={results} stopped />;
   }
 
-  // ── 3. Org structure — run 1 ───────────────────────────────────────────────
+  // ── 5. Org structure — run 1 ───────────────────────────────────────────────
   const { data: existingRows } = await supabase
     .from("org_drive_folders")
     .select("folder_key, google_drive_folder_id")
@@ -97,8 +115,9 @@ export default async function DriveVerifyPage() {
   for (const r of existingRows ?? []) existingMap[r.folder_key as string] = r.google_drive_folder_id as string;
 
   const run1 = await ensureOrgDriveStructure(orgId, existingMap);
-  if (!run1.success) { bad("Org structure provisioning", run1.error); }
-  else {
+  if (!run1.success) {
+    bad("Org structure provisioning", run1.error);
+  } else {
     const total1 = Object.keys(run1.data).length;
     ok("Org structure provisioning — run 1", `${total1} folders`);
 
@@ -122,11 +141,10 @@ export default async function DriveVerifyPage() {
       ok("org_drive_folders", "All folders already in DB — no upsert needed");
     }
 
-    // ── 4. Idempotency — run 2 ───────────────────────────────────────────────
-    const run2 = await ensureOrgDriveStructure(orgId, run1.data); // all known
+    // ── 6. Idempotency — run 2 ────────────────────────────────────────────────
+    const run2 = await ensureOrgDriveStructure(orgId, run1.data);
     if (!run2.success) { bad("Idempotency — run 2", run2.error); }
     else {
-      const total2 = Object.keys(run2.data).length;
       const newOnRun2 = Object.entries(run2.data).filter(([k]) => !run1.data[k]).length;
       const idsMatch  = Object.keys(run1.data).every((k) => run1.data[k] === run2.data[k]);
       newOnRun2 === 0 ? ok("Idempotency — no duplicates", "0 new folders on run 2") : bad("Idempotency — no duplicates", `${newOnRun2} new on run 2`);
@@ -134,7 +152,7 @@ export default async function DriveVerifyPage() {
     }
   }
 
-  // ── 5. Mia's student folder ────────────────────────────────────────────────
+  // ── 7. Mia's student folder ────────────────────────────────────────────────
   const studentsFolderId = run1.success ? run1.data["students"] : undefined;
   const miaResult = await createStudentFolderTree(MIA_DISPLAY, MIA_NAME, orgId, studentsFolderId);
   if (!miaResult.success) {
@@ -147,14 +165,18 @@ export default async function DriveVerifyPage() {
 
     // Verify placed under Students/
     try {
-      const meta = await drive.files.get({ fileId: miaResult.data.rootFolder.folderId, fields: "parents" });
+      const meta = await drive.files.get({
+        fileId:            miaResult.data.rootFolder.folderId,
+        fields:            "parents",
+        supportsAllDrives: true,
+      });
       const underStudents = studentsFolderId && meta.data.parents?.includes(studentsFolderId);
       underStudents
         ? ok("Mia folder under Students/")
         : bad("Mia folder under Students/", `parents: ${meta.data.parents?.join(", ")}`);
     } catch { skip("Mia folder parent check"); }
 
-    // ── 6. DB metadata ─────────────────────────────────────────────────────
+    // ── 8. DB metadata ────────────────────────────────────────────────────────
     const folderName = `${MIA_DISPLAY} — ${MIA_NAME}`;
     const { error: suErr } = await supabase.from("students").update({
       google_drive_folder_id:  miaResult.data.rootFolder.folderId,
@@ -187,7 +209,7 @@ export default async function DriveVerifyPage() {
       ? ok("DB — readback verified", `status=active, displayId=${miaCheck.student_display_id}`)
       : bad("DB — readback mismatch", JSON.stringify(miaCheck));
 
-    // ── 7. Mia idempotency ────────────────────────────────────────────────
+    // ── 9. Mia idempotency ────────────────────────────────────────────────────
     const miaRun2 = await createStudentFolderTree(MIA_DISPLAY, MIA_NAME, orgId, studentsFolderId);
     if (!miaRun2.success) { bad("Mia idempotency — run 2", miaRun2.error); }
     else {
@@ -197,27 +219,32 @@ export default async function DriveVerifyPage() {
       miaRun2.data.wasExisting ? ok("Mia idempotency — wasExisting=true") : bad("Mia idempotency — wasExisting should be true");
     }
 
-    // ── 7b. Cleanup orphaned Mia folders (from runs that used broken description query) ──
+    // ── 10. Orphaned Mia folder cleanup ───────────────────────────────────────
+    // Searches ALL drives so old My-Drive orphans are also found and cleaned up.
     try {
       const orphanList = await drive.files.list({
-        q: `mimeType='application/vnd.google-apps.folder' and name='${MIA_DISPLAY} — ${MIA_NAME}' and trashed=false`,
+        q:    `mimeType='application/vnd.google-apps.folder' and name='${MIA_DISPLAY} — ${MIA_NAME}' and trashed=false`,
         fields: "files(id,name,parents)",
         pageSize: 20,
+        supportsAllDrives:        true,
+        includeItemsFromAllDrives: true,
+        corpora:                   "allDrives",
       });
-      const allMia   = orphanList.data.files ?? [];
+      const allMia    = orphanList.data.files ?? [];
       const canonical = miaResult.data.rootFolder.folderId;
       const orphans   = allMia.filter((f: any) => f.id !== canonical);
       for (const orphan of orphans) {
-        await drive.files.update({ fileId: orphan.id, requestBody: { trashed: true } }).catch(() => {});
+        // Permanently delete (works for both My Drive and Shared Drive items)
+        await drive.files.delete({ fileId: orphan.id, supportsAllDrives: true }).catch(() => {});
       }
       orphans.length > 0
-        ? ok("Orphaned Mia folders trashed", `${orphans.length} duplicate(s) removed`)
+        ? ok("Orphaned Mia folders cleaned up", `${orphans.length} duplicate(s) permanently deleted`)
         : ok("Orphaned Mia folders", "No orphans found");
     } catch (e: any) {
       skip("Orphaned Mia folder cleanup", e.message);
     }
 
-    // ── 8. Private upload test ────────────────────────────────────────────
+    // ── 11. Private upload test ───────────────────────────────────────────────
     const targetSubfolderId = miaResult.data.subfolders.find((s) => s.key === "academic_records")?.folderId
       ?? miaResult.data.rootFolder.folderId;
     const content = Buffer.from(`SchoolCo Drive verification — ${new Date().toISOString()} — DELETE ME`);
@@ -225,24 +252,42 @@ export default async function DriveVerifyPage() {
     if (!uploadRes.success) {
       bad("Private upload test", uploadRes.error);
     } else {
-      ok("Private upload test", `File ID: ${uploadRes.data.fileId}`);
+      ok("Private upload test", `File ID: ${uploadRes.data.fileId}, size: ${uploadRes.data.fileSizeBytes}B`);
+
+      // Confirm file is inside the Shared Drive (not My Drive)
+      if (isSharedDrive) {
+        try {
+          const fileMeta = await drive.files.get({
+            fileId:            uploadRes.data.fileId,
+            fields:            "id,name,driveId,parents",
+            supportsAllDrives: true,
+          });
+          fileMeta.data.driveId === rootId
+            ? ok("Uploaded file is in Shared Drive", `driveId matches root`)
+            : bad("Uploaded file is in Shared Drive", `driveId: ${fileMeta.data.driveId ?? "none — file is in My Drive"}`);
+        } catch { skip("Shared Drive file location check"); }
+      }
 
       // Verify not public
       try {
-        const permsRes = await drive.permissions.list({ fileId: uploadRes.data.fileId, fields: "permissions(type,role)" });
+        const permsRes = await drive.permissions.list({
+          fileId:            uploadRes.data.fileId,
+          fields:            "permissions(type,role)",
+          supportsAllDrives: true,
+        });
         const publicPerm = (permsRes.data.permissions ?? []).find((p: any) => p.type === "anyone");
-        publicPerm ? bad("File not public", "has 'anyone' permission") : ok("File not public", "no public permissions");
+        publicPerm ? bad("File not public", "has 'anyone' permission — SECURITY ISSUE") : ok("File not publicly accessible");
       } catch { skip("File privacy check"); }
 
       // Delete test file
       try {
-        await drive.files.delete({ fileId: uploadRes.data.fileId });
+        await drive.files.delete({ fileId: uploadRes.data.fileId, supportsAllDrives: true });
         ok("Test file deleted");
       } catch { bad("Test file cleanup"); }
     }
   }
 
-  // ── 9. Security spot-checks ────────────────────────────────────────────────
+  // ── 12. Security spot-checks on org folders ───────────────────────────────
   if (run1.success) {
     const checkKeys = ["students", "incident_reports"];
     let anyPublic = false;
@@ -250,15 +295,18 @@ export default async function DriveVerifyPage() {
       const fid = run1.data[key];
       if (!fid) continue;
       try {
-        const perms = await drive.permissions.list({ fileId: fid, fields: "permissions(type)" });
+        const perms = await drive.permissions.list({
+          fileId:            fid,
+          fields:            "permissions(type)",
+          supportsAllDrives: true,
+        });
         if ((perms.data.permissions ?? []).some((p: any) => p.type === "anyone")) anyPublic = true;
       } catch { /* ignore */ }
     }
     anyPublic ? bad("No public org folders", "a folder has 'anyone' access") : ok("No public org folders", "students + incident_reports checked");
   }
 
-  // ── org_drive_folders row count ───────────────────────────────────────────
-  // head:true returns data=null — count is in the `count` property, not `data`
+  // ── 13. org_drive_folders row count ──────────────────────────────────────
   const { count: orgFolderCount, error: countErr } = await supabase
     .from("org_drive_folders")
     .select("folder_key", { count: "exact", head: true })
@@ -277,7 +325,7 @@ function Results({ items, stopped }: { items: R[]; stopped?: boolean }) {
   const passN = items.filter((r) => r.status === "PASS").length;
   const failN = items.filter((r) => r.status === "FAIL").length;
   return (
-    <div style={{ fontFamily: "monospace", padding: "2rem", maxWidth: 900 }}>
+    <div style={{ fontFamily: "monospace", padding: "2rem", maxWidth: 960 }}>
       <h1 style={{ fontSize: 20, marginBottom: 16 }}>Drive Verification Results</h1>
       {stopped && <p style={{ color: "orange" }}>⚠ Stopped early — fix FAIL items above before continuing.</p>}
       <table style={{ borderCollapse: "collapse", width: "100%" }}>

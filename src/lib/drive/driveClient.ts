@@ -5,11 +5,11 @@
  *   1. Create a project → Enable Drive API
  *   2. IAM & Admin → Service Accounts → Create → Download JSON key
  *   3. Paste full JSON as GOOGLE_SERVICE_ACCOUNT_JSON env var
- *   4. Create root Drive folder: "Rising Leaders Academy — SchoolCo Records"
- *      Share it with the service account email (Editor)
- *   5. Copy root folder ID → GOOGLE_DRIVE_ROOT_FOLDER_ID env var
+ *   4. Create a Google Workspace Shared Drive: "Rising Leaders Academy – SchoolCo Records"
+ *      Add the service account as Content Manager on the Shared Drive
+ *   5. Copy the Shared Drive ID → GOOGLE_DRIVE_ROOT_FOLDER_ID env var
  *
- * Folder hierarchy under root:
+ * Folder hierarchy under the Shared Drive root:
  *   Students/          ← student folders live here (not directly under root)
  *   Families/
  *   Staff/  (Teachers/, Volunteers/)
@@ -22,6 +22,14 @@
  *
  * SECURITY: No folder or file is ever set to "Anyone with the link."
  *   Access is controlled by the service account and explicit sharing only.
+ *
+ * SHARED DRIVE NOTES:
+ *   - All files.list calls include supportsAllDrives + includeItemsFromAllDrives
+ *   - Global searches (no parent filter) also set corpora:'allDrives'
+ *   - All files.get / files.create / files.update / files.delete / permissions.*
+ *     include supportsAllDrives:true
+ *   - Files created in a Shared Drive are owned by the organization, not the
+ *     service account — this resolves the "no storage quota" error.
  */
 
 import { Readable } from "stream";
@@ -78,6 +86,9 @@ function fileUrl(id: string): string {
  * Search order: (1) appProperties tag → (2) exact name in parent → (3) create new.
  * appProperties are the only Drive API v3 custom field that supports q= querying;
  * the description field is human-readable only and cannot be used in files.list queries.
+ *
+ * All calls include supportsAllDrives:true so this works in both My Drive and
+ * Workspace Shared Drives without modification.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function findOrCreateFolder(drive: any, name: string, parentId: string, tag: string): Promise<string> {
@@ -86,6 +97,8 @@ async function findOrCreateFolder(drive: any, name: string, parentId: string, ta
     q: `mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and appProperties has { key='sc_tag' and value='${tag}' } and trashed=false`,
     fields: "files(id)",
     pageSize: 2,
+    supportsAllDrives:        true,
+    includeItemsFromAllDrives: true,
   });
   if (byTag.data.files?.length) return byTag.data.files[0].id as string;
 
@@ -94,11 +107,17 @@ async function findOrCreateFolder(drive: any, name: string, parentId: string, ta
     q: `mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and name='${name}' and trashed=false`,
     fields: "files(id)",
     pageSize: 2,
+    supportsAllDrives:        true,
+    includeItemsFromAllDrives: true,
   });
   if (byName.data.files?.length) {
     const id = byName.data.files[0].id as string;
     // Backfill appProperties so future calls use the fast path
-    await drive.files.update({ fileId: id, requestBody: { appProperties: { sc_tag: tag } } }).catch(() => {});
+    await drive.files.update({
+      fileId: id,
+      requestBody: { appProperties: { sc_tag: tag } },
+      supportsAllDrives: true,
+    }).catch(() => {});
     return id;
   }
 
@@ -106,11 +125,12 @@ async function findOrCreateFolder(drive: any, name: string, parentId: string, ta
   const res = await drive.files.create({
     requestBody: {
       name,
-      mimeType:       "application/vnd.google-apps.folder",
-      parents:        [parentId],
-      appProperties:  { sc_tag: tag },
+      mimeType:      "application/vnd.google-apps.folder",
+      parents:       [parentId],
+      appProperties: { sc_tag: tag },
     },
     fields: "id",
+    supportsAllDrives: true,
   });
   return res.data.id as string;
 }
@@ -122,7 +142,7 @@ async function findOrCreateFolder(drive: any, name: string, parentId: string, ta
  * Completely idempotent — any key already in existingFolders is skipped without
  * a Drive API call. New folders are created and returned alongside existing ones.
  *
- * @param orgId          Organisation UUID (used in description tags)
+ * @param orgId          Organisation UUID (used in appProperties tags)
  * @param existingFolders Caller-supplied map of key→folderId already known (from DB)
  * @returns Map of ALL folder keys (existing + newly created) → Drive folder ID
  */
@@ -163,9 +183,9 @@ export async function ensureOrgDriveStructure(
 }
 
 /**
- * Find an existing student folder anywhere in Drive by its description tag.
- * Does NOT restrict search to a specific parent — so folders created under root
- * (before the Students/ sub-folder existed) are still found and reused.
+ * Find an existing student folder anywhere across all drives by its appProperties tag.
+ * Does NOT restrict search to a specific parent — so folders can be found regardless
+ * of where they were placed.
  */
 export async function findExistingStudentFolder(
   orgId: string,
@@ -183,6 +203,9 @@ export async function findExistingStudentFolder(
       q: `mimeType='application/vnd.google-apps.folder' and appProperties has { key='sc_tag' and value='${tag}' } and trashed=false`,
       fields: "files(id,name)",
       pageSize: 5,
+      supportsAllDrives:        true,
+      includeItemsFromAllDrives: true,
+      corpora:                   "allDrives",
     });
 
     const files = res.data.files ?? [];
@@ -197,7 +220,7 @@ export async function findExistingStudentFolder(
 /**
  * Create (or find and verify) a student's Drive folder tree.
  * Idempotent:
- *   - Searches globally by description tag first
+ *   - Searches globally by appProperties tag first
  *   - If found: verifies all 13 subfolders exist, creates any missing ones
  *   - If not found: creates root folder under parentFolderId (should be Students/ folder)
  *
@@ -220,7 +243,7 @@ export async function createStudentFolderTree(
     const folderName = `${studentDisplayId} — ${studentName}`;
     const tag        = `schoolco-student:${orgId}:${studentDisplayId}`;
 
-    // ── Idempotency: find existing folder anywhere in Drive ──────────────────
+    // ── Idempotency: find existing folder anywhere across all drives ─────────
     const existingSearch = await findExistingStudentFolder(orgId, studentDisplayId);
     if (existingSearch.success && existingSearch.data) {
       const existingRootId = existingSearch.data;
@@ -230,6 +253,8 @@ export async function createStudentFolderTree(
         q: `mimeType='application/vnd.google-apps.folder' and '${existingRootId}' in parents and trashed=false`,
         fields: "files(id,name)",
         pageSize: 50,
+        supportsAllDrives:        true,
+        includeItemsFromAllDrives: true,
       });
       const existingSubs = subRes.data.files ?? [];
 
@@ -242,12 +267,12 @@ export async function createStudentFolderTree(
         } else {
           const newSub = await drive.files.create({
             requestBody: {
-              name:        def.name,
-              mimeType:    "application/vnd.google-apps.folder",
-              parents:     [existingRootId],
-              description: def.description,
+              name:     def.name,
+              mimeType: "application/vnd.google-apps.folder",
+              parents:  [existingRootId],
             },
             fields: "id",
+            supportsAllDrives: true,
           });
           subfolders.push({ key: def.key, folderId: newSub.data.id!, folderUrl: folderUrl(newSub.data.id!) });
         }
@@ -268,6 +293,7 @@ export async function createStudentFolderTree(
         appProperties: { sc_tag: tag },
       },
       fields: "id",
+      supportsAllDrives: true,
     });
     const rootId = rootRes.data.id!;
 
@@ -276,12 +302,12 @@ export async function createStudentFolderTree(
     for (const def of STUDENT_SUBFOLDERS) {
       const subRes = await drive.files.create({
         requestBody: {
-          name:        def.name,
-          mimeType:    "application/vnd.google-apps.folder",
-          parents:     [rootId],
-          description: def.description,
+          name:     def.name,
+          mimeType: "application/vnd.google-apps.folder",
+          parents:  [rootId],
         },
         fields: "id",
+        supportsAllDrives: true,
       });
       subfolders.push({ key: def.key, folderId: subRes.data.id!, folderUrl: folderUrl(subRes.data.id!) });
     }
@@ -298,9 +324,9 @@ export async function createStudentFolderTree(
 
 /**
  * Upload a file buffer to a specific Drive subfolder.
- * Files are uploaded as restricted (service-account only) and NOT set to
- * "anyone with the link." Sharing with staff or parents must be done explicitly
- * through SchoolCo permissions and the work_sample visible_to_parent flag.
+ * When the parent folder is inside a Shared Drive, the file is owned by the
+ * Shared Drive organization (no per-service-account quota issue).
+ * Files are NOT set to "anyone with the link" — private by default.
  */
 export async function uploadFileToDrive(
   buffer: Buffer,
@@ -325,11 +351,12 @@ export async function uploadFileToDrive(
         body: Readable.from(buffer),
       },
       fields: "id,size,thumbnailLink,mimeType",
+      supportsAllDrives: true,
     });
 
     const fileId = res.data.id!;
 
-    // NOTE: Files are kept private (service account only).
+    // NOTE: Files are kept private (service account / Shared Drive org only).
     // Do NOT add "anyone" reader permission here.
     // Sharing is handled explicitly per file based on SchoolCo visibility settings.
 
@@ -370,6 +397,7 @@ export async function shareFileWithUser(
       fileId,
       requestBody: { role, type: "user", emailAddress },
       sendNotificationEmail: false,
+      supportsAllDrives:     true,
     });
 
     return { success: true, data: undefined };
@@ -389,7 +417,11 @@ export async function getDriveFileMetadata(fileId: string): Promise<DriveResult<
   try {
     const { google } = await import("googleapis");
     const drive = google.drive({ version: "v3", auth });
-    const res = await drive.files.get({ fileId, fields: "id,name,mimeType,size,thumbnailLink" });
+    const res = await drive.files.get({
+      fileId,
+      fields:            "id,name,mimeType,size,thumbnailLink",
+      supportsAllDrives: true,
+    });
     return {
       success: true,
       data: {
@@ -416,7 +448,11 @@ export async function verifyDriveFolder(folderId: string): Promise<DriveResult<{
   try {
     const { google } = await import("googleapis");
     const drive = google.drive({ version: "v3", auth });
-    const res = await drive.files.get({ fileId: folderId, fields: "id,name,trashed" });
+    const res = await drive.files.get({
+      fileId:            folderId,
+      fields:            "id,name,trashed",
+      supportsAllDrives: true,
+    });
     if (res.data.trashed) {
       return { success: false, error: "Folder has been moved to trash.", code: "TRASHED" };
     }
@@ -428,7 +464,7 @@ export async function verifyDriveFolder(folderId: string): Promise<DriveResult<{
 }
 
 /**
- * Delete a file from Drive.
+ * Delete a file from Drive (permanent, no trash).
  */
 export async function deleteDriveFile(fileId: string): Promise<DriveResult> {
   const auth = await getAuth();
@@ -437,7 +473,7 @@ export async function deleteDriveFile(fileId: string): Promise<DriveResult> {
   try {
     const { google } = await import("googleapis");
     const drive = google.drive({ version: "v3", auth });
-    await drive.files.delete({ fileId });
+    await drive.files.delete({ fileId, supportsAllDrives: true });
     return { success: true, data: undefined };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
