@@ -462,6 +462,25 @@ export async function verifyDriveFolder(folderId: string): Promise<DriveResult<{
 /**
  * Permanently delete a file from Drive.
  */
+export async function trashDriveFolder(folderId: string): Promise<DriveResult> {
+  const auth = await getAuth();
+  if (!auth) return { success: false, error: "Google Drive is not configured.", code: "NOT_CONFIGURED" };
+
+  try {
+    const { google } = await import("googleapis");
+    const drive = google.drive({ version: "v3", auth });
+    await drive.files.update({
+      fileId: folderId,
+      supportsAllDrives: true,
+      requestBody: { trashed: true },
+    });
+    return { success: true, data: undefined };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: `Could not trash folder: ${msg}`, code: "DRIVE_ERROR" };
+  }
+}
+
 export async function deleteDriveFile(fileId: string): Promise<DriveResult> {
   const auth = await getAuth();
   if (!auth) return { success: false, error: "Google Drive is not configured.", code: "NOT_CONFIGURED" };
