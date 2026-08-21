@@ -5,7 +5,7 @@ import { mapRows } from "@/lib/import/mapper";
 import { validateMappedStudents } from "@/lib/import/validators";
 import { parseCSV } from "@/lib/import/csvParser";
 import type { MappedStudent, DryRunResult, DryRunRow, ImportJob } from "@/lib/import/types";
-import { isDriveConfigured, ensureOrgDriveStructure, createStudentFolderTree } from "@/lib/drive/driveClient";
+import { isDriveConfigured, ensureOrgDriveStructure, createStudentFolderTree, detectSharedDriveId, getFolderDriveId } from "@/lib/drive/driveClient";
 import { getSubfolder, getOrgFolderName } from "@/lib/drive/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -237,15 +237,31 @@ export async function executeImport(jobId: string, csvText: string): Promise<
 
     // ── Drive: provision org folder structure once before any student rows ───
     let studentsFolderIdForImport: string | null = null;
+    let sharedDriveIdForImport: string | null = null;
     if (isDriveConfigured()) {
+      // Detect Shared Drive so we can restrict student folder searches to the active drive
+      sharedDriveIdForImport = await detectSharedDriveId();
+
       const { data: existingOrgRows } = await supabase
         .from("org_drive_folders")
         .select("folder_key, google_drive_folder_id")
         .eq("organization_id", orgId);
 
-      const existingOrgMap: Record<string, string> = {};
+      let existingOrgMap: Record<string, string> = {};
       for (const row of existingOrgRows ?? []) {
         existingOrgMap[row.folder_key as string] = row.google_drive_folder_id as string;
+      }
+
+      // Validate cached map against current Drive destination.
+      // If Shared Drive is configured and the sample cached folder belongs to a different
+      // drive (e.g. old My Drive), discard the cache so provisioning runs in the new drive.
+      if (sharedDriveIdForImport && Object.keys(existingOrgMap).length > 0) {
+        const [, sampleId] = Object.entries(existingOrgMap)[0];
+        const sampleDriveId = await getFolderDriveId(sampleId);
+        if (sampleDriveId !== sharedDriveIdForImport) {
+          importLog.push(log("warn", `org_drive_folders cache is stale (driveId=${sampleDriveId ?? "My Drive"}) — re-provisioning in Shared Drive`));
+          existingOrgMap = {};
+        }
       }
 
       const orgResult = await ensureOrgDriveStructure(orgId, existingOrgMap);
@@ -254,22 +270,19 @@ export async function executeImport(jobId: string, csvText: string): Promise<
         return { success: false, error: `Google Drive provisioning failed: ${orgResult.error}. Please verify your Drive credentials and root folder access before importing.` };
       }
 
-      // Persist any newly created org folders
-      const newOrgEntries = Object.entries(orgResult.data).filter(([k]) => !existingOrgMap[k]);
-      if (newOrgEntries.length > 0) {
-        await supabase.from("org_drive_folders").upsert(
-          newOrgEntries.map(([key, folderId]) => ({
-            organization_id:         orgId,
-            folder_key:              key,
-            folder_name:             getOrgFolderName(key),
-            google_drive_folder_id:  folderId,
-            google_drive_folder_url: `https://drive.google.com/drive/folders/${folderId}`,
-            provisioned_by:          user.id,
-            provisioned_at:          new Date().toISOString(),
-          })) as never,
-          { onConflict: "organization_id,folder_key" }
-        );
-      }
+      // Upsert all provisioning results (overwrites any stale My Drive rows)
+      await supabase.from("org_drive_folders").upsert(
+        Object.entries(orgResult.data).map(([key, folderId]) => ({
+          organization_id:         orgId,
+          folder_key:              key,
+          folder_name:             getOrgFolderName(key),
+          google_drive_folder_id:  folderId,
+          google_drive_folder_url: `https://drive.google.com/drive/folders/${folderId}`,
+          provisioned_by:          user.id,
+          provisioned_at:          new Date().toISOString(),
+        })) as never,
+        { onConflict: "organization_id,folder_key" }
+      );
 
       studentsFolderIdForImport = orgResult.data["students"] ?? null;
       importLog.push(log("info", "Google Drive org structure verified/provisioned"));
@@ -385,7 +398,9 @@ export async function executeImport(jobId: string, csvText: string): Promise<
           const studentFullName  = `${s.first_name} ${s.last_name}`;
 
           const driveResult = await createStudentFolderTree(
-            studentDisplayId, studentFullName, orgId, studentsFolderIdForImport,
+            studentDisplayId, studentFullName, orgId,
+            studentsFolderIdForImport,
+            sharedDriveIdForImport ?? undefined,
           );
 
           if (driveResult.success) {
