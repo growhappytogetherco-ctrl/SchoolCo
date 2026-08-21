@@ -285,7 +285,7 @@ export default async function DriveVerifyPage() {
       const canonical = miaResult.data.rootFolder.folderId;
       const orphans   = allMia.filter((f: any) => f.id !== canonical);
       for (const orphan of orphans) {
-        await drive.files.delete({ fileId: orphan.id, supportsAllDrives: true }).catch(() => {});
+        await drive.files.update({ fileId: orphan.id, requestBody: { trashed: true }, supportsAllDrives: true }).catch(() => {});
       }
       orphans.length > 0
         ? ok("Orphaned Mia folders deleted", `${orphans.length} duplicate(s) permanently deleted`)
@@ -321,11 +321,11 @@ export default async function DriveVerifyPage() {
         publicPerm ? bad("File not publicly accessible — SECURITY", "has 'anyone' permission") : ok("File not publicly accessible");
       } catch { skip("File privacy check"); }
 
-      // Delete test file
+      // Trash test file (Content Manager role = can trash but not permanently delete in Shared Drive)
       try {
-        await drive.files.delete({ fileId: uploadRes.data.fileId, supportsAllDrives: true });
-        ok("Test file deleted");
-      } catch { bad("Test file cleanup"); }
+        await drive.files.update({ fileId: uploadRes.data.fileId, requestBody: { trashed: true }, supportsAllDrives: true });
+        ok("Test file trashed");
+      } catch (e: any) { bad("Test file cleanup", e.message); }
     }
   }
 
