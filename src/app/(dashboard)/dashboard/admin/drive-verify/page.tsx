@@ -105,7 +105,7 @@ export default async function DriveVerifyPage() {
     // Persist to DB
     const newEntries = Object.entries(run1.data).filter(([k]) => !existingMap[k]);
     if (newEntries.length > 0) {
-      await supabase.from("org_drive_folders").upsert(
+      const { error: upsertErr } = await supabase.from("org_drive_folders").upsert(
         newEntries.map(([key, folderId]) => ({
           organization_id:         orgId,
           folder_key:              key,
@@ -116,6 +116,10 @@ export default async function DriveVerifyPage() {
         })) as never,
         { onConflict: "organization_id,folder_key" }
       );
+      if (upsertErr) bad("org_drive_folders upsert", upsertErr.message);
+      else ok("org_drive_folders upserted", `${newEntries.length} new rows`);
+    } else {
+      ok("org_drive_folders", "All folders already in DB — no upsert needed");
     }
 
     // ── 4. Idempotency — run 2 ───────────────────────────────────────────────
@@ -253,12 +257,18 @@ export default async function DriveVerifyPage() {
     anyPublic ? bad("No public org folders", "a folder has 'anyone' access") : ok("No public org folders", "students + incident_reports checked");
   }
 
-  // ── Import Center UI check ────────────────────────────────────────────────
-  const { data: orgFolderCount } = await supabase
+  // ── org_drive_folders row count ───────────────────────────────────────────
+  // head:true returns data=null — count is in the `count` property, not `data`
+  const { count: orgFolderCount, error: countErr } = await supabase
     .from("org_drive_folders")
     .select("folder_key", { count: "exact", head: true })
     .eq("organization_id", orgId);
-  ok("Org Drive folders in DB", `${(orgFolderCount as unknown as number) ?? 0} rows in org_drive_folders`);
+  if (countErr) {
+    bad("Org Drive folders in DB", countErr.message);
+  } else {
+    const n = orgFolderCount ?? 0;
+    n > 0 ? ok("Org Drive folders in DB", `${n} rows`) : bad("Org Drive folders in DB", "0 rows — upsert may have failed silently");
+  }
 
   return <Results items={results} />;
 }
