@@ -24,6 +24,7 @@
  *   Access is controlled by the service account and explicit sharing only.
  */
 
+import { Readable } from "stream";
 import type { DriveResult, CreatedFolder, CreatedSubfolders, UploadedFile, OrgFolderSpec } from "./types";
 import { STUDENT_SUBFOLDERS, ORG_FOLDER_STRUCTURE } from "./types";
 
@@ -74,14 +75,15 @@ function fileUrl(id: string): string {
 
 /**
  * Idempotent folder find-or-create.
- * Search order: (1) description tag → (2) exact name in parent → (3) create new.
- * When found by name, backfills the description tag for future lookups.
+ * Search order: (1) appProperties tag → (2) exact name in parent → (3) create new.
+ * appProperties are the only Drive API v3 custom field that supports q= querying;
+ * the description field is human-readable only and cannot be used in files.list queries.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function findOrCreateFolder(drive: any, name: string, parentId: string, tag: string): Promise<string> {
-  // 1. Search by description tag (most reliable idempotency key)
+  // 1. Search by appProperties tag (queryable in Drive API v3)
   const byTag = await drive.files.list({
-    q: `mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and description='${tag}' and trashed=false`,
+    q: `mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and appProperties has { key='sc_tag' and value='${tag}' } and trashed=false`,
     fields: "files(id)",
     pageSize: 2,
   });
@@ -95,8 +97,8 @@ async function findOrCreateFolder(drive: any, name: string, parentId: string, ta
   });
   if (byName.data.files?.length) {
     const id = byName.data.files[0].id as string;
-    // Tag it so future calls skip the name search
-    await drive.files.update({ fileId: id, requestBody: { description: tag } }).catch(() => {});
+    // Backfill appProperties so future calls use the fast path
+    await drive.files.update({ fileId: id, requestBody: { appProperties: { sc_tag: tag } } }).catch(() => {});
     return id;
   }
 
@@ -104,9 +106,9 @@ async function findOrCreateFolder(drive: any, name: string, parentId: string, ta
   const res = await drive.files.create({
     requestBody: {
       name,
-      mimeType:    "application/vnd.google-apps.folder",
-      parents:     [parentId],
-      description: tag,
+      mimeType:       "application/vnd.google-apps.folder",
+      parents:        [parentId],
+      appProperties:  { sc_tag: tag },
     },
     fields: "id",
   });
@@ -178,7 +180,7 @@ export async function findExistingStudentFolder(
 
     const tag = `schoolco-student:${orgId}:${studentDisplayId}`;
     const res = await drive.files.list({
-      q: `mimeType='application/vnd.google-apps.folder' and description='${tag}' and trashed=false`,
+      q: `mimeType='application/vnd.google-apps.folder' and appProperties has { key='sc_tag' and value='${tag}' } and trashed=false`,
       fields: "files(id,name)",
       pageSize: 5,
     });
@@ -260,10 +262,10 @@ export async function createStudentFolderTree(
     // ── Create new student root folder under Students/ ───────────────────────
     const rootRes = await drive.files.create({
       requestBody: {
-        name:        folderName,
-        mimeType:    "application/vnd.google-apps.folder",
-        parents:     [effectiveParentId],
-        description: tag,
+        name:          folderName,
+        mimeType:      "application/vnd.google-apps.folder",
+        parents:       [effectiveParentId],
+        appProperties: { sc_tag: tag },
       },
       fields: "id",
     });
@@ -311,7 +313,6 @@ export async function uploadFileToDrive(
 
   try {
     const { google } = await import("googleapis");
-    const { Readable } = await import("stream");
     const drive = google.drive({ version: "v3", auth });
 
     const res = await drive.files.create({

@@ -20,7 +20,6 @@ export const ORG_FOLDER_STRUCTURE: OrgFolderSpec[] = [
       { key: "staff_volunteers", name: "Volunteers" },
     ],
   },
-  { key: "volunteers", name: "Volunteers" },
   {
     key: "curriculum", name: "Curriculum",
     children: [

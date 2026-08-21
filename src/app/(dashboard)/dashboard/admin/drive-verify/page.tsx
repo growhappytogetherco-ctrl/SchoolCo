@@ -193,6 +193,26 @@ export default async function DriveVerifyPage() {
       miaRun2.data.wasExisting ? ok("Mia idempotency — wasExisting=true") : bad("Mia idempotency — wasExisting should be true");
     }
 
+    // ── 7b. Cleanup orphaned Mia folders (from runs that used broken description query) ──
+    try {
+      const orphanList = await drive.files.list({
+        q: `mimeType='application/vnd.google-apps.folder' and name='${MIA_DISPLAY} — ${MIA_NAME}' and trashed=false`,
+        fields: "files(id,name,parents)",
+        pageSize: 20,
+      });
+      const allMia   = orphanList.data.files ?? [];
+      const canonical = miaResult.data.rootFolder.folderId;
+      const orphans   = allMia.filter((f: any) => f.id !== canonical);
+      for (const orphan of orphans) {
+        await drive.files.update({ fileId: orphan.id, requestBody: { trashed: true } }).catch(() => {});
+      }
+      orphans.length > 0
+        ? ok("Orphaned Mia folders trashed", `${orphans.length} duplicate(s) removed`)
+        : ok("Orphaned Mia folders", "No orphans found");
+    } catch (e: any) {
+      skip("Orphaned Mia folder cleanup", e.message);
+    }
+
     // ── 8. Private upload test ────────────────────────────────────────────
     const targetSubfolderId = miaResult.data.subfolders.find((s) => s.key === "academic_records")?.folderId
       ?? miaResult.data.rootFolder.folderId;
