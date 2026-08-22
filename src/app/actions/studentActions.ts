@@ -236,6 +236,115 @@ export async function createIncident(
   return { success: true, id: (data as unknown as { id: string }).id };
 }
 
+// ── Update Incident ───────────────────────────────────────────────────────
+
+export interface UpdateIncidentPayload {
+  title?:            string;
+  description?:      string | null;
+  incident_type?:    string;
+  severity?:         string | null;
+  location?:         string | null;
+  occurred_at?:      string;
+  status?:           string;
+  parent_notified?:  boolean;
+  resolution_notes?: string | null;
+}
+
+export async function updateIncident(
+  incidentId: string,
+  payload: UpdateIncidentPayload
+): Promise<{ success: true } | { success: false; error: string }> {
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  if (!user || !orgId) return { success: false, error: "Not authenticated" };
+
+  const supabase = await createClient();
+
+  // Fetch the incident first to get studentId for revalidation
+  const { data: existing } = await supabase
+    .from("incidents")
+    .select("student_id")
+    .eq("id", incidentId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+
+  const updates: Record<string, unknown> = {};
+  if (payload.title           !== undefined) updates.title           = payload.title?.trim() || null;
+  if (payload.description     !== undefined) updates.description     = payload.description || null;
+  if (payload.incident_type   !== undefined) updates.incident_type   = payload.incident_type;
+  if (payload.severity        !== undefined) updates.severity        = payload.severity || null;
+  if (payload.location        !== undefined) updates.location        = payload.location || null;
+  if (payload.occurred_at     !== undefined) updates.occurred_at     = payload.occurred_at;
+  if (payload.status          !== undefined) {
+    updates.status      = payload.status;
+    updates.resolved_at = payload.status === "resolved" ? new Date().toISOString() : null;
+  }
+  if (payload.parent_notified !== undefined) updates.parent_notified = payload.parent_notified;
+  if (payload.resolution_notes !== undefined) updates.resolution_notes = payload.resolution_notes || null;
+
+  const { error } = await supabase
+    .from("incidents")
+    .update(updates as never)
+    .eq("id", incidentId)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  const stuId = (existing as any)?.student_id;
+  if (stuId) revalidatePath(`/dashboard/students/${stuId}`);
+  revalidatePath("/dashboard/incidents");
+  return { success: true };
+}
+
+// ── Delete Incident (full_admin only — hard delete for erroneous records) ──
+
+export async function deleteIncident(
+  incidentId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  if (!user || !orgId) return { success: false, error: "Not authenticated" };
+
+  const supabase = await createClient();
+
+  // Role check: full_admin+
+  const { data: member } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("profile_id", user.id)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  const role = (member as any)?.role ?? "";
+  const ADMIN_ROLES = ["full_admin", "platform_admin"];
+  if (!ADMIN_ROLES.includes(role)) {
+    return { success: false, error: "Only full admins can delete incidents." };
+  }
+
+  // Fetch to get studentId before deleting
+  const { data: existing } = await supabase
+    .from("incidents")
+    .select("student_id")
+    .eq("id", incidentId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+
+  const { error } = await supabase
+    .from("incidents")
+    .delete()
+    .eq("id", incidentId)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  const stuId = (existing as any)?.student_id;
+  if (stuId) revalidatePath(`/dashboard/students/${stuId}`);
+  revalidatePath("/dashboard/incidents");
+  revalidatePath("/dashboard/home");
+  return { success: true };
+}
+
 // ── Add Work Sample ───────────────────────────────────────────────────────
 
 export interface WorkSamplePayload {

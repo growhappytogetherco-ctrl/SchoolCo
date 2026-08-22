@@ -4,9 +4,9 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
   AlertTriangle, Plus, Search, X, ChevronRight,
-  CheckCircle, Clock, AlertCircle,
+  CheckCircle, Clock, AlertCircle, Pencil, Trash2,
 } from "lucide-react";
-import { createIncident, type IncidentPayload } from "@/app/actions/studentActions";
+import { createIncident, updateIncident, deleteIncident, type IncidentPayload } from "@/app/actions/studentActions";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +47,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function IncidentsPage({ initialIncidents, orgId }: { initialIncidents: unknown[]; orgId: string }) {
+export function IncidentsPage({ initialIncidents, orgId, isAdmin = false }: { initialIncidents: unknown[]; orgId: string; isAdmin?: boolean }) {
   const [incidents, setIncidents] = useState<Incident[]>(initialIncidents as Incident[]);
   const [search,    setSearch]    = useState("");
   const [filter,    setFilter]    = useState<"all" | "open" | "resolved">("all");
@@ -209,6 +209,7 @@ export function IncidentsPage({ initialIncidents, orgId }: { initialIncidents: u
           incident={selected}
           studentName={getStudentName(selected)}
           orgId={orgId}
+          isAdmin={isAdmin}
           onClose={() => setSelected(null)}
           onUpdate={() => { setSelected(null); reloadIncidents(); }}
         />
@@ -241,7 +242,7 @@ function CreateIncidentModal({ orgId, onClose, onDone }: { orgId: string; onClos
       .is("archived_at", null)
       .order("last_name")
       .then(({ data }) => {
-        if (data) setStudents(data.map((s) => ({
+        if (data) setStudents((data as unknown as { id: string; first_name: string; last_name: string; preferred_name: string | null }[]).map((s) => ({
           id: s.id,
           name: s.preferred_name ? `${s.preferred_name} ${s.last_name}` : `${s.first_name} ${s.last_name}`,
         })));
@@ -345,120 +346,265 @@ function CreateIncidentModal({ orgId, onClose, onDone }: { orgId: string; onClos
 
 // ── Incident Detail Panel ──────────────────────────────────────────────────
 
-function IncidentDetailPanel({ incident, studentName, orgId, onClose, onUpdate }: {
-  incident: Incident; studentName: string; orgId: string;
+function IncidentDetailPanel({ incident, studentName, orgId, isAdmin, onClose, onUpdate }: {
+  incident: Incident; studentName: string; orgId: string; isAdmin: boolean;
   onClose: () => void; onUpdate: () => void;
 }) {
-  const [status, setStatus] = useState(incident.status);
+  const [mode,     setMode]    = useState<"view" | "edit" | "confirmDelete">("view");
+  const [title,    setTitle]   = useState(incident.title);
+  const [desc,     setDesc]    = useState(incident.description ?? "");
+  const [itype,    setItype]   = useState(incident.incident_type);
+  const [sev,      setSev]     = useState(incident.severity ?? "medium");
+  const [loc,      setLoc]     = useState(incident.location ?? "");
+  const [occAt,    setOccAt]   = useState(incident.occurred_at.slice(0, 16));
+  const [status,   setStatus]  = useState(incident.status);
+  const [pNotif,   setPNotif]  = useState(incident.parent_notified);
   const [resNotes, setResNotes] = useState(incident.resolution_notes ?? "");
-  const [isPending, startTransition] = useTransition();
-  const [saved, setSaved] = useState(false);
+  const [error,    setError]   = useState<string | null>(null);
+  const [saving,   startSave]  = useTransition();
+  const [deleting, startDel]   = useTransition();
 
-  function handleUpdate() {
-    startTransition(async () => {
-      const supabase = createClient();
-      await supabase.from("incidents")
-        .update({
-          status,
-          resolution_notes: resNotes || null,
-          resolved_at: status === "resolved" ? new Date().toISOString() : null,
-        })
-        .eq("id", incident.id)
-        .eq("organization_id", orgId);
-      setSaved(true);
-      setTimeout(() => { setSaved(false); onUpdate(); }, 1000);
+  function handleSave() {
+    if (!title.trim()) { setError("Title is required."); return; }
+    startSave(async () => {
+      const r = await updateIncident(incident.id, {
+        title, description: desc || null, incident_type: itype,
+        severity: sev || null, location: loc || null, occurred_at: occAt,
+        parent_notified: pNotif, status, resolution_notes: resNotes || null,
+      });
+      if (!r.success) { setError(r.error); return; }
+      onUpdate();
     });
+  }
+
+  function handleDelete() {
+    startDel(async () => {
+      const r = await deleteIncident(incident.id);
+      if (!r.success) { setError(r.error); return; }
+      onUpdate();
+    });
+  }
+
+  if (mode === "confirmDelete") {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-sc-gray-100">
+            <h2 className="font-serif text-heading-3 text-sc-navy">Delete Incident</h2>
+            <button onClick={() => setMode("view")} className="p-1.5 rounded-lg hover:bg-sc-gray-100"><X className="size-4 text-sc-gray" /></button>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="rounded-lg border border-sc-rose-200 bg-sc-rose-50 px-4 py-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="size-4 text-sc-rose shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-label-sm font-semibold text-sc-rose-700">Permanently delete this incident?</p>
+                  <p className="text-label-sm text-sc-rose-700 mt-0.5">"{incident.title}"</p>
+                </div>
+              </div>
+            </div>
+            <p className="text-label-sm text-sc-gray">This action cannot be undone. Use only for erroneous or test records.</p>
+            {error && <p className="text-label-sm text-sc-rose">{error}</p>}
+            <div className="flex gap-3">
+              <button onClick={() => setMode("view")} className="flex-1 rounded-xl border border-sc-gray-200 py-2.5 text-sc-gray">Cancel</button>
+              <button onClick={handleDelete} disabled={deleting}
+                className="flex-1 rounded-xl bg-sc-rose py-2.5 text-white text-label-md font-medium disabled:opacity-60">
+                {deleting ? "Deleting…" : "Delete Incident"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-sc-gray-100 sticky top-0 bg-white">
-          <h2 className="font-serif text-heading-3 text-sc-navy">Incident Detail</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-sc-gray-100"><X className="size-4 text-sc-gray" /></button>
-        </div>
-        <div className="p-5 space-y-5">
-          {/* Header */}
-          <div>
-            <h3 className="text-heading-3 font-semibold text-sc-navy">{incident.title}</h3>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {incident.severity && (
-                <span className={cn("rounded-full border px-2.5 py-0.5 text-label-sm font-medium",
-                  SEVERITY_CFG[incident.severity]?.cls ?? "bg-sc-gray-100 text-sc-gray border-sc-gray-200")}>
-                  {SEVERITY_CFG[incident.severity]?.label ?? incident.severity}
-                </span>
-              )}
-              <span className="rounded-full bg-sc-gray-100 border border-sc-gray-200 px-2.5 py-0.5 text-label-sm text-sc-gray capitalize">
-                {TYPE_LABELS[incident.incident_type] ?? incident.incident_type}
-              </span>
-              {incident.parent_notified && (
-                <span className="rounded-full bg-sc-teal-50 border border-sc-teal-200 px-2.5 py-0.5 text-label-sm text-sc-teal">
-                  Parent Notified
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 text-label-sm">
-            <div>
-              <p className="text-sc-gray-400 font-medium">Student</p>
-              {incident.student_id ? (
-                <Link href={`/dashboard/students/${incident.student_id}`} className="text-sc-teal hover:underline font-semibold">
-                  {studentName}
-                </Link>
-              ) : <p className="text-sc-gray">Unlinked</p>}
-            </div>
-            <div>
-              <p className="text-sc-gray-400 font-medium">Date/Time</p>
-              <p className="text-sc-navy">{new Date(incident.occurred_at).toLocaleString()}</p>
-            </div>
-            {incident.location && (
-              <div>
-                <p className="text-sc-gray-400 font-medium">Location</p>
-                <p className="text-sc-navy">{incident.location}</p>
-              </div>
-            )}
-            {incident.reporter && (
-              <div>
-                <p className="text-sc-gray-400 font-medium">Reported by</p>
-                <p className="text-sc-navy">{incident.reporter.full_name}</p>
-              </div>
-            )}
-          </div>
-
-          {incident.description && (
-            <div className="rounded-xl bg-sc-gray-50 p-4">
-              <p className="text-label-sm font-semibold text-sc-navy mb-1">Description</p>
-              <p className="text-body-sm text-sc-gray whitespace-pre-wrap">{incident.description}</p>
-            </div>
-          )}
-
-          {/* Status update */}
-          <div className="border-t border-sc-gray-100 pt-4 space-y-3">
-            <p className="text-label-sm font-semibold text-sc-navy">Update Status</p>
-            <div className="flex flex-wrap gap-2">
-              {["open","under_review","resolved","closed"].map((s) => (
-                <button key={s} onClick={() => setStatus(s)}
-                  className={cn("rounded-xl border px-3 py-1.5 text-label-sm font-medium capitalize transition-colors",
-                    status === s ? "bg-sc-navy text-white border-sc-navy" : "border-sc-gray-200 text-sc-gray hover:border-sc-navy")}>
-                  {s.replace("_", " ")}
+          <h2 className="font-serif text-heading-3 text-sc-navy">
+            {mode === "edit" ? "Edit Incident" : "Incident Detail"}
+          </h2>
+          <div className="flex items-center gap-1">
+            {isAdmin && mode === "view" && (
+              <>
+                <button onClick={() => setMode("edit")}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors">
+                  <Pencil className="size-3.5" /> Edit
                 </button>
-              ))}
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-label-sm font-semibold text-sc-navy">Resolution Notes</label>
-              <textarea rows={3} value={resNotes} onChange={(e) => setResNotes(e.target.value)}
-                placeholder="Notes on how this was resolved…"
-                className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md resize-none focus:outline-none focus:ring-2 focus:ring-sc-teal" />
-            </div>
-            <div className="flex gap-3">
-              <button onClick={handleUpdate} disabled={isPending}
-                className="flex-1 rounded-xl bg-sc-teal py-2.5 text-white text-label-md font-medium disabled:opacity-60">
-                {saved ? "Saved ✓" : isPending ? "Saving…" : "Update Incident"}
+                <button onClick={() => setMode("confirmDelete")}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-rose hover:bg-sc-rose-50 transition-colors">
+                  <Trash2 className="size-3.5" /> Delete
+                </button>
+              </>
+            )}
+            {mode === "edit" && (
+              <button onClick={() => setMode("view")}
+                className="rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:bg-sc-gray-100">
+                Cancel Edit
               </button>
-              <button onClick={onClose} className="rounded-xl border border-sc-gray-200 px-4 py-2.5 text-sc-gray">Close</button>
-            </div>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-sc-gray-100 ml-1"><X className="size-4 text-sc-gray" /></button>
           </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {mode === "edit" ? (
+            <>
+              {/* Full edit form */}
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-label-sm font-semibold text-sc-navy">Title *</label>
+                  <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Brief description"
+                    className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-label-sm font-semibold text-sc-navy">Type</label>
+                    <select value={itype} onChange={(e) => setItype(e.target.value)}
+                      className="w-full rounded-xl border border-sc-gray-200 px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal">
+                      <option value="behavioral">Behavioral</option><option value="medical">Medical</option>
+                      <option value="safety">Safety</option><option value="property">Property</option><option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-label-sm font-semibold text-sc-navy">Severity</label>
+                    <select value={sev} onChange={(e) => setSev(e.target.value)}
+                      className="w-full rounded-xl border border-sc-gray-200 px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal">
+                      <option value="low">Low</option><option value="medium">Medium</option>
+                      <option value="high">High</option><option value="critical">Critical</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-label-sm font-semibold text-sc-navy">Status</label>
+                    <select value={status} onChange={(e) => setStatus(e.target.value)}
+                      className="w-full rounded-xl border border-sc-gray-200 px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal">
+                      <option value="open">Open</option><option value="under_review">Under Review</option>
+                      <option value="resolved">Resolved</option><option value="closed">Closed</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-label-sm font-semibold text-sc-navy">Date / Time</label>
+                    <input type="datetime-local" value={occAt} onChange={(e) => setOccAt(e.target.value)}
+                      className="w-full rounded-xl border border-sc-gray-200 px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label className="text-label-sm font-semibold text-sc-navy">Location</label>
+                    <input value={loc} onChange={(e) => setLoc(e.target.value)} placeholder="Where?"
+                      className="w-full rounded-xl border border-sc-gray-200 px-3 py-2 text-label-md focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-label-sm font-semibold text-sc-navy">Description</label>
+                  <textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)}
+                    className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md resize-none focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-label-sm font-semibold text-sc-navy">Resolution Notes</label>
+                  <textarea rows={3} value={resNotes} onChange={(e) => setResNotes(e.target.value)}
+                    className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md resize-none focus:outline-none focus:ring-2 focus:ring-sc-teal" />
+                </div>
+                <label className="flex items-center gap-2 text-label-sm cursor-pointer">
+                  <input type="checkbox" checked={pNotif} onChange={(e) => setPNotif(e.target.checked)} className="rounded" />
+                  Parent / Guardian Notified
+                </label>
+              </div>
+              {error && <p className="text-label-sm text-sc-rose">{error}</p>}
+              <div className="flex gap-3">
+                <button onClick={handleSave} disabled={saving}
+                  className="flex-1 rounded-xl bg-sc-teal py-2.5 text-white text-label-md font-medium disabled:opacity-60">
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
+                <button onClick={() => setMode("view")} className="rounded-xl border border-sc-gray-200 px-4 py-2.5 text-sc-gray">Cancel</button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* View mode */}
+              <div>
+                <h3 className="text-heading-3 font-semibold text-sc-navy">{incident.title}</h3>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {incident.severity && (
+                    <span className={cn("rounded-full border px-2.5 py-0.5 text-label-sm font-medium",
+                      SEVERITY_CFG[incident.severity]?.cls ?? "bg-sc-gray-100 text-sc-gray border-sc-gray-200")}>
+                      {SEVERITY_CFG[incident.severity]?.label ?? incident.severity}
+                    </span>
+                  )}
+                  <span className="rounded-full bg-sc-gray-100 border border-sc-gray-200 px-2.5 py-0.5 text-label-sm text-sc-gray capitalize">
+                    {TYPE_LABELS[incident.incident_type] ?? incident.incident_type}
+                  </span>
+                  {incident.parent_notified && (
+                    <span className="rounded-full bg-sc-teal-50 border border-sc-teal-200 px-2.5 py-0.5 text-label-sm text-sc-teal">
+                      Parent Notified
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 text-label-sm">
+                <div>
+                  <p className="text-sc-gray-400 font-medium">Student</p>
+                  {incident.student_id ? (
+                    <Link href={`/dashboard/students/${incident.student_id}`} className="text-sc-teal hover:underline font-semibold">
+                      {studentName}
+                    </Link>
+                  ) : <p className="text-sc-gray">Unlinked</p>}
+                </div>
+                <div>
+                  <p className="text-sc-gray-400 font-medium">Date/Time</p>
+                  <p className="text-sc-navy">{new Date(incident.occurred_at).toLocaleString()}</p>
+                </div>
+                {incident.location && (
+                  <div>
+                    <p className="text-sc-gray-400 font-medium">Location</p>
+                    <p className="text-sc-navy">{incident.location}</p>
+                  </div>
+                )}
+                {incident.reporter && (
+                  <div>
+                    <p className="text-sc-gray-400 font-medium">Reported by</p>
+                    <p className="text-sc-navy">{incident.reporter.full_name}</p>
+                  </div>
+                )}
+              </div>
+
+              {incident.description && (
+                <div className="rounded-xl bg-sc-gray-50 p-4">
+                  <p className="text-label-sm font-semibold text-sc-navy mb-1">Description</p>
+                  <p className="text-body-sm text-sc-gray whitespace-pre-wrap">{incident.description}</p>
+                </div>
+              )}
+
+              {incident.resolution_notes && (
+                <div className="rounded-xl bg-sc-teal-50 border border-sc-teal-200 p-4">
+                  <p className="text-label-sm font-semibold text-sc-teal-700 mb-1">Resolution Notes</p>
+                  <p className="text-body-sm text-sc-navy whitespace-pre-wrap">{incident.resolution_notes}</p>
+                </div>
+              )}
+
+              {/* Quick status update (preserved from before) */}
+              <div className="border-t border-sc-gray-100 pt-4 space-y-3">
+                <p className="text-label-sm font-semibold text-sc-navy">Status</p>
+                <div className="flex flex-wrap gap-2">
+                  {["open","under_review","resolved","closed"].map((s) => (
+                    <button key={s} onClick={() => setStatus(s)}
+                      className={cn("rounded-xl border px-3 py-1.5 text-label-sm font-medium capitalize transition-colors",
+                        status === s ? "bg-sc-navy text-white border-sc-navy" : "border-sc-gray-200 text-sc-gray hover:border-sc-navy")}>
+                      {s.replace("_", " ")}
+                    </button>
+                  ))}
+                </div>
+                {error && <p className="text-label-sm text-sc-rose">{error}</p>}
+                <div className="flex gap-3">
+                  <button onClick={handleSave} disabled={saving}
+                    className="flex-1 rounded-xl bg-sc-teal py-2.5 text-white text-label-md font-medium disabled:opacity-60">
+                    {saving ? "Saving…" : "Update Status"}
+                  </button>
+                  <button onClick={onClose} className="rounded-xl border border-sc-gray-200 px-4 py-2.5 text-sc-gray">Close</button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

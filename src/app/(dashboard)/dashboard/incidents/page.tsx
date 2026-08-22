@@ -1,11 +1,15 @@
 import { requireStaff } from "@/lib/roleGuard";
 import { createClient, getActiveOrgId } from "@/lib/supabase/server";
+import { getCurrentRole } from "@/lib/roleGuard";
+import { getRoleLevel } from "@/lib/constants";
 import { IncidentsPage } from "@/components/incidents/IncidentsPage";
 
 export default async function Page() {
   await requireStaff();
-  const orgId = await getActiveOrgId();
+  const [orgId, role] = await Promise.all([getActiveOrgId(), getCurrentRole()]);
   if (!orgId) return <div className="p-8 text-sc-gray">No active organization.</div>;
+
+  const isAdmin = getRoleLevel(role ?? "") >= getRoleLevel("full_admin");
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -21,5 +25,5 @@ export default async function Page() {
     .order("occurred_at", { ascending: false })
     .limit(200);
 
-  return <IncidentsPage initialIncidents={(data ?? []) as unknown[]} orgId={orgId} />;
+  return <IncidentsPage initialIncidents={(data ?? []) as unknown[]} orgId={orgId} isAdmin={isAdmin} />;
 }
