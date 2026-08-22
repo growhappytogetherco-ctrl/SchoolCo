@@ -29,14 +29,20 @@ async function getAuth() {
     const { google } = await import("googleapis");
     const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON!;
     let credentials: unknown;
+    // Strip surrounding quotes added by some env-pull tools (double-stringified JSON)
+    const stripped = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
     try {
-      credentials = JSON.parse(raw);
+      credentials = JSON.parse(stripped);
     } catch {
-      const repaired = raw.replace(
+      const repaired = stripped.replace(
         /"private_key"\s*:\s*"([\s\S]*?)"\s*,/,
         (_m, key: string) => `"private_key": "${key.replace(/\r?\n/g, "\\n")}",`,
       );
       credentials = JSON.parse(repaired);
+    }
+    // Handle double-stringified case (parsed JSON is still a string)
+    if (typeof credentials === "string") {
+      credentials = JSON.parse(credentials);
     }
     const auth = new google.auth.GoogleAuth({
       credentials,
