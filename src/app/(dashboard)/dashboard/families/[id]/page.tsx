@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Home, Users, GraduationCap, AlertTriangle, MapPin, Phone, Mail, Pencil } from "lucide-react";
-import { getUser, getFamily, getActiveOrgId } from "@/lib/supabase/server";
+import { getUser, getFamily, getActiveOrgId, createClient } from "@/lib/supabase/server";
 import { getCurrentRole } from "@/lib/roleGuard";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AddHouseholdDialog } from "@/components/families/AddHouseholdDialog";
 import { AddGuardianDialog } from "@/components/guardians/AddGuardianDialog";
+import { EditGuardianshipDialog } from "@/components/guardians/EditGuardianshipDialog";
+import { GuardianPortalControls } from "@/components/guardians/GuardianPortalControls";
 import { RELATIONSHIP_LABELS, CUSTODY_LABELS, requiresSupervisionAlert, ENROLLMENT_LABELS, getRoleLevel } from "@/lib/constants";
 import type { RelationshipType, CustodyType, EnrollmentStatus } from "@/lib/constants";
 
@@ -55,6 +57,26 @@ export default async function FamilyDetailPage({
       .filter((g) => g.status === "active" && !g.archived_at)
       .map((g) => ({ ...g, _student: s }))
   );
+
+  // Fetch portal status for all guardian profiles
+  const profileIds = Array.from(new Set(
+    allGuardians.map((g) => (g.profiles as ProfileRow | null)?.id).filter(Boolean) as string[]
+  ));
+  let portalStatusMap: Record<string, "no_account" | "invited" | "active" | "disabled"> = {};
+  if (profileIds.length > 0) {
+    const supabase = await createClient();
+    const { data: members } = await supabase
+      .from("organization_members")
+      .select("profile_id, status")
+      .eq("organization_id", orgId)
+      .in("profile_id", profileIds);
+    for (const m of (members ?? []) as { profile_id: string; status: string }[]) {
+      portalStatusMap[m.profile_id] = m.status === "active" ? "active" : m.status === "invited" ? "invited" : m.status === "disabled" ? "disabled" : "no_account";
+    }
+    for (const pid of profileIds) {
+      if (!portalStatusMap[pid]) portalStatusMap[pid] = "no_account";
+    }
+  }
 
   return (
     <div className="space-y-6 animate-fade-in max-w-5xl">
@@ -255,7 +277,7 @@ export default async function FamilyDetailPage({
             </p>
             {students.length > 0 && (
               <AddGuardianDialog
-                studentId={students[0].id}
+                students={students.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
                 familyId={id}
                 households={households.map((h) => ({ id: h.id, household_label: h.household_label }))}
               />
@@ -279,7 +301,17 @@ export default async function FamilyDetailPage({
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
                       <div>
-                        <p className="font-serif text-heading-3 text-sc-navy">{profile?.full_name ?? "Unknown"}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-serif text-heading-3 text-sc-navy">{profile?.full_name ?? "Unknown"}</p>
+                          {canManage && (
+                            <EditGuardianshipDialog
+                              guardianship={g}
+                              households={households.map((h) => ({ id: h.id, household_label: h.household_label }))}
+                              guardianName={profile?.full_name ?? "Unknown"}
+                              studentName={`${g._student.first_name} ${g._student.last_name}`}
+                            />
+                          )}
+                        </div>
                         <p className="text-label-sm text-sc-gray capitalize mt-0.5">
                           {RELATIONSHIP_LABELS[g.relationship_type as RelationshipType] ?? g.relationship_type}
                           {" · "}
@@ -287,6 +319,16 @@ export default async function FamilyDetailPage({
                             {g._student.first_name} {g._student.last_name}
                           </Link>
                         </p>
+                        {canManage && profile?.id && (
+                          <div className="mt-2">
+                            <GuardianPortalControls
+                              profileId={profile.id}
+                              familyId={id}
+                              status={portalStatusMap[profile.id] ?? "no_account"}
+                              hasEmail={!!profile.email}
+                            />
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {g.is_legal_guardian    && <Badge variant="navy">Legal Guardian</Badge>}

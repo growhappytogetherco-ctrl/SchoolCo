@@ -371,6 +371,203 @@ export async function updateGuardianship(
   return { success: true, data: undefined };
 }
 
+// ── Schema for adding a guardian without sending a portal invite ──────────
+
+export const AddGuardianRecordSchema = z.object({
+  student_ids:   z.array(z.string().uuid()).min(1, "Select at least one student"),
+  family_id:     z.string().uuid("Invalid family ID"),
+  household_id:  z.string().uuid().optional().nullable(),
+  full_name:     z.string().min(2, "Full name is required").max(120),
+  email:         z.string().email("Invalid email address").optional().nullable(),
+  phone:         z.string().max(30).optional().nullable(),
+  relationship_type: z.enum([
+    "mother","father","stepmother","stepfather","grandmother","grandfather",
+    "aunt","uncle","sibling","legal_guardian","foster_parent","other"
+  ], { required_error: "Select a relationship type" }),
+  custody_type:     z.enum(["primary","joint","secondary","supervised","none"]).default("joint"),
+  is_legal_guardian:    z.boolean().default(true),
+  is_primary_contact:   z.boolean().default(false),
+  is_emergency_contact: z.boolean().default(false),
+  can_pickup:           z.boolean().default(true),
+  pickup_restrictions:  z.string().max(500).optional().nullable(),
+  court_order_on_file:  z.boolean().default(false),
+});
+
+/**
+ * addGuardianRecord — creates a profile stub + guardianship WITHOUT sending a portal invite.
+ * No auth user is created; no org_member row is added; no email is sent.
+ * Requires: registrar+ role.
+ */
+export async function addGuardianRecord(
+  rawData: z.infer<typeof AddGuardianRecordSchema>
+): Promise<ActionResult<{ guardianship_ids: string[] }>> {
+  const parse = AddGuardianRecordSchema.safeParse(rawData);
+  if (!parse.success) {
+    return { success: false, error: "Validation failed.", fieldErrors: parse.error.flatten().fieldErrors as Record<string, string[]> };
+  }
+
+  const supabase = await createClient();
+  const { data: { user: actingUser } } = await supabase.auth.getUser();
+  if (!actingUser) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  const { data: membership } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("profile_id", actingUser.id)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+
+  const allowedRoles = ["registrar", "admin", "full_admin", "platform_admin"];
+  if (!membership || !allowedRoles.includes(membership.role)) {
+    return { success: false, error: "Insufficient permissions. Registrar role required." };
+  }
+
+  const { student_ids, family_id, household_id, full_name, email, phone, relationship_type, custody_type, is_legal_guardian, is_primary_contact, is_emergency_contact, can_pickup, pickup_restrictions, court_order_on_file } = parse.data;
+
+  // Find or create profile stub
+  let profileId: string;
+  if (email) {
+    const { data: existing } = await supabase.from("profiles").select("id").eq("email", email).single();
+    if (existing) {
+      profileId = existing.id;
+    } else {
+      const newId = crypto.randomUUID();
+      const { error: profileError } = await supabase.from("profiles").insert({
+        id: newId, full_name, email, phone: phone ?? null,
+      });
+      if (profileError) return { success: false, error: `Failed to create profile: ${profileError.message}` };
+      profileId = newId;
+    }
+  } else {
+    const newId = crypto.randomUUID();
+    const { error: profileError } = await supabase.from("profiles").insert({
+      id: newId, full_name, email: null, phone: phone ?? null,
+    });
+    if (profileError) return { success: false, error: `Failed to create profile: ${profileError.message}` };
+    profileId = newId;
+  }
+
+  // Create one guardianship per student
+  const guardianship_ids: string[] = [];
+  for (const student_id of student_ids) {
+    const { data: g, error: gError } = await supabase.from("guardianships").insert({
+      organization_id: orgId, profile_id: profileId, student_id, household_id: household_id ?? null,
+      relationship_type, custody_type, is_legal_guardian, is_primary_contact, is_emergency_contact,
+      can_pickup, pickup_restrictions: pickup_restrictions ?? null, court_order_on_file,
+      status: "active", created_by: actingUser.id,
+    }).select("id").single();
+    if (gError) return { success: false, error: `Failed to create guardianship: ${gError.message}` };
+    guardianship_ids.push(g.id);
+  }
+
+  await logAudit({
+    organization_id: orgId, actor_id: actingUser.id, action: "guardian.record_added",
+    resource_type: "profile", resource_id: profileId,
+    metadata: { student_ids, relationship_type, custody_type, invite_sent: false },
+  });
+
+  for (const student_id of student_ids) {
+    revalidatePath(`/dashboard/students/${student_id}`);
+  }
+  revalidatePath(`/dashboard/families/${family_id}`);
+
+  return { success: true, data: { guardianship_ids } };
+}
+
+/**
+ * sendPortalInvite — sends a portal invite to an existing guardian profile.
+ * Creates/updates org_member row; does NOT create a new guardianship.
+ * Requires: registrar+ role.
+ */
+export async function sendPortalInvite(
+  rawData: { profile_id: string; family_id: string }
+): Promise<ActionResult<void>> {
+  const supabase = await createClient();
+  const { data: { user: actingUser } } = await supabase.auth.getUser();
+  if (!actingUser) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  const { data: membership } = await supabase
+    .from("organization_members")
+    .select("role").eq("profile_id", actingUser.id).eq("organization_id", orgId).eq("status", "active").single();
+  const allowedRoles = ["registrar", "admin", "full_admin", "platform_admin"];
+  if (!membership || !allowedRoles.includes(membership.role)) {
+    return { success: false, error: "Insufficient permissions." };
+  }
+
+  const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", rawData.profile_id).single();
+  if (!profile?.email) return { success: false, error: "Guardian has no email address on file. Add an email before sending a portal invite." };
+
+  const adminClient = createAdminClient();
+  const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(profile.email, {
+    data: { full_name: profile.full_name },
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/auth/callback?next=/portal/children`,
+  });
+  if (inviteError && !inviteError.message.includes("already been registered")) {
+    return { success: false, error: `Failed to send invite: ${inviteError.message}` };
+  }
+
+  await supabase.from("organization_members").upsert({
+    organization_id: orgId, profile_id: rawData.profile_id, role: "parent", status: "invited",
+    created_by: actingUser.id,
+  }, { onConflict: "organization_id,profile_id" });
+
+  await logAudit({
+    organization_id: orgId, actor_id: actingUser.id, action: "guardian.portal_invited",
+    resource_type: "profile", resource_id: rawData.profile_id, metadata: {},
+  });
+
+  revalidatePath(`/dashboard/families/${rawData.family_id}`);
+  return { success: true, data: undefined };
+}
+
+/**
+ * setPortalAccess — enables or disables a guardian's portal access.
+ * Requires: registrar+ role.
+ */
+export async function setPortalAccess(
+  rawData: { profile_id: string; family_id: string; action: "disable" | "restore" }
+): Promise<ActionResult<void>> {
+  const supabase = await createClient();
+  const { data: { user: actingUser } } = await supabase.auth.getUser();
+  if (!actingUser) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  const { data: membership } = await supabase
+    .from("organization_members").select("role")
+    .eq("profile_id", actingUser.id).eq("organization_id", orgId).eq("status", "active").single();
+  const allowedRoles = ["registrar", "admin", "full_admin", "platform_admin"];
+  if (!membership || !allowedRoles.includes(membership.role)) {
+    return { success: false, error: "Insufficient permissions." };
+  }
+
+  const newStatus = rawData.action === "disable" ? "disabled" : "active";
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ status: newStatus, updated_by: actingUser.id })
+    .eq("profile_id", rawData.profile_id)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    organization_id: orgId, actor_id: actingUser.id,
+    action: rawData.action === "disable" ? "guardian.portal_disabled" : "guardian.portal_restored",
+    resource_type: "profile", resource_id: rawData.profile_id, metadata: {},
+  });
+
+  revalidatePath(`/dashboard/families/${rawData.family_id}`);
+  return { success: true, data: undefined };
+}
+
 /**
  * updateMyPreferences — parent updates their own communication and visibility preferences.
  * Parents may only update their own guardianship rows.
