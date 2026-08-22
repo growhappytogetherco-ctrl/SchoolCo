@@ -264,7 +264,7 @@ export async function getFamily(familyId: string): Promise<FamilyDetail | null> 
           is_primary_contact, is_emergency_contact, emergency_contact_order,
           can_pickup, pickup_restrictions, court_order_on_file,
           household_id, status, archived_at,
-          profiles!guardianships_profile_id_fkey ( id, full_name, email, phone )
+          profiles!guardianships_profile_id_fkey ( id, full_name, email, phone, auth_user_id )
         )
       )
     `)

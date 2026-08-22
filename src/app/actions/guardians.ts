@@ -70,6 +70,10 @@ export const InviteGuardianSchema = z.object({
 
 export const UpdateGuardianshipSchema = z.object({
   guardianship_id:  z.string().uuid(),
+  relationship_type: z.enum([
+    "mother","father","stepmother","stepfather","grandmother","grandfather",
+    "aunt","uncle","sibling","legal_guardian","foster_parent","other"
+  ]).optional(),
   custody_type:     z.enum(["primary","joint","secondary","supervised","none"]).optional(),
   is_legal_guardian: z.boolean().optional(),
   is_primary_contact: z.boolean().optional(),
@@ -78,7 +82,7 @@ export const UpdateGuardianshipSchema = z.object({
   can_pickup:       z.boolean().optional(),
   pickup_restrictions: z.string().max(500).optional().nullable(),
   court_order_on_file: z.boolean().optional(),
-  court_order_notes: z.string().max(2000).optional().nullable(),  // Staff-only field
+  court_order_notes: z.string().max(2000).optional().nullable(),
   household_id:     z.string().uuid().optional().nullable(),
   visibility_json:  VisibilityJsonSchema.optional(),
   communication_json: CommunicationJsonSchema.optional(),
@@ -618,5 +622,207 @@ export async function updateMyPreferences(
 
   if (error) return { success: false, error: error.message };
 
+  return { success: true, data: undefined };
+}
+
+// ── updateGuardianProfile ─────────────────────────────────────────────────────
+
+export const UpdateGuardianProfileSchema = z.object({
+  profile_id: z.string().uuid(),
+  family_id:  z.string().uuid(),
+  full_name:  z.string().min(2).max(120).optional(),
+  email:      z.string().email().optional().nullable(),
+  phone:      z.string().max(30).optional().nullable(),
+});
+
+/**
+ * updateGuardianProfile — updates a guardian's personal contact info (name/email/phone).
+ * Separate from guardianship relationship data. Requires registrar+.
+ */
+export async function updateGuardianProfile(
+  rawData: z.infer<typeof UpdateGuardianProfileSchema>
+): Promise<ActionResult<void>> {
+  const parse = UpdateGuardianProfileSchema.safeParse(rawData);
+  if (!parse.success) return { success: false, error: "Validation failed." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  const { data: membership } = await supabase.from("organization_members")
+    .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
+  if (!membership || !["registrar","admin","full_admin","platform_admin"].includes(membership.role as string))
+    return { success: false, error: "Insufficient permissions." };
+
+  const { profile_id, family_id, ...updates } = parse.data;
+  const filtered = Object.fromEntries(
+    Object.entries(updates).filter(([, v]) => v !== undefined)
+  );
+  if (Object.keys(filtered).length === 0) return { success: true, data: undefined };
+
+  const { error } = await supabase.from("profiles").update(filtered).eq("id", profile_id);
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    organization_id: orgId, actor_id: user.id, action: "guardian.profile_updated",
+    resource_type: "profile", resource_id: profile_id, metadata: filtered,
+  });
+
+  revalidatePath(`/dashboard/families/${family_id}`);
+  return { success: true, data: undefined };
+}
+
+// ── linkGuardianToStudent ─────────────────────────────────────────────────────
+
+export const LinkGuardianToStudentSchema = z.object({
+  profile_id:        z.string().uuid(),
+  student_id:        z.string().uuid(),
+  family_id:         z.string().uuid(),
+  household_id:      z.string().uuid().optional().nullable(),
+  relationship_type: z.enum([
+    "mother","father","stepmother","stepfather","grandmother","grandfather",
+    "aunt","uncle","sibling","legal_guardian","foster_parent","other"
+  ]),
+  custody_type:        z.enum(["primary","joint","secondary","supervised","none"]).default("joint"),
+  is_legal_guardian:   z.boolean().default(true),
+  is_primary_contact:  z.boolean().default(false),
+  is_emergency_contact: z.boolean().default(false),
+  can_pickup:          z.boolean().default(true),
+  pickup_restrictions: z.string().max(500).optional().nullable(),
+});
+
+/**
+ * linkGuardianToStudent — adds a new guardianship for an EXISTING profile to another student.
+ * Reuses the existing profile; never creates a duplicate. Requires registrar+.
+ */
+export async function linkGuardianToStudent(
+  rawData: z.infer<typeof LinkGuardianToStudentSchema>
+): Promise<ActionResult<{ guardianship_id: string }>> {
+  const parse = LinkGuardianToStudentSchema.safeParse(rawData);
+  if (!parse.success) return { success: false, error: "Validation failed." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  const { data: membership } = await supabase.from("organization_members")
+    .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
+  if (!membership || !["registrar","admin","full_admin","platform_admin"].includes(membership.role as string))
+    return { success: false, error: "Insufficient permissions." };
+
+  const { profile_id, student_id, family_id, household_id, ...gData } = parse.data;
+
+  // Guard: prevent duplicate guardianship
+  const { data: existing } = await supabase.from("guardianships")
+    .select("id").eq("organization_id", orgId).eq("profile_id", profile_id).eq("student_id", student_id).single();
+  if (existing) return { success: false, error: "This guardian is already linked to that student." };
+
+  const { data: g, error } = await supabase.from("guardianships").insert({
+    organization_id: orgId, profile_id, student_id,
+    household_id: household_id ?? null,
+    ...gData,
+    status: "active", created_by: user.id,
+  }).select("id").single();
+
+  if (error || !g) return { success: false, error: error?.message ?? "Failed to create guardianship." };
+
+  await logAudit({
+    organization_id: orgId, actor_id: user.id, action: "guardian.student_linked",
+    resource_type: "guardianship", resource_id: g.id,
+    metadata: { profile_id, student_id, relationship_type: gData.relationship_type },
+  });
+
+  revalidatePath(`/dashboard/families/${family_id}`);
+  return { success: true, data: { guardianship_id: g.id } };
+}
+
+// ── removeGuardianship ────────────────────────────────────────────────────────
+
+/**
+ * removeGuardianship — removes a single guardianship (guardian ↔ student link).
+ * Does NOT delete the guardian profile. Requires registrar+.
+ */
+export async function removeGuardianship(
+  rawData: { guardianship_id: string; family_id: string }
+): Promise<ActionResult<void>> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  const { data: membership } = await supabase.from("organization_members")
+    .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
+  if (!membership || !["registrar","admin","full_admin","platform_admin"].includes(membership.role as string))
+    return { success: false, error: "Insufficient permissions." };
+
+  const { error } = await supabase.from("guardianships")
+    .delete().eq("id", rawData.guardianship_id).eq("organization_id", orgId);
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    organization_id: orgId, actor_id: user.id, action: "guardian.relationship_removed",
+    resource_type: "guardianship", resource_id: rawData.guardianship_id, metadata: {},
+  });
+
+  revalidatePath(`/dashboard/families/${rawData.family_id}`);
+  return { success: true, data: undefined };
+}
+
+// ── deleteGuardianProfile ─────────────────────────────────────────────────────
+
+/**
+ * deleteGuardianProfile — safely removes a guardian profile and all their guardianships.
+ * Will NOT delete if the profile has an active auth account.
+ * Requires full_admin.
+ */
+export async function deleteGuardianProfile(
+  rawData: { profile_id: string; family_id: string }
+): Promise<ActionResult<void>> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  const { data: membership } = await supabase.from("organization_members")
+    .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
+  if (!membership || !["full_admin","platform_admin"].includes(membership.role as string))
+    return { success: false, error: "Full admin required to delete a guardian profile." };
+
+  // Block deletion if profile has an active auth account
+  const { data: profile } = await supabase.from("profiles")
+    .select("id, full_name, auth_user_id").eq("id", rawData.profile_id).single();
+  if (!profile) return { success: false, error: "Profile not found." };
+  if ((profile as any).auth_user_id)
+    return { success: false, error: `Cannot delete ${(profile as any).full_name} — they have an active login account. Disable their portal access instead.` };
+
+  // Delete all their guardianships first
+  await supabase.from("guardianships")
+    .delete().eq("profile_id", rawData.profile_id).eq("organization_id", orgId);
+
+  // Remove any org membership (uninvited stubs)
+  await supabase.from("organization_members")
+    .delete().eq("profile_id", rawData.profile_id).eq("organization_id", orgId);
+
+  // Delete profile
+  const { error } = await supabase.from("profiles").delete().eq("id", rawData.profile_id);
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    organization_id: orgId, actor_id: user.id, action: "guardian.profile_deleted",
+    resource_type: "profile", resource_id: rawData.profile_id,
+    metadata: { full_name: (profile as any).full_name },
+  });
+
+  revalidatePath(`/dashboard/families/${rawData.family_id}`);
   return { success: true, data: undefined };
 }

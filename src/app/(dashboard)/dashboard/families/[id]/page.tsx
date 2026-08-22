@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Home, Users, GraduationCap, AlertTriangle, MapPin, Phone, Mail, Pencil } from "lucide-react";
+import { ArrowLeft, Home, Users, GraduationCap, MapPin, Phone, Mail, Pencil } from "lucide-react";
 import { getUser, getFamily, getActiveOrgId, createClient } from "@/lib/supabase/server";
 import { getCurrentRole } from "@/lib/roleGuard";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AddHouseholdDialog } from "@/components/families/AddHouseholdDialog";
 import { AddGuardianDialog } from "@/components/guardians/AddGuardianDialog";
-import { EditGuardianshipDialog } from "@/components/guardians/EditGuardianshipDialog";
-import { GuardianPortalControls } from "@/components/guardians/GuardianPortalControls";
-import { RELATIONSHIP_LABELS, CUSTODY_LABELS, requiresSupervisionAlert, ENROLLMENT_LABELS, getRoleLevel } from "@/lib/constants";
-import type { RelationshipType, CustodyType, EnrollmentStatus } from "@/lib/constants";
+import { GuardiansPanel } from "@/components/guardians/GuardiansPanel";
+import { ENROLLMENT_LABELS, getRoleLevel } from "@/lib/constants";
+import type { EnrollmentStatus } from "@/lib/constants";
+import type { GuardianGroup } from "@/components/guardians/GuardiansPanel";
 
 export const metadata: Metadata = { title: "Family Detail" };
 
@@ -51,8 +51,8 @@ export default async function FamilyDetailPage({
   const students = ((family.students ?? []) as StudentRow[])
     .filter((s) => !s.archived_at);
 
-  // All unique guardians across all students in this family
-  const allGuardians = students.flatMap((s) =>
+  // Build flat list of active guardianship rows with student info
+  const activeGships = students.flatMap((s) =>
     ((s.guardianships ?? []) as GuardianshipRow[])
       .filter((g) => g.status === "active" && !g.archived_at)
       .map((g) => ({ ...g, _student: s }))
@@ -60,7 +60,7 @@ export default async function FamilyDetailPage({
 
   // Fetch portal status for all guardian profiles
   const profileIds = Array.from(new Set(
-    allGuardians.map((g) => (g.profiles as ProfileRow | null)?.id).filter(Boolean) as string[]
+    activeGships.map((g) => (g.profiles as ProfileRow | null)?.id).filter(Boolean) as string[]
   ));
   let portalStatusMap: Record<string, "no_account" | "invited" | "active" | "disabled"> = {};
   if (profileIds.length > 0) {
@@ -77,6 +77,49 @@ export default async function FamilyDetailPage({
       if (!portalStatusMap[pid]) portalStatusMap[pid] = "no_account";
     }
   }
+
+  // Group guardianships by person → GuardianGroup[]
+  const groupMap = new Map<string, GuardianGroup>();
+  for (const g of activeGships) {
+    const profile = g.profiles as ProfileRow | null;
+    if (!profile) continue;
+    if (!groupMap.has(profile.id)) {
+      groupMap.set(profile.id, {
+        profile_id:    profile.id,
+        full_name:     profile.full_name ?? "Unknown",
+        email:         profile.email ?? null,
+        phone:         profile.phone ?? null,
+        has_auth:      !!(profile as any).auth_user_id,
+        portal_status: portalStatusMap[profile.id] ?? "no_account",
+        is_pickup_only: true, // will be updated below
+        relationships:  [],
+      });
+    }
+    const group = groupMap.get(profile.id)!;
+    group.relationships.push({
+      guardianship_id:      g.id,
+      student_id:           g._student.id,
+      student_first:        g._student.first_name,
+      student_last:         g._student.last_name,
+      student_display_id:   g._student.student_display_id,
+      relationship_type:    g.relationship_type,
+      custody_type:         g.custody_type,
+      is_legal_guardian:    g.is_legal_guardian,
+      is_primary_contact:   g.is_primary_contact,
+      is_emergency_contact: g.is_emergency_contact,
+      can_pickup:           g.can_pickup,
+      pickup_restrictions:  g.pickup_restrictions,
+      court_order_on_file:  g.court_order_on_file,
+      household_id:         g.household_id,
+      household_label:      households.find((h) => h.id === g.household_id)?.household_label ?? null,
+    });
+    // If any relationship is NOT "other", this is a real guardian (not pickup-only)
+    if (g.relationship_type !== "other") {
+      group.is_pickup_only = false;
+    }
+  }
+  const guardianGroups = Array.from(groupMap.values());
+  const isFullAdmin = getRoleLevel(role ?? "") >= getRoleLevel("full_admin");
 
   return (
     <div className="space-y-6 animate-fade-in max-w-5xl">
@@ -140,7 +183,7 @@ export default async function FamilyDetailPage({
           </TabsTrigger>
           <TabsTrigger value="guardians">
             <Users className="size-4" />
-            Guardians ({allGuardians.length})
+            Guardians ({guardianGroups.length})
           </TabsTrigger>
         </TabsList>
 
@@ -273,9 +316,9 @@ export default async function FamilyDetailPage({
         <TabsContent value="guardians">
           <div className="flex items-center justify-between mb-4">
             <p className="text-label-sm text-sc-gray">
-              Guardians are linked per student. Each guardian has their own visibility and custody settings.
+              Guardians are linked per student. Authorized pickup contacts are listed separately below.
             </p>
-            {students.length > 0 && (
+            {students.length > 0 && canManage && (
               <AddGuardianDialog
                 students={students.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
                 familyId={id}
@@ -283,102 +326,14 @@ export default async function FamilyDetailPage({
               />
             )}
           </div>
-
-          {allGuardians.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-sc-gray-200 p-8 text-center">
-              <p className="text-body-md text-sc-gray">No guardians added yet.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {allGuardians.map((g) => {
-                const profile  = g.profiles as ProfileRow | null;
-                const needsAlert = requiresSupervisionAlert(g.custody_type as CustodyType);
-
-                return (
-                  <div
-                    key={g.id}
-                    className={`rounded-xl border p-4 ${needsAlert ? "border-sc-rose-200 bg-sc-rose-50" : "bg-white border-sc-gray-100"}`}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-serif text-heading-3 text-sc-navy">{profile?.full_name ?? "Unknown"}</p>
-                          {canManage && (
-                            <EditGuardianshipDialog
-                              guardianship={g}
-                              households={households.map((h) => ({ id: h.id, household_label: h.household_label }))}
-                              guardianName={profile?.full_name ?? "Unknown"}
-                              studentName={`${g._student.first_name} ${g._student.last_name}`}
-                            />
-                          )}
-                        </div>
-                        <p className="text-label-sm text-sc-gray capitalize mt-0.5">
-                          {RELATIONSHIP_LABELS[g.relationship_type as RelationshipType] ?? g.relationship_type}
-                          {" · "}
-                          <Link href={`/dashboard/students/${g._student.id}`} className="hover:text-sc-teal transition-colors">
-                            {g._student.first_name} {g._student.last_name}
-                          </Link>
-                        </p>
-                        {canManage && profile?.id && (
-                          <div className="mt-2">
-                            <GuardianPortalControls
-                              profileId={profile.id}
-                              familyId={id}
-                              status={portalStatusMap[profile.id] ?? "no_account"}
-                              hasEmail={!!profile.email}
-                            />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {g.is_legal_guardian    && <Badge variant="navy">Legal Guardian</Badge>}
-                        {g.is_primary_contact   && <Badge variant="green">Primary Contact</Badge>}
-                        {!g.can_pickup          && <Badge variant="rose">No Pickup</Badge>}
-                        {g.court_order_on_file  && <Badge variant="gold">Court Order on File</Badge>}
-                      </div>
-                    </div>
-
-                    {needsAlert && (
-                      <div className="flex items-start gap-2 rounded-lg bg-sc-rose-100 border border-sc-rose-200 p-3 mb-3">
-                        <AlertTriangle className="size-4 text-sc-rose shrink-0 mt-0.5" />
-                        <p className="text-label-sm text-sc-rose-700 font-medium">
-                          {CUSTODY_LABELS[g.custody_type as CustodyType]}
-                          {g.pickup_restrictions ? ` — ${g.pickup_restrictions}` : ""}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-label-sm">
-                      <div>
-                        <span className="text-sc-gray-400 block">Custody</span>
-                        <span className="text-sc-navy font-medium">
-                          {CUSTODY_LABELS[g.custody_type as CustodyType] ?? g.custody_type}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-sc-gray-400 block">Can Pickup</span>
-                        <span className={`font-medium ${g.can_pickup ? "text-sc-green" : "text-sc-rose"}`}>
-                          {g.can_pickup ? "Yes" : "No"}
-                        </span>
-                      </div>
-                      {profile?.email && (
-                        <div>
-                          <span className="text-sc-gray-400 block">Email</span>
-                          <a href={`mailto:${profile.email}`} className="text-sc-teal hover:underline">{profile.email}</a>
-                        </div>
-                      )}
-                      {profile?.phone && (
-                        <div>
-                          <span className="text-sc-gray-400 block">Phone</span>
-                          <a href={`tel:${profile.phone}`} className="text-sc-navy font-medium">{profile.phone}</a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <GuardiansPanel
+            groups={guardianGroups}
+            familyId={id}
+            households={households.map((h) => ({ id: h.id, household_label: h.household_label }))}
+            students={students.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
+            canManage={canManage}
+            isFullAdmin={isFullAdmin}
+          />
         </TabsContent>
       </Tabs>
     </div>
