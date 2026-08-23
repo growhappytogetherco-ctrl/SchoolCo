@@ -157,3 +157,57 @@ export async function updateHousehold(
   revalidatePath(`/dashboard/families/${data.family_id}`);
   return { success: true, data: data as Household };
 }
+
+/**
+ * deleteHousehold — archives a household if no active guardianships reference it.
+ * Requires: registrar+ role (enforced via RLS).
+ */
+export async function deleteHousehold(
+  householdId: string,
+  familyId: string,
+): Promise<ActionResult<void>> {
+  if (!householdId || !familyId) return { success: false, error: "Invalid parameters." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated." };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization." };
+
+  // Block deletion if any active guardianships reference this household
+  const { count } = await supabase
+    .from("guardianships")
+    .select("id", { count: "exact", head: true })
+    .eq("household_id", householdId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .is("archived_at", null);
+
+  if ((count ?? 0) > 0) {
+    return {
+      success: false,
+      error: `Cannot delete: ${count} active guardian relationship${count === 1 ? "" : "s"} reference this household. Remove those relationships first.`,
+    };
+  }
+
+  const { error } = await supabase
+    .from("households")
+    .update({ archived_at: new Date().toISOString(), archived_by: user.id })
+    .eq("id", householdId)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    organization_id: orgId,
+    actor_id:        user.id,
+    action:          "household.deleted",
+    resource_type:   "household",
+    resource_id:     householdId,
+    metadata:        { family_id: familyId },
+  });
+
+  revalidatePath(`/dashboard/families/${familyId}`);
+  return { success: true, data: undefined };
+}

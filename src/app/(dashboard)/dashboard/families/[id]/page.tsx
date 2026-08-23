@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Home, Users, GraduationCap, MapPin, Phone, Mail, Pencil } from "lucide-react";
+import { ArrowLeft, Home, Users, GraduationCap, Pencil } from "lucide-react";
 import { getUser, getFamily, getActiveOrgId, createClient } from "@/lib/supabase/server";
 import { getCurrentRole } from "@/lib/roleGuard";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AddHouseholdDialog } from "@/components/families/AddHouseholdDialog";
 import { AddGuardianDialog } from "@/components/guardians/AddGuardianDialog";
 import { GuardiansPanel } from "@/components/guardians/GuardiansPanel";
+import { HouseholdsPanel } from "@/components/families/HouseholdsPanel";
+import type { HouseholdData, HouseholdGuardian, HouseholdStudent } from "@/components/families/HouseholdsPanel";
 import { ENROLLMENT_LABELS, getRoleLevel } from "@/lib/constants";
 import type { EnrollmentStatus } from "@/lib/constants";
 import type { GuardianGroup } from "@/components/guardians/GuardiansPanel";
@@ -121,6 +123,67 @@ export default async function FamilyDetailPage({
   const guardianGroups = Array.from(groupMap.values());
   const isFullAdmin = getRoleLevel(role ?? "") >= getRoleLevel("full_admin");
 
+  // Build per-household data for HouseholdsPanel
+  const householdDataList: HouseholdData[] = households.map((h) => {
+    const hhGships = activeGships.filter((g) => g.household_id === h.id);
+
+    // Unique guardians in this household
+    const guardianMap = new Map<string, HouseholdGuardian>();
+    for (const g of hhGships) {
+      const profile = g.profiles as ProfileRow | null;
+      if (!profile) continue;
+      if (!guardianMap.has(profile.id)) {
+        guardianMap.set(profile.id, {
+          profile_id:    profile.id,
+          full_name:     profile.full_name ?? "Unknown",
+          email:         profile.email ?? null,
+          phone:         (profile as any).phone ?? null,
+          portal_status: portalStatusMap[profile.id] ?? "no_account",
+          relationships: [],
+        });
+      }
+      guardianMap.get(profile.id)!.relationships.push({
+        guardianship_id:    g.id,
+        student_id:         g._student.id,
+        student_name:       (g._student.preferred_name ?? g._student.first_name) + " " + g._student.last_name,
+        relationship_type:  g.relationship_type,
+        is_legal_guardian:  g.is_legal_guardian,
+        is_primary_contact: g.is_primary_contact,
+        can_pickup:         g.can_pickup,
+        custody_type:       g.custody_type,
+      });
+    }
+
+    // Unique students in this household
+    const studentMap = new Map<string, HouseholdStudent>();
+    for (const g of hhGships) {
+      const s = g._student;
+      if (!studentMap.has(s.id)) {
+        studentMap.set(s.id, {
+          id:               s.id,
+          display_id:       s.student_display_id,
+          first_name:       s.first_name,
+          last_name:        s.last_name,
+          preferred_name:   s.preferred_name,
+          grade_level:      s.grade_level,
+          enrollment_status: s.enrollment_status,
+        });
+      }
+    }
+
+    return {
+      id:              h.id,
+      family_id:       id,
+      household_label: h.household_label,
+      sort_order:      h.sort_order,
+      address_json:    h.address_json,
+      phone:           h.phone,
+      email:           h.email,
+      guardians:       Array.from(guardianMap.values()),
+      students:        Array.from(studentMap.values()),
+    };
+  });
+
   return (
     <div className="space-y-6 animate-fade-in max-w-5xl">
 
@@ -192,62 +255,19 @@ export default async function FamilyDetailPage({
           <div className="flex items-center justify-between mb-4">
             <p className="text-label-sm text-sc-gray">
               {family.is_split_household
-                ? "This family has multiple households. Each parent sees only their own household."
+                ? "Split household — each parent portal account shows only their own household."
                 : "Standard single-household family."}
             </p>
-            <AddHouseholdDialog familyId={id} />
+            {canManage && <AddHouseholdDialog familyId={id} />}
           </div>
-
-          {households.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-sc-gray-200 p-8 text-center">
-              <p className="text-body-md text-sc-gray">No households yet. Add one above.</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {households.map((h, i) => (
-                <div key={h.id} className="rounded-xl bg-white border border-sc-gray-100 shadow-card p-5">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div>
-                      <p className="font-serif text-heading-3 text-sc-navy">{h.household_label}</p>
-                      {h.household_display_id && (
-                        <span className="font-mono text-label-sm text-sc-gray-400">{h.household_display_id}</span>
-                      )}
-                    </div>
-                    {i === 0 && <Badge variant="default">Primary</Badge>}
-                  </div>
-
-                  <div className="space-y-2 text-label-sm">
-                    {h.address_json?.street1 && (
-                      <div className="flex items-start gap-2 text-sc-gray">
-                        <MapPin className="size-3.5 mt-0.5 shrink-0" />
-                        <span>
-                          {h.address_json.street1}
-                          {h.address_json.city && `, ${h.address_json.city}`}
-                          {h.address_json.state && `, ${h.address_json.state}`}
-                          {h.address_json.zip && ` ${h.address_json.zip}`}
-                        </span>
-                      </div>
-                    )}
-                    {h.phone && (
-                      <div className="flex items-center gap-2 text-sc-gray">
-                        <Phone className="size-3.5 shrink-0" />
-                        <a href={`tel:${h.phone}`} className="hover:text-sc-teal">{h.phone}</a>
-                      </div>
-                    )}
-                    {h.email && (
-                      <div className="flex items-center gap-2 text-sc-gray">
-                        <Mail className="size-3.5 shrink-0" />
-                        <a href={`mailto:${h.email}`} className="hover:text-sc-teal">{h.email}</a>
-                      </div>
-                    )}
-                    {!h.address_json?.street1 && !h.phone && !h.email && (
-                      <p className="text-sc-gray-400">No contact info added yet.</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <HouseholdsPanel
+            households={householdDataList}
+            familyId={id}
+            isSplit={family.is_split_household}
+            canManage={canManage}
+            isFullAdmin={isFullAdmin}
+            familyStudents={students.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
+          />
         </TabsContent>
 
         {/* ── Students Tab ───────────────────────────────────── */}
