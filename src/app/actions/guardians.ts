@@ -699,16 +699,39 @@ export async function updateGuardianProfile(
   );
   if (Object.keys(filtered).length === 0) return { success: true, data: undefined };
 
-  const { error } = await supabase.from("profiles").update(filtered).eq("id", profile_id);
-  if (error) return { success: false, error: error.message };
+  // Check email uniqueness before attempting update
+  if (filtered.email) {
+    const { data: existing } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", filtered.email)
+      .neq("id", profile_id)
+      .maybeSingle();
+    if (existing) {
+      return { success: false, error: "This email is already associated with another SchoolCo profile." };
+    }
+  }
 
-  await logAudit({
-    organization_id: orgId, actor_id: user.id, action: "guardian.profile_updated",
-    resource_type: "profile", resource_id: profile_id, metadata: filtered,
-  });
+  try {
+    const { error } = await supabase.from("profiles").update(filtered).eq("id", profile_id);
+    if (error) {
+      if (error.code === "23505") {
+        return { success: false, error: "This email is already associated with another SchoolCo profile." };
+      }
+      return { success: false, error: error.message };
+    }
 
-  revalidatePath(`/dashboard/families/${family_id}`);
-  return { success: true, data: undefined };
+    await logAudit({
+      organization_id: orgId, actor_id: user.id, action: "guardian.profile_updated",
+      resource_type: "profile", resource_id: profile_id, metadata: filtered,
+    });
+
+    revalidatePath(`/dashboard/families/${family_id}`);
+    return { success: true, data: undefined };
+  } catch (err) {
+    console.error("[updateGuardianProfile] unexpected error:", err);
+    return { success: false, error: "An unexpected error occurred. Please try again." };
+  }
 }
 
 // ── linkGuardianToStudent ─────────────────────────────────────────────────────

@@ -328,7 +328,7 @@ interface FamilyDetail {
       household_id: string | null;
       status: string;
       archived_at: string | null;
-      profiles: { id: string; full_name: string; email: string; phone: string | null } | null;
+      profiles: { id: string; full_name: string; email: string | null; phone: string | null } | null;
     }[] | null;
   }[];
 }
