@@ -352,8 +352,9 @@ export async function correctAttendanceRecord(
 
 export async function setAttendanceTimes(
   recordId: string,
-  checkInAt: string | null,
-  checkOutAt: string | null,
+  // undefined = leave unchanged; null = explicitly clear; string = set to value
+  checkInAt: string | null | undefined,
+  checkOutAt: string | null | undefined,
   adminNote?: string
 ): Promise<AR> {
   const { getActiveRole } = await import("@/lib/supabase/org-context");
@@ -361,18 +362,20 @@ export async function setAttendanceTimes(
   const orgId = await getActiveOrgId();
   const role  = await getActiveRole();
   if (!user || !orgId) return { success: false, error: "Not authenticated." };
-  if (!["admin", "full_admin", "platform_admin", "registrar"].includes(role ?? "")) {
-    return { success: false, error: "Admin access required to set attendance times." };
+  if (!["admin", "full_admin", "platform_admin", "registrar", "staff"].includes(role ?? "")) {
+    return { success: false, error: "Staff access required to set attendance times." };
   }
+
+  const fields: Record<string, unknown> = {};
+  if (checkInAt  !== undefined) fields.check_in_at  = checkInAt;
+  if (checkOutAt !== undefined) fields.check_out_at = checkOutAt;
+  if (adminNote)                fields.notes        = `[Time correction] ${adminNote}`;
+  if (Object.keys(fields).length === 0) return { success: false, error: "No fields to update." };
 
   const supabase = await createClient();
   const { error } = await supabase
     .from("attendance_records")
-    .update({
-      check_in_at:  checkInAt,
-      check_out_at: checkOutAt,
-      notes: adminNote ? `[Time correction] ${adminNote}` : undefined,
-    } as never)
+    .update(fields as never)
     .eq("id", recordId)
     .eq("organization_id", orgId);
 

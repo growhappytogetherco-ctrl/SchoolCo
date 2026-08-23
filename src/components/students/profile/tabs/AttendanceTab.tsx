@@ -37,6 +37,7 @@ function CorrectionMenu({ recordId, date, hasCkIn, hasCkOut, onCorrected }: {
   const [pendingAction, setPendingAction] = useState<CorrectionAction | "set_times" | null>(null);
   const [newCheckIn,  setNewCheckIn]  = useState("");
   const [newCheckOut, setNewCheckOut] = useState("");
+  const [saveError, setSaveError]     = useState<string | null>(null);
 
   function doCorrection(action: CorrectionAction) {
     startTransition(async () => {
@@ -49,15 +50,22 @@ function CorrectionMenu({ recordId, date, hasCkIn, hasCkOut, onCorrected }: {
   }
 
   function doSetTimes() {
+    setSaveError(null);
     startTransition(async () => {
-      const checkInAt  = newCheckIn  ? toEasternISO(date, newCheckIn)  : null;
-      const checkOutAt = newCheckOut ? toEasternISO(date, newCheckOut) : null;
-      await setAttendanceTimes(recordId, checkInAt, checkOutAt, note || undefined);
+      // undefined = leave field unchanged; only pass a value if the input was filled
+      const checkInAt  = newCheckIn  ? toEasternISO(date, newCheckIn)  : undefined;
+      const checkOutAt = newCheckOut ? toEasternISO(date, newCheckOut) : undefined;
+      const result = await setAttendanceTimes(recordId, checkInAt, checkOutAt, note || undefined);
+      if (!result.success) {
+        setSaveError(result.error ?? "Failed to save.");
+        return;
+      }
       setOpen(false);
       setNote("");
       setNewCheckIn("");
       setNewCheckOut("");
       setPendingAction(null);
+      setSaveError(null);
       onCorrected();
     });
   }
@@ -119,6 +127,9 @@ function CorrectionMenu({ recordId, date, hasCkIn, hasCkOut, onCorrected }: {
               <input value={note} onChange={(e) => setNote(e.target.value)}
                 placeholder="Reason (optional)"
                 className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+              {saveError && (
+                <p className="text-label-sm text-sc-rose-700 px-1">{saveError}</p>
+              )}
               <div className="flex gap-2">
                 <button onClick={doSetTimes} disabled={isPending || (!newCheckIn && !newCheckOut)}
                   className="flex-1 rounded-lg bg-sc-teal px-2 py-1.5 text-white text-label-sm font-medium disabled:opacity-60">
