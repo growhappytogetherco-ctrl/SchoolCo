@@ -3,36 +3,7 @@
 import { useState, useEffect, useTransition } from "react";
 import { Save, Search, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-
-// Convert a date string (YYYY-MM-DD) and time string (HH:MM) entered as
-// America/New_York wall-clock time to a UTC ISO string for timestamptz storage.
-// Uses an iterative Intl approach that is browser-timezone-independent.
-function toEasternISO(dateStr: string, hhmm: string): string {
-  const [y, mo, d] = dateStr.split("-").map(Number);
-  const [h, m] = hhmm.split(":").map(Number);
-
-  // Start with the entered time treated as UTC (off by the Eastern offset).
-  let utcMs = Date.UTC(y, mo - 1, d, h, m, 0);
-
-  // Intl formatter: what does this UTC instant look like in Eastern? (DST-aware)
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-
-  // Iterate twice: first pass corrects the offset, second pass verifies convergence.
-  for (let i = 0; i < 2; i++) {
-    const parts = fmt.formatToParts(new Date(utcMs));
-    const eH = parseInt(parts.find((p) => p.type === "hour")!.value) % 24;
-    const eM = parseInt(parts.find((p) => p.type === "minute")!.value);
-    // How far off is Eastern from the desired h:m? Subtract the difference.
-    utcMs -= (eH * 60 + eM - h * 60 - m) * 60_000;
-  }
-
-  return new Date(utcMs).toISOString();
-}
+import { toEasternISO } from "@/lib/format-attendance-time";
 import { cn } from "@/lib/utils";
 
 interface StudentOption {

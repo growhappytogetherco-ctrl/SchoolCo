@@ -347,6 +347,41 @@ export async function correctAttendanceRecord(
   return { success: true };
 }
 
+// ── Admin: set exact check-in / check-out timestamps ──────────────────────
+// Accepts UTC ISO strings (caller converts from Eastern wall-clock).
+
+export async function setAttendanceTimes(
+  recordId: string,
+  checkInAt: string | null,
+  checkOutAt: string | null,
+  adminNote?: string
+): Promise<AR> {
+  const { getActiveRole } = await import("@/lib/supabase/org-context");
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  const role  = await getActiveRole();
+  if (!user || !orgId) return { success: false, error: "Not authenticated." };
+  if (!["admin", "full_admin", "platform_admin", "registrar"].includes(role ?? "")) {
+    return { success: false, error: "Admin access required to set attendance times." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("attendance_records")
+    .update({
+      check_in_at:  checkInAt,
+      check_out_at: checkOutAt,
+      notes: adminNote ? `[Time correction] ${adminNote}` : undefined,
+    } as never)
+    .eq("id", recordId)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/attendance");
+  revalidatePath("/dashboard/home");
+  return { success: true };
+}
+
 // ── Bulk load today's attendance for the list view ────────────────────────
 
 export type StudentAttendanceRow = {

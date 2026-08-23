@@ -3,9 +3,9 @@
 import { useEffect, useState, useTransition } from "react";
 import { CheckCircle, X, Clock, AlertTriangle, TrendingUp, ShieldAlert, ChevronDown } from "lucide-react";
 import { getStudentAttendanceData } from "@/app/actions/profileData";
-import { correctAttendanceRecord, type CorrectionAction } from "@/app/actions/attendance";
+import { correctAttendanceRecord, setAttendanceTimes, type CorrectionAction } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
-import { formatAttendanceTime } from "@/lib/format-attendance-time";
+import { formatAttendanceTime, toEasternISO } from "@/lib/format-attendance-time";
 
 interface Props { studentId: string; isAdmin?: boolean; }
 
@@ -28,19 +28,35 @@ function fmtDate(d: string) {
 
 const fmtTime = formatAttendanceTime;
 
-function CorrectionMenu({ recordId, hasCkIn, hasCkOut, onCorrected }: {
-  recordId: string; hasCkIn: boolean; hasCkOut: boolean; onCorrected: () => void;
+function CorrectionMenu({ recordId, date, hasCkIn, hasCkOut, onCorrected }: {
+  recordId: string; date: string; hasCkIn: boolean; hasCkOut: boolean; onCorrected: () => void;
 }) {
   const [open, setOpen]             = useState(false);
   const [isPending, startTransition] = useTransition();
   const [note, setNote]             = useState("");
-  const [pendingAction, setPendingAction] = useState<CorrectionAction | null>(null);
+  const [pendingAction, setPendingAction] = useState<CorrectionAction | "set_times" | null>(null);
+  const [newCheckIn,  setNewCheckIn]  = useState("");
+  const [newCheckOut, setNewCheckOut] = useState("");
 
   function doCorrection(action: CorrectionAction) {
     startTransition(async () => {
       await correctAttendanceRecord(recordId, action, note || undefined);
       setOpen(false);
       setNote("");
+      setPendingAction(null);
+      onCorrected();
+    });
+  }
+
+  function doSetTimes() {
+    startTransition(async () => {
+      const checkInAt  = newCheckIn  ? toEasternISO(date, newCheckIn)  : null;
+      const checkOutAt = newCheckOut ? toEasternISO(date, newCheckOut) : null;
+      await setAttendanceTimes(recordId, checkInAt, checkOutAt, note || undefined);
+      setOpen(false);
+      setNote("");
+      setNewCheckIn("");
+      setNewCheckOut("");
       setPendingAction(null);
       onCorrected();
     });
@@ -54,8 +70,12 @@ function CorrectionMenu({ recordId, hasCkIn, hasCkOut, onCorrected }: {
         <ChevronDown className={cn("size-3 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-52 rounded-xl border border-sc-gray-200 bg-white shadow-lg overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 z-20 w-60 rounded-xl border border-sc-gray-200 bg-white shadow-lg overflow-hidden">
           <div className="p-2 space-y-1">
+            <button onClick={() => setPendingAction("set_times")}
+              className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-teal-700 hover:bg-sc-teal-50 font-medium">
+              Set check-in / check-out times
+            </button>
             {hasCkOut && (
               <button onClick={() => setPendingAction("undo_checkout")}
                 className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
@@ -81,13 +101,43 @@ function CorrectionMenu({ recordId, hasCkIn, hasCkOut, onCorrected }: {
               Mark as Present
             </button>
           </div>
-          {pendingAction && (
+          {pendingAction === "set_times" && (
+            <div className="border-t border-sc-gray-100 p-2 space-y-2">
+              <p className="text-label-sm text-sc-gray px-1">Enter Eastern time (AM/PM):</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-label-sm text-sc-gray mb-0.5 block">Check-In</label>
+                  <input type="time" value={newCheckIn} onChange={(e) => setNewCheckIn(e.target.value)}
+                    className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+                </div>
+                <div>
+                  <label className="text-label-sm text-sc-gray mb-0.5 block">Check-Out</label>
+                  <input type="time" value={newCheckOut} onChange={(e) => setNewCheckOut(e.target.value)}
+                    className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+                </div>
+              </div>
+              <input value={note} onChange={(e) => setNote(e.target.value)}
+                placeholder="Reason (optional)"
+                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+              <div className="flex gap-2">
+                <button onClick={doSetTimes} disabled={isPending || (!newCheckIn && !newCheckOut)}
+                  className="flex-1 rounded-lg bg-sc-teal px-2 py-1.5 text-white text-label-sm font-medium disabled:opacity-60">
+                  {isPending ? "Saving…" : "Save Times"}
+                </button>
+                <button onClick={() => { setPendingAction(null); setOpen(false); }}
+                  className="rounded-lg border border-sc-gray-200 px-2 py-1.5 text-sc-gray text-label-sm">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {pendingAction && pendingAction !== "set_times" && (
             <div className="border-t border-sc-gray-100 p-2 space-y-2">
               <input value={note} onChange={(e) => setNote(e.target.value)}
                 placeholder="Reason (optional)"
                 className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
               <div className="flex gap-2">
-                <button onClick={() => doCorrection(pendingAction)} disabled={isPending}
+                <button onClick={() => doCorrection(pendingAction as CorrectionAction)} disabled={isPending}
                   className="flex-1 rounded-lg bg-sc-navy px-2 py-1.5 text-white text-label-sm font-medium disabled:opacity-60">
                   {isPending ? "Saving…" : "Confirm"}
                 </button>
@@ -217,6 +267,7 @@ export function AttendanceTab({ studentId, isAdmin = false }: Props) {
                     {isAdmin && (
                       <CorrectionMenu
                         recordId={r.id}
+                        date={r.date}
                         hasCkIn={!!r.check_in_at}
                         hasCkOut={!!r.check_out_at}
                         onCorrected={reload}
