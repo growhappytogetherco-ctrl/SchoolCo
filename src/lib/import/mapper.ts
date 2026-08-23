@@ -149,7 +149,7 @@ function mapRow(row: RawRow, rowIndex: number, headerMap: Map<string, string>): 
       is_primary_contact:      false,
       is_emergency_contact:    true,
       emergency_contact_order: guardians.filter((g) => g.is_emergency_contact).length + 1,
-      can_pickup:              false,
+      can_pickup:              true,
       pickup_restrictions:     null,
     });
   }

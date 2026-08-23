@@ -153,11 +153,11 @@ export async function getSchoolWideAlerts(): Promise<SchoolAlert[]> {
     });
   }
 
-  // 6. Pickup restrictions (supervised/none custody guardians)
+  // 6. Pickup restrictions: only explicit can_pickup=false or supervised custody
   const { data: custodyFlags } = await supabase
     .from("guardianships")
     .select("student_id")
-    .in("custody_type", ["supervised", "none"]);
+    .or("custody_type.eq.supervised,can_pickup.eq.false");
 
   const uniquePickupStudents = [...new Set((custodyFlags ?? []).map((r) => (r as Record<string, string>).student_id))];
   if (uniquePickupStudents.length > 0) {

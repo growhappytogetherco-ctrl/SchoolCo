@@ -179,25 +179,29 @@ export async function getStudentSafetyAlerts(
   }
 
   // ── Source 7: guardianships (pickup restrictions) ───────────────────────
+  // Only alert when there is AFFIRMATIVE evidence of a restriction:
+  //   can_pickup = false  → explicitly prohibited (critical)
+  //   custody_type = 'supervised' → must have staff present (high)
+  // custody_type = 'none' is used for emergency contacts with no legal
+  // custody — they are NOT prohibited unless can_pickup is also false.
   const { data: guardians } = await supabase
     .from("guardianships")
     .select("id, custody_type, can_pickup, profiles:profile_id(full_name)")
     .eq("student_id", studentId)
-    .or("custody_type.in.(supervised,none),can_pickup.eq.false");
+    .or("custody_type.eq.supervised,can_pickup.eq.false");
 
   for (const g of guardians ?? []) {
     const guardianName = (g.profiles as { full_name: string } | null)?.full_name ?? "Guardian";
-    const isNone = g.custody_type === "none" || g.can_pickup === false;
-    const level: AlertLevel = isNone ? "critical" : "high";
+    const isProhibited = g.can_pickup === false;
+    const level: AlertLevel = isProhibited ? "critical" : "high";
 
     let instruction: string;
     if (isAdmin || (isStaff && !isVolunteer)) {
-      instruction = isNone
+      instruction = isProhibited
         ? `${guardianName} is not authorized for pickup`
         : `${guardianName}: supervised pickup only`;
     } else {
-      // Volunteer: no guardian name exposed
-      instruction = isNone
+      instruction = isProhibited
         ? "Contact administrator before releasing student"
         : "Do not release student without staff present";
     }
@@ -206,7 +210,7 @@ export async function getStudentSafetyAlerts(
       id: `pickup-${g.id}`,
       level,
       category: "pickup",
-      title: isNone ? "PICKUP RESTRICTION" : "SUPERVISED PICKUP",
+      title: isProhibited ? "PICKUP RESTRICTION" : "SUPERVISED PICKUP",
       instruction,
       source_tab: "family",
       detail_roles: ADMIN_ROLES,

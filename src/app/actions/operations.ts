@@ -234,14 +234,18 @@ export async function getOperationsDashboard(
     .eq("status", "active")
     .is("archived_at", null);
 
-  // Group guardianships that have restrictions or can_pickup=false
+  // Group guardianships with an affirmative restriction:
+  //   can_pickup === false  → explicitly prohibited
+  //   custody_type === 'supervised' → requires staff supervision
+  //   pickup_restrictions non-null → has a restriction note
+  // custody_type === 'none' alone is NOT a restriction — it means the
+  // person has no legal custody but can still be authorized for pickup.
   const pickupMap = new Map<string, PickupRestriction[]>();
   for (const g of guardianships ?? []) {
     const sid = g.student_id as string;
     const hasRestriction =
       g.pickup_restrictions ||
       g.can_pickup === false ||
-      g.custody_type === "none" ||
       g.custody_type === "supervised";
     if (!hasRestriction) continue;
     if (!pickupMap.has(sid)) pickupMap.set(sid, []);
