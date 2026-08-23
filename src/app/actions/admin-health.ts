@@ -44,7 +44,7 @@ export interface SystemOverview {
 export interface TodayStatus {
   checkedIn:          number;
   checkedOut:         number;
-  onCampus:           number;
+  onCampus:           number; // kept for backward compat — equals checkedIn
   absent:             number;
   excused:            number;
   lateArrivals:       number;
@@ -162,18 +162,17 @@ export async function getAdminHealthData(): Promise<AdminHealthData> {
       .eq("organization_id", orgId).in("status", ["open","waiting_parent","waiting_staff","reopened"]),
   ]);
 
-  let checkedIn = 0, checkedOut = 0, onCampus = 0, absent = 0, excused = 0;
+  let checkedIn = 0, checkedOut = 0, absent = 0, excused = 0;
   let lateArrivals = 0, attendanceAnomalies = 0;
   for (const row of attRows ?? []) {
-    if (row.status === "present" || row.status === "checked_in") {
-      checkedIn++;
-      if (!row.check_out_at) onCampus++; else checkedOut++;
-      if (!row.check_in_at) attendanceAnomalies++;
-    }
+    if (row.check_in_at && !row.check_out_at) checkedIn++;
+    if (row.check_in_at && row.check_out_at) checkedOut++;
+    if ((row.status === "present" || row.status === "checked_in") && !row.check_in_at) attendanceAnomalies++;
     if (row.status === "absent") absent++;
     if (row.status === "excused") excused++;
     if (row.is_late) lateArrivals++;
   }
+  const onCampus = checkedIn; // alias kept for type compat
 
   // Unread parent messages: conversations where there's a participant with unread
   const { count: unreadMessages } = await supabase.from("conversations")

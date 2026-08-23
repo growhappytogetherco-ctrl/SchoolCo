@@ -69,7 +69,7 @@ export default function AttendancePage() {
       {/* ── Quick stat chips ─────────────────────────────────── */}
       {!loading && (
         <div className="flex flex-wrap gap-2">
-          <StatChip label="On Campus" value={checkedIn} color="teal" />
+          <StatChip label="Checked In" value={checkedIn} color="teal" />
           <StatChip label="Absent" value={absent} color="rose" />
           <StatChip label="Late" value={lateCount} color="gold" />
           <StatChip label="Total Enrolled" value={rows.length} color="gray" />

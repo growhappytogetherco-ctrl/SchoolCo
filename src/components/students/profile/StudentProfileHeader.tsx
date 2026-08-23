@@ -6,6 +6,7 @@ import type { StaffFollowUpSummary } from "@/app/actions/studentAlerts";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { StudentProfileData } from "./types";
+import { EditStudentDialog } from "@/components/students/EditStudentDialog";
 
 // ── Safety Modal ───────────────────────────────────────────────
 
@@ -153,12 +154,13 @@ const BADGE_LEVEL_COLORS: Record<string, string> = {
 
 // ── Component ─────────────────────────────────────────────────
 
-export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = [], followUpSummary = null, onOpenNotes }: {
+export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = [], followUpSummary = null, onOpenNotes, isAdmin = false }: {
   data: StudentProfileData;
   alertBannerFlags?: AlertFlag[];
   allergies?: string[];
   followUpSummary?: StaffFollowUpSummary | null;
   onOpenNotes?: () => void;
+  isAdmin?: boolean;
 }) {
   const [showSafety, setShowSafety] = useState(false);
 
@@ -204,8 +206,25 @@ export function StudentProfileHeader({ data, alertBannerFlags = [], allergies = 
 
           {/* ── Name block ──────────────────────────────────── */}
           <div className="flex-1 min-w-0 pt-0.5">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="font-serif text-display-2 text-white leading-tight">{displayName}</h1>
+              {isAdmin && (
+                <EditStudentDialog
+                  studentId={data.id}
+                  displayId={data.student_display_id}
+                  currentData={{
+                    first_name:          data.first_name,
+                    last_name:           data.last_name,
+                    preferred_name:      data.preferred_name,
+                    date_of_birth:       data.date_of_birth,
+                    grade_level:         data.grade_level,
+                    enrollment_status:   data.enrollment_status,
+                    enrollment_date:     data.enrollment_date,
+                    expected_graduation: data.expected_graduation,
+                    track:               data.track,
+                  }}
+                />
+              )}
               {/* Safety note icon */}
               <button
                 onClick={() => setShowSafety(true)}

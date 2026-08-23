@@ -1,7 +1,89 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { logAudit } from "@/lib/audit";
+import type { ActionResult } from "@/types/actions";
+
+// ── Update Student ─────────────────────────────────────────────────────────
+
+const UpdateStudentSchema = z.object({
+  id:                z.string().uuid(),
+  first_name:        z.string().min(1).max(100).optional(),
+  last_name:         z.string().min(1).max(100).optional(),
+  preferred_name:    z.string().max(100).nullable().optional(),
+  date_of_birth:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  grade_level:       z.string().max(20).nullable().optional(),
+  enrollment_status: z.enum(["applicant","waitlisted","enrolled","withdrawn","graduated","expelled"]).optional(),
+  enrollment_date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  expected_graduation: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  track:             z.string().max(100).nullable().optional(),
+});
+
+export type UpdateStudentInput = z.infer<typeof UpdateStudentSchema>;
+
+export async function updateStudent(rawData: UpdateStudentInput): Promise<ActionResult<void>> {
+  const parse = UpdateStudentSchema.safeParse(rawData);
+  if (!parse.success) {
+    return { success: false, error: "Validation failed.", fieldErrors: parse.error.flatten().fieldErrors as Record<string, string[]> };
+  }
+
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  if (!user || !orgId) return { success: false, error: "Not authenticated." };
+
+  const supabase = await createClient();
+
+  // Role check — registrar and above only
+  const { data: member } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("profile_id", user.id)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  const memberRow = member as { role: string } | null;
+  const ALLOWED = ["registrar", "admin", "full_admin", "platform_admin"];
+  if (!memberRow || !ALLOWED.includes(memberRow.role)) {
+    return { success: false, error: "Insufficient permissions." };
+  }
+
+  // Fetch current values for audit trail
+  const { data: existing } = await supabase
+    .from("students")
+    .select("first_name,last_name,preferred_name,date_of_birth,grade_level,enrollment_status,enrollment_date,expected_graduation,track")
+    .eq("id", parse.data.id)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+
+  if (!existing) return { success: false, error: "Student not found." };
+
+  const { id, ...updates } = parse.data;
+
+  // Supabase can't infer update type on hand-written DB types (ignoreBuildErrors: true in next.config.mjs)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const studentsTable = supabase.from("students") as any;
+  const { error } = await studentsTable
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    organization_id: orgId,
+    actor_id:        user.id,
+    action:          "student.updated",
+    resource_type:   "student",
+    resource_id:     id,
+    metadata:        { before: existing, after: updates },
+  });
+
+  revalidatePath(`/dashboard/students/${id}`);
+  return { success: true, data: undefined };
+}
 
 // ── Check In ──────────────────────────────────────────────────────────────
 

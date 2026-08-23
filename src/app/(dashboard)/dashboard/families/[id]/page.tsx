@@ -65,15 +65,17 @@ export default async function FamilyDetailPage({
     activeGships.map((g) => (g.profiles as ProfileRow | null)?.id).filter(Boolean) as string[]
   ));
   let portalStatusMap: Record<string, "no_account" | "invited" | "active" | "disabled"> = {};
+  let portalRoleMap:   Record<string, string> = {};
   if (profileIds.length > 0) {
     const supabase = await createClient();
     const { data: members } = await supabase
       .from("organization_members")
-      .select("profile_id, status")
+      .select("profile_id, status, role")
       .eq("organization_id", orgId)
       .in("profile_id", profileIds);
-    for (const m of (members ?? []) as { profile_id: string; status: string }[]) {
+    for (const m of (members ?? []) as { profile_id: string; status: string; role: string }[]) {
       portalStatusMap[m.profile_id] = m.status === "active" ? "active" : m.status === "invited" ? "invited" : m.status === "disabled" ? "disabled" : "no_account";
+      portalRoleMap[m.profile_id]   = m.role;
     }
     for (const pid of profileIds) {
       if (!portalStatusMap[pid]) portalStatusMap[pid] = "no_account";
@@ -93,6 +95,7 @@ export default async function FamilyDetailPage({
         phone:         profile.phone ?? null,
         has_auth:      !!(profile as any).auth_user_id,
         portal_status: portalStatusMap[profile.id] ?? "no_account",
+        portal_role:   portalRoleMap[profile.id]   ?? null,
         is_pickup_only: true, // will be updated below
         relationships:  [],
       });

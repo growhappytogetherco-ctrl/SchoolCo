@@ -87,7 +87,7 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
           is_early_pickup: isEarlyPickup || status === "early_pickup",
           notes:           notes || null,
         } as never, {
-          onConflict: "student_id,date",
+          onConflict: "organization_id,student_id,date",
         });
 
       if (error) {

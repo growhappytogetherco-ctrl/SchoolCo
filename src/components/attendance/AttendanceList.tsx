@@ -215,7 +215,7 @@ export function AttendanceList({ rows, onUpdate }: AttendanceListProps) {
       {/* Mini stats */}
       <div className="grid grid-cols-4 gap-2 text-center">
         {[
-          { label: "On Campus", value: checkedIn, color: "text-sc-teal" },
+          { label: "Checked In", value: checkedIn, color: "text-sc-teal" },
           { label: "Checked Out", value: checkedOut, color: "text-sc-navy" },
           { label: "Absent", value: absent, color: "text-sc-rose" },
           { label: "Not Recorded", value: notRecorded, color: "text-sc-gray-400" },

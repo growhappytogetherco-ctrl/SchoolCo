@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { GuardianPortalControls } from "@/components/guardians/GuardianPortalControls";
+import type { PortalPreviewStudent } from "@/components/guardians/GuardianPortalControls";
 import {
   updateGuardianProfile, updateGuardianship, linkGuardianToStudent,
   removeGuardianship, deleteGuardianProfile,
@@ -48,6 +49,7 @@ export interface GuardianGroup {
   phone:         string | null;
   has_auth:      boolean;
   portal_status: "no_account" | "invited" | "active" | "disabled";
+  portal_role:   string | null;   // role in organization_members (null = no membership)
   is_pickup_only: boolean; // relationship_type === "other" for ALL relationships
   relationships: GuardianRelationship[];
 }
@@ -436,6 +438,8 @@ function DeleteGuardianDialog({ group, familyId, onClose }: {
   );
 }
 
+const STAFF_ROLES = ["teacher", "staff", "registrar", "admin", "full_admin", "platform_admin"];
+
 // ── Individual guardian person card ──────────────────────────────────────────
 
 function GuardianPersonCard({
@@ -455,6 +459,11 @@ function GuardianPersonCard({
   const householdsShown = Array.from(new Set(
     group.relationships.map((r) => r.household_label).filter(Boolean)
   ));
+  const isStaffMember = STAFF_ROLES.includes(group.portal_role ?? "");
+  const previewStudents: PortalPreviewStudent[] = group.relationships.map((r) => ({
+    name:      `${r.student_first} ${r.student_last}`,
+    household: r.household_label,
+  }));
 
   return (
     <>
@@ -525,6 +534,26 @@ function GuardianPersonCard({
           </div>
         </div>
 
+        {/* ── Portal status — ALWAYS visible ── */}
+        {canManage && (
+          <div className="mx-4 mb-3 rounded-lg border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-label-sm font-semibold text-sc-gray-400 uppercase tracking-wide shrink-0">
+              Parent Portal
+            </p>
+            <GuardianPortalControls
+              profileId={group.profile_id}
+              familyId={familyId}
+              status={group.portal_status}
+              hasEmail={!!group.email}
+              guardianName={group.full_name}
+              guardianEmail={group.email}
+              previewStudents={previewStudents}
+              isStaffMember={isStaffMember}
+              onEditContact={() => setEditProfile(true)}
+            />
+          </div>
+        )}
+
         {/* ── Student relationships summary (collapsed) ── */}
         {!expanded && (
           <div className="px-4 pb-3">
@@ -544,19 +573,6 @@ function GuardianPersonCard({
         {/* ── Expanded detail ── */}
         {expanded && (
           <div className="border-t border-sc-gray-100">
-            {/* Portal controls */}
-            {canManage && (
-              <div className="px-4 py-3 border-b border-sc-gray-50 flex items-center justify-between gap-3">
-                <p className="text-label-sm text-sc-gray-400 uppercase tracking-wide font-semibold">Portal</p>
-                <GuardianPortalControls
-                  profileId={group.profile_id}
-                  familyId={familyId}
-                  status={group.portal_status}
-                  hasEmail={!!group.email}
-                />
-              </div>
-            )}
-
             {/* Per-student relationships */}
             <div className="divide-y divide-sc-gray-50">
               {group.relationships.map((r) => {

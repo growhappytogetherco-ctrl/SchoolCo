@@ -249,6 +249,7 @@ export function StudentProfile({
         allergies={data.allergies}
         followUpSummary={followUpSummary}
         onOpenNotes={() => switchTab("notes")}
+        isAdmin={isAdmin}
       />
 
       {/* ── Quick actions ─────────────────────────────────────── */}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { ArrowLeft, QrCode } from "lucide-react";
+import { ArrowLeft, QrCode, Keyboard } from "lucide-react";
 import Link from "next/link";
 import { QRScanner } from "@/components/attendance/QRScanner";
 import { ScanResult } from "@/components/attendance/ScanResult";
@@ -127,6 +127,18 @@ export default function ScanPage() {
     }
   }, []);
 
+  const [showManual, setShowManual] = useState(false);
+  const [manualToken, setManualToken] = useState("");
+
+  function submitManualToken() {
+    const raw = manualToken.trim();
+    const token = raw.startsWith("ATT-") ? raw : raw;
+    if (!token) return;
+    setManualToken("");
+    setShowManual(false);
+    handleScan(token.startsWith("ATT-") ? token : `ATT-${token}`);
+  }
+
   const isScanning = state.phase === "scanning";
   const isProcessing = state.phase === "processing";
 
@@ -159,14 +171,55 @@ export default function ScanPage() {
       {/* ── States ──────────────────────────────────────────────── */}
 
       {isScanning && (
-        <div className="mt-4 text-center space-y-1">
-          <div className="flex items-center justify-center gap-2 text-sc-teal">
-            <QrCode className="size-5" />
-            <span className="text-label-md font-semibold">Ready to scan</span>
+        <div className="mt-4 space-y-3">
+          <div className="text-center space-y-1">
+            <div className="flex items-center justify-center gap-2 text-sc-teal">
+              <QrCode className="size-5" />
+              <span className="text-label-md font-semibold">Ready to scan</span>
+            </div>
+            <p className="text-label-sm text-sc-gray">
+              Scan the <strong>Attendance QR</strong> on the badge front.
+            </p>
           </div>
-          <p className="text-label-sm text-sc-gray">
-            Scan the <strong>Attendance QR</strong> on the badge front.
-          </p>
+
+          {/* Manual token fallback */}
+          {showManual ? (
+            <div className="rounded-xl border border-sc-gray-200 bg-sc-cream p-4 space-y-3">
+              <p className="text-label-sm font-semibold text-sc-navy">Enter QR Token Manually</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="ATT-xxxxxxxx"
+                  value={manualToken}
+                  onChange={(e) => setManualToken(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitManualToken()}
+                  className="flex-1 rounded-lg border border-sc-gray-200 px-3 py-2 text-body-md text-sc-navy placeholder:text-sc-gray-400 focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal"
+                  autoFocus
+                />
+                <button
+                  onClick={submitManualToken}
+                  disabled={!manualToken.trim()}
+                  className="rounded-lg bg-sc-teal px-4 py-2 text-white text-label-md font-semibold disabled:opacity-40"
+                >
+                  Go
+                </button>
+              </div>
+              <button
+                onClick={() => setShowManual(false)}
+                className="text-label-sm text-sc-gray underline"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowManual(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-sc-gray-200 py-2.5 text-label-sm text-sc-gray hover:bg-sc-cream transition-colors"
+            >
+              <Keyboard className="size-3.5" />
+              Camera not working? Enter token manually
+            </button>
+          )}
         </div>
       )}
 

@@ -508,6 +508,29 @@ export async function sendPortalInvite(
   const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", rawData.profile_id).single();
   if (!profile?.email) return { success: false, error: "Guardian has no email address on file. Add an email before sending a portal invite." };
 
+  // Guard: do not downgrade an existing staff/admin account to "parent"
+  const { data: existingMember } = await supabase
+    .from("organization_members")
+    .select("role, status")
+    .eq("profile_id", rawData.profile_id)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+
+  const STAFF_ROLES = ["teacher", "staff", "registrar", "admin", "full_admin", "platform_admin"];
+  const existingRow = existingMember as { role: string; status: string } | null;
+  if (existingRow && STAFF_ROLES.includes(existingRow.role)) {
+    // This person already has staff-level access. Portal invite would downgrade them.
+    // Log the event but leave their role/status untouched.
+    await logAudit({
+      organization_id: orgId, actor_id: actingUser.id,
+      action: "guardian.portal_invite_skipped_staff",
+      resource_type: "profile", resource_id: rawData.profile_id,
+      metadata: { existing_role: existingRow.role, email: profile.email },
+    });
+    revalidatePath(`/dashboard/families/${rawData.family_id}`);
+    return { success: true, data: undefined };
+  }
+
   const adminClient = createAdminClient();
   const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(profile.email, {
     data: { full_name: profile.full_name },
@@ -517,10 +540,18 @@ export async function sendPortalInvite(
     return { success: false, error: `Failed to send invite: ${inviteError.message}` };
   }
 
-  await supabase.from("organization_members").upsert({
-    organization_id: orgId, profile_id: rawData.profile_id, role: "parent", status: "invited",
-    created_by: actingUser.id,
-  }, { onConflict: "organization_id,profile_id" });
+  // If they already have a parent/volunteer row, update it; otherwise insert
+  if (existingRow) {
+    await supabase.from("organization_members")
+      .update({ role: "parent", status: "invited", updated_at: new Date().toISOString() })
+      .eq("profile_id", rawData.profile_id)
+      .eq("organization_id", orgId);
+  } else {
+    await supabase.from("organization_members").insert({
+      organization_id: orgId, profile_id: rawData.profile_id, role: "parent", status: "invited",
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    });
+  }
 
   await logAudit({
     organization_id: orgId, actor_id: actingUser.id, action: "guardian.portal_invited",

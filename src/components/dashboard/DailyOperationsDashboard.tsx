@@ -26,7 +26,6 @@ import { cn } from "@/lib/utils";
 interface DailyStats {
   checkedIn:       number;
   checkedOut:      number;
-  onCampus:        number;
   absent:          number;
   lateArrivals:    number;
   earlyPickups:    number;
@@ -88,7 +87,7 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName, userId }: 
       .is("archived_at", null);
 
     // Attendance stats — query attendance_records if table exists, else zero
-    let checkedIn = 0, checkedOut = 0, onCampus = 0, absent = 0;
+    let checkedIn = 0, checkedOut = 0, absent = 0;
     let lateArrivals = 0, earlyPickups = 0;
 
     const { data: attRows, error: attError } = await supabase
@@ -99,11 +98,8 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName, userId }: 
 
     if (!attError && attRows) {
       for (const row of attRows) {
-        if (row.status === "present" || row.status === "checked_in") {
-          checkedIn++;
-          if (!row.check_out_at) onCampus++;
-          else checkedOut++;
-        }
+        if (row.check_in_at && !row.check_out_at) checkedIn++;
+        if (row.check_in_at && row.check_out_at) checkedOut++;
         if (row.status === "absent") absent++;
         if (row.is_late) lateArrivals++;
         if (row.is_early_pickup) earlyPickups++;
@@ -153,7 +149,6 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName, userId }: 
     setStats({
       checkedIn,
       checkedOut,
-      onCampus,
       absent,
       lateArrivals,
       earlyPickups,
@@ -232,14 +227,6 @@ export function DailyOperationsDashboard({ firstName, orgId, orgName, userId }: 
             total={stats?.totalEnrolled}
             icon={UserCheck}
             color="teal"
-            loading={loading}
-          />
-          <AttendanceTile
-            label="On Campus"
-            value={stats?.onCampus}
-            total={stats?.totalEnrolled}
-            icon={Users}
-            color="green"
             loading={loading}
           />
           <AttendanceTile

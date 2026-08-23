@@ -241,7 +241,6 @@ export function AdminHealthDashboard({ initialData }: Props) {
       <Section title="Today's Status" icon={Activity}>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           <StatTile label="Checked In"     value={data.today.checkedIn}     icon={CheckCircle2} color="teal" />
-          <StatTile label="On Campus"      value={data.today.onCampus}      icon={Users}        color="green" />
           <StatTile label="Checked Out"    value={data.today.checkedOut}    icon={CheckCircle2} color="navy" />
           <StatTile label="Absent"         value={data.today.absent}        icon={XCircle}      color={data.today.absent > 0 ? "rose" : "gray"} />
           <StatTile label="Excused"        value={data.today.excused}       icon={CheckCircle2} color="gray" />
