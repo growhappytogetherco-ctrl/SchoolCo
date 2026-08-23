@@ -95,7 +95,8 @@ function SafetyModal({ flags, allergies, medicalNotes, onClose }: {
 
 function calcAge(dob: string | null): number | null {
   if (!dob) return null;
-  const birth = new Date(dob);
+  const [y, m, d] = dob.split("-").map(Number);
+  const birth = new Date(y, m - 1, d);
   const today = new Date();
   let age = today.getFullYear() - birth.getFullYear();
   if (

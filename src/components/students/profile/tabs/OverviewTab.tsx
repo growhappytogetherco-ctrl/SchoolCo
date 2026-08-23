@@ -22,14 +22,19 @@ import { cn } from "@/lib/utils";
 
 // ── Helpers ─────────────────────────────────────────────────────
 
+function parseDateOnly(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return parseDateOnly(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
 function fmtAge(dob: string | null): string {
   if (!dob) return "";
-  const birth = new Date(dob);
+  const birth = parseDateOnly(dob);
   const today = new Date();
   let age = today.getFullYear() - birth.getFullYear();
   if (today.getMonth() < birth.getMonth() ||
