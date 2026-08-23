@@ -8,6 +8,7 @@ import {
 import { markAttendance, checkInStudent, checkOutStudent } from "@/app/actions/attendance";
 import type { StudentAttendanceRow } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 
 // ── Status helpers ─────────────────────────────────────────────────────────
 
@@ -36,10 +37,7 @@ function StatusChip({ status }: { status: string | undefined }) {
   );
 }
 
-function fmtTime(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+const fmtTime = formatAttendanceTime;
 
 // ── Row component ──────────────────────────────────────────────────────────
 

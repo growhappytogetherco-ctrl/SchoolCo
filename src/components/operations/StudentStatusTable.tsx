@@ -12,6 +12,7 @@ import {
   type ActiveFilter,
 } from "@/app/actions/operations";
 import { checkInStudent, checkOutStudent, markAttendance } from "@/app/actions/attendance";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -45,12 +46,7 @@ const STATE_BADGE: Record<CampusState, string> = {
   manual_present:"bg-sc-teal/10 text-sc-teal border-sc-teal/20",
 };
 
-function formatTime(ts: string | null | undefined): string {
-  if (!ts) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric", minute: "2-digit", hour12: true,
-  }).format(new Date(ts));
-}
+const formatTime = formatAttendanceTime;
 
 function matchesFilter(s: OperationsStudent, filter: ActiveFilter): boolean {
   if (!filter) return true;

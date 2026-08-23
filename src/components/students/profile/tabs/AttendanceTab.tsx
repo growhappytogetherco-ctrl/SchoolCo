@@ -5,6 +5,7 @@ import { CheckCircle, X, Clock, AlertTriangle, TrendingUp, ShieldAlert, ChevronD
 import { getStudentAttendanceData } from "@/app/actions/profileData";
 import { correctAttendanceRecord, type CorrectionAction } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 
 interface Props { studentId: string; isAdmin?: boolean; }
 
@@ -25,10 +26,7 @@ function fmtDate(d: string) {
   return new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-function fmtTime(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
-}
+const fmtTime = formatAttendanceTime;
 
 function CorrectionMenu({ recordId, hasCkIn, hasCkOut, onCorrected }: {
   recordId: string; hasCkIn: boolean; hasCkOut: boolean; onCorrected: () => void;

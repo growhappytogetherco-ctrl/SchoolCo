@@ -17,6 +17,7 @@ import {
 import { getPickupPersons, type PickupPerson } from "@/app/actions/pickupPersons";
 import type { TodayAttendance } from "./types";
 import { cn } from "@/lib/utils";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 
 // ── Inline Modal ───────────────────────────────────────────────────────────
 
@@ -122,10 +123,7 @@ function CheckoutModal({
   const needsSupNote = selStatus === "supervised" && !supervisedNote.trim();
   const needsOverride = selStatus === "not_authorized" && isAdmin && !overrideReason.trim();
 
-  function fmtTime(iso: string | null) {
-    if (!iso) return "—";
-    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
+  const fmtTime = formatAttendanceTime;
 
   function handleSelect(p: PickupPerson) {
     setSelectedId(p.id);

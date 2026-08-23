@@ -3,6 +3,7 @@
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import { X, LogOut, ShieldAlert, AlertTriangle, UserX, CheckCircle2, Search } from "lucide-react";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 import { type OperationsStudent, type OrgSettings } from "@/app/actions/operations";
 import { checkOutStudent } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
@@ -15,12 +16,7 @@ interface Props {
   onActionComplete:  () => void;
 }
 
-function formatTime(ts: string | null | undefined): string {
-  if (!ts) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric", minute: "2-digit", hour12: true,
-  }).format(new Date(ts));
-}
+const formatTime = formatAttendanceTime;
 
 function DismissalRow({
   student,

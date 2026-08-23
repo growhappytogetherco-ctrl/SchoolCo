@@ -5,6 +5,7 @@ import { GraduationCap, QrCode, Clock, Award, Briefcase, BadgeCheck, StickyNote,
 import type { StaffFollowUpSummary } from "@/app/actions/studentAlerts";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 import type { StudentProfileData } from "./types";
 import { EditStudentDialog } from "@/components/students/EditStudentDialog";
 
@@ -104,10 +105,7 @@ function calcAge(dob: string | null): number | null {
   return age;
 }
 
-function fmtTime(iso: string | null): string {
-  if (!iso) return "";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+const fmtTime = formatAttendanceTime;
 
 function AttendanceChip({ attendance }: { attendance: StudentProfileData["today_attendance"] }) {
   if (!attendance) {

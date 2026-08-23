@@ -13,6 +13,7 @@ import { getCurriculumEnrollments, getAcademicPlanSummary, getActiveIntervention
 import { getAssessmentSnapshot } from "@/app/actions/assessments";
 import { getProgressSnapshot } from "@/app/actions/progressHistory";
 import { SUBJECT_LABELS } from "@/lib/academics-constants";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 import { getSSPSummary } from "@/app/actions/successPlanActions";
 import { getStudentAlertSummary } from "@/app/actions/studentAlerts";
 import type { StudentAlert } from "@/lib/student-alert-constants";
@@ -36,10 +37,7 @@ function fmtAge(dob: string | null): string {
   return `${age} years old`;
 }
 
-function fmtTime(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+const fmtTime = formatAttendanceTime;
 
 const INCIDENT_SEVERITY: Record<string, string> = {
   low:      "bg-sc-gold-50  text-sc-gold-700  border-sc-gold-200",

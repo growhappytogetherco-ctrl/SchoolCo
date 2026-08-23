@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { checkInStudent, checkOutStudent, undoAttendanceAction } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -252,7 +253,7 @@ function ResultScreen({
           isLate, isEarlyPickup, timestamp, medicationAlerts, allergies } = outcome;
 
   const displayName = preferredName ? `${preferredName} ${lastName}` : `${firstName} ${lastName}`;
-  const time = new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = formatAttendanceTime(timestamp);
 
   const hasEmergencyMed = medicationAlerts.some((m) => m.is_emergency);
   const hasMedical = medicationAlerts.length > 0 || allergies.length > 0;

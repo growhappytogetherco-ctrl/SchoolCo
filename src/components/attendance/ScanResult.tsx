@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { undoAttendanceAction } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
+import { formatAttendanceTime } from "@/lib/format-attendance-time";
 
 // ── Types (shared with scan page) ─────────────────────────────────────────
 
@@ -71,9 +72,7 @@ export function ScanResult({ data, onReset, autoResetMs }: ScanResultProps) {
     ? `${preferredName} ${lastName}`
     : `${firstName} ${lastName}`;
 
-  const time = new Date(timestamp).toLocaleTimeString([], {
-    hour: "2-digit", minute: "2-digit",
-  });
+  const time = formatAttendanceTime(timestamp);
 
   const hasEmergencyMed = medicationAlerts.some((m) => m.is_emergency);
   const hasLifeThreateningAllergy = allergyDetails.some((a) => a.severity === "life_threatening");
