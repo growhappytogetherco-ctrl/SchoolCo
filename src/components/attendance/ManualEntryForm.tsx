@@ -71,6 +71,9 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
       const checkInAt  = checkIn  ? toEasternISO(date, checkIn)  : null;
       const checkOutAt = checkOut ? toEasternISO(date, checkOut) : null;
 
+      // DEBUG — visible in production UI to trace the actual values
+      const debugInfo = `[DEBUG] checkIn="${checkIn}" checkOut="${checkOut}" → in=${checkInAt} out=${checkOutAt}`;
+
       const result = await saveManualAttendance({
         studentId,
         date,
@@ -83,9 +86,9 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
       });
 
       if (!result.success) {
-        setMessage({ text: `Error: ${result.error}`, ok: false });
+        setMessage({ text: `Error: ${result.error} | ${debugInfo}`, ok: false });
       } else {
-        setMessage({ text: "Attendance record saved.", ok: true });
+        setMessage({ text: `Saved. ${debugInfo}`, ok: true });
         onSaved?.();
         setStudentId(""); setSearch(""); setCheckIn(""); setCheckOut("");
         setNotes(""); setIsLate(false); setIsEarlyPickup(false); setStatus("present");
