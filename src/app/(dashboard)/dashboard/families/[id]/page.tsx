@@ -46,6 +46,32 @@ export default async function FamilyDetailPage({
 
   const canManage = getRoleLevel(role ?? "") >= getRoleLevel("registrar");
 
+  // ── Diagnostic wrapper — remove after crash is identified ──────────────
+  try {
+    return await renderFamilyDetail({ id, family, role, canManage, orgId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? (e.stack ?? "") : "";
+    console.error("[FamilyDetailPage] UNHANDLED CRASH:", msg, stack);
+    return (
+      <div className="p-8 rounded-2xl bg-sc-rose-50 border border-sc-rose-200 max-w-3xl space-y-3">
+        <h2 className="font-serif text-2xl text-sc-rose">Page error (staff debug view)</h2>
+        <p className="text-label-sm text-sc-gray">Send this to your developer:</p>
+        <pre className="text-xs text-sc-gray font-mono whitespace-pre-wrap bg-white border border-sc-rose-200 rounded-lg p-4 overflow-x-auto">{msg}{"\n\n"}{stack}</pre>
+      </div>
+    );
+  }
+}
+
+async function renderFamilyDetail({
+  id, family, role, canManage, orgId,
+}: {
+  id: string;
+  family: NonNullable<Awaited<ReturnType<typeof getFamily>>>;
+  role: string | null;
+  canManage: boolean;
+  orgId: string;
+}) {
   let households: HouseholdRow[];
   try {
     households = ((family.households ?? []) as HouseholdRow[])
