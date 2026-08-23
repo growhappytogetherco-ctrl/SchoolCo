@@ -427,6 +427,126 @@ export async function setAttendanceTimes(
   return { success: true };
 }
 
+// ── Full attendance correction (admin / staff) ────────────────────────────
+// Replaces ALL fields on a record. Caller converts times from Eastern → UTC.
+
+export async function correctAttendanceFull(params: {
+  recordId: string;
+  status: string;
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  isLate: boolean;
+  isEarlyPickup: boolean;
+  notes: string | null;
+  adminNote?: string;
+}): Promise<AR> {
+  const { getActiveRole } = await import("@/lib/supabase/org-context");
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  const role  = await getActiveRole();
+  if (!user || !orgId) return { success: false, error: "Not authenticated." };
+  if (!["admin", "full_admin", "platform_admin", "registrar", "staff", "teacher"].includes(role ?? "")) {
+    return { success: false, error: "Staff access required." };
+  }
+
+  const validStatuses = ["present", "absent", "tardy", "excused", "checked_in", "early_dismissal"];
+  const safeStatus = validStatuses.includes(params.status) ? params.status : "present";
+
+  const supabase = await createClient();
+
+  const { data: prev } = await supabase
+    .from("attendance_records")
+    .select("status, check_in_at, check_out_at, is_late, is_early_pickup, notes")
+    .eq("id", params.recordId)
+    .eq("organization_id", orgId)
+    .single();
+
+  const { error } = await supabase
+    .from("attendance_records")
+    .update({
+      status:          safeStatus,
+      check_in_at:     params.checkInAt,
+      check_out_at:    params.checkOutAt,
+      is_late:         params.isLate,
+      is_early_pickup: params.isEarlyPickup,
+      notes:           params.notes,
+    } as never)
+    .eq("id", params.recordId)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  const { writeAuditLog } = await import("@/lib/audit");
+  await writeAuditLog(supabase, {
+    organizationId: orgId,
+    actorId:        user.id,
+    action:         "attendance.corrected",
+    resourceType:   "attendance_record",
+    resourceId:     params.recordId,
+    previousValues: prev ?? {},
+    newValues:      {
+      status:          safeStatus,
+      check_in_at:     params.checkInAt,
+      check_out_at:    params.checkOutAt,
+      is_late:         params.isLate,
+      is_early_pickup: params.isEarlyPickup,
+    },
+    metadata: { adminNote: params.adminNote ?? null },
+  });
+
+  revalidatePath("/dashboard/attendance");
+  revalidatePath("/dashboard/home");
+  return { success: true };
+}
+
+// ── Reset attendance for a day (deletes record; student → "Not Recorded") ──
+
+export async function resetAttendanceDay(
+  recordId: string,
+  adminNote?: string
+): Promise<AR> {
+  const { getActiveRole } = await import("@/lib/supabase/org-context");
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  const role  = await getActiveRole();
+  if (!user || !orgId) return { success: false, error: "Not authenticated." };
+  if (!["admin", "full_admin", "platform_admin", "registrar", "staff", "teacher"].includes(role ?? "")) {
+    return { success: false, error: "Staff access required." };
+  }
+
+  const supabase = await createClient();
+
+  const { data: prev } = await supabase
+    .from("attendance_records")
+    .select("student_id, date, status, check_in_at, check_out_at")
+    .eq("id", recordId)
+    .eq("organization_id", orgId)
+    .single();
+
+  const { error } = await supabase
+    .from("attendance_records")
+    .delete()
+    .eq("id", recordId)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  const { writeAuditLog } = await import("@/lib/audit");
+  await writeAuditLog(supabase, {
+    organizationId: orgId,
+    actorId:        user.id,
+    action:         "attendance.reset",
+    resourceType:   "attendance_record",
+    resourceId:     recordId,
+    previousValues: prev ?? {},
+    metadata:       { adminNote: adminNote ?? null },
+  });
+
+  revalidatePath("/dashboard/attendance");
+  revalidatePath("/dashboard/home");
+  return { success: true };
+}
+
 // ── Bulk load today's attendance for the list view ────────────────────────
 
 export type StudentAttendanceRow = {

@@ -30,8 +30,6 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
   const [studentId, setStudentId] = useState("");
   const [date,     setDate]     = useState(new Date().toISOString().split("T")[0]);
   const [status,   setStatus]   = useState("present");
-  const [checkIn,  setCheckIn]  = useState("");
-  const [checkOut, setCheckOut] = useState("");
   const checkInRef  = useRef<HTMLInputElement>(null);
   const checkOutRef = useRef<HTMLInputElement>(null);
   const [notes,    setNotes]    = useState("");
@@ -70,16 +68,11 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
     if (!studentId) { setMessage({ text: "Please select a student.", ok: false }); return; }
 
     startTransition(async () => {
-      // Read from DOM refs as the authoritative source — bypasses any React
-      // state update timing issues with <input type="time"> in various browsers.
-      const checkInVal  = checkInRef.current?.value  || checkIn;
-      const checkOutVal = checkOutRef.current?.value || checkOut;
+      const checkInVal  = checkInRef.current?.value  ?? "";
+      const checkOutVal = checkOutRef.current?.value ?? "";
 
       const checkInAt  = checkInVal  ? toEasternISO(date, checkInVal)  : null;
       const checkOutAt = checkOutVal ? toEasternISO(date, checkOutVal) : null;
-
-      // DEBUG — visible in production UI to trace the actual values
-      const debugInfo = `[DEBUG] checkIn="${checkInVal}" checkOut="${checkOutVal}" → in=${checkInAt} out=${checkOutAt}`;
 
       const result = await saveManualAttendance({
         studentId,
@@ -93,11 +86,13 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
       });
 
       if (!result.success) {
-        setMessage({ text: `Error: ${result.error} | ${debugInfo}`, ok: false });
+        setMessage({ text: `Error: ${result.error}`, ok: false });
       } else {
-        setMessage({ text: `Saved. ${debugInfo}`, ok: true });
+        setMessage({ text: "Attendance saved.", ok: true });
         onSaved?.();
-        setStudentId(""); setSearch(""); setCheckIn(""); setCheckOut("");
+        setStudentId(""); setSearch("");
+        if (checkInRef.current)  checkInRef.current.value  = "";
+        if (checkOutRef.current) checkOutRef.current.value = "";
         setNotes(""); setIsLate(false); setIsEarlyPickup(false); setStatus("present");
       }
     });
@@ -182,8 +177,7 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
             <input
               ref={checkInRef}
               type="time"
-              value={checkIn}
-              onChange={(e) => setCheckIn(e.target.value)}
+              defaultValue=""
               className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md text-sc-navy bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal"
             />
           </div>
@@ -194,8 +188,7 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
             <input
               ref={checkOutRef}
               type="time"
-              value={checkOut}
-              onChange={(e) => setCheckOut(e.target.value)}
+              defaultValue=""
               className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md text-sc-navy bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal"
             />
           </div>

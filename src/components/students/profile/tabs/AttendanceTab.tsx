@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { CheckCircle, X, Clock, AlertTriangle, TrendingUp, ShieldAlert, ChevronDown } from "lucide-react";
 import { getStudentAttendanceData } from "@/app/actions/profileData";
-import { correctAttendanceRecord, setAttendanceTimes, type CorrectionAction } from "@/app/actions/attendance";
+import { correctAttendanceFull, resetAttendanceDay } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
 import { formatAttendanceTime, toEasternISO } from "@/lib/format-attendance-time";
 
@@ -28,137 +28,209 @@ function fmtDate(d: string) {
 
 const fmtTime = formatAttendanceTime;
 
-function CorrectionMenu({ recordId, date, hasCkIn, hasCkOut, onCorrected }: {
-  recordId: string; date: string; hasCkIn: boolean; hasCkOut: boolean; onCorrected: () => void;
-}) {
-  const [open, setOpen]             = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const [note, setNote]             = useState("");
-  const [pendingAction, setPendingAction] = useState<CorrectionAction | "set_times" | null>(null);
-  const [newCheckIn,  setNewCheckIn]  = useState("");
-  const [newCheckOut, setNewCheckOut] = useState("");
-  const [saveError, setSaveError]     = useState<string | null>(null);
+function isoToEasternHHMM(iso: string | null): string {
+  if (!iso) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(iso));
+    const h = parseInt(parts.find((p) => p.type === "hour")!.value) % 24;
+    const m = parts.find((p) => p.type === "minute")!.value;
+    return `${String(h).padStart(2, "0")}:${m}`;
+  } catch { return ""; }
+}
 
-  function doCorrection(action: CorrectionAction) {
+type MenuMode = "closed" | "menu" | "edit" | "reset_confirm";
+
+function CorrectionMenu({
+  recordId, date, checkInAt, checkOutAt,
+  status: initStatus, isLate: initIsLate, isEarlyPickup: initIsEP, notes: initNotes,
+  onCorrected,
+}: {
+  recordId: string;
+  date: string;
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  status: string;
+  isLate: boolean;
+  isEarlyPickup: boolean;
+  notes: string | null;
+  onCorrected: () => void;
+}) {
+  const [mode, setMode]               = useState<MenuMode>("closed");
+  const [isPending, startTransition]  = useTransition();
+  const [saveError, setSaveError]     = useState<string | null>(null);
+  const [editStatus, setEditStatus]   = useState(initStatus);
+  const [editIsLate, setEditIsLate]   = useState(initIsLate);
+  const [editIsEP, setEditIsEP]       = useState(initIsEP);
+  const [editNotes, setEditNotes]     = useState(initNotes ?? "");
+  const [adminNote, setAdminNote]     = useState("");
+  const ciRef = useRef<HTMLInputElement>(null);
+  const coRef = useRef<HTMLInputElement>(null);
+
+  // Pre-populate time inputs when edit panel mounts
+  useEffect(() => {
+    if (mode !== "edit") return;
+    if (ciRef.current) ciRef.current.value = isoToEasternHHMM(checkInAt);
+    if (coRef.current) coRef.current.value = isoToEasternHHMM(checkOutAt);
+  }, [mode, checkInAt, checkOutAt]);
+
+  function openEdit() {
+    setEditStatus(initStatus);
+    setEditIsLate(initIsLate);
+    setEditIsEP(initIsEP);
+    setEditNotes(initNotes ?? "");
+    setAdminNote("");
+    setSaveError(null);
+    setMode("edit");
+  }
+
+  function doSaveCorrection() {
+    setSaveError(null);
     startTransition(async () => {
-      await correctAttendanceRecord(recordId, action, note || undefined);
-      setOpen(false);
-      setNote("");
-      setPendingAction(null);
+      const ciVal = ciRef.current?.value ?? "";
+      const coVal = coRef.current?.value ?? "";
+      const result = await correctAttendanceFull({
+        recordId,
+        status:          editStatus,
+        checkInAt:       ciVal ? toEasternISO(date, ciVal) : null,
+        checkOutAt:      coVal ? toEasternISO(date, coVal) : null,
+        isLate:          editIsLate,
+        isEarlyPickup:   editIsEP,
+        notes:           editNotes || null,
+        adminNote:       adminNote || undefined,
+      });
+      if (!result.success) { setSaveError(result.error ?? "Failed to save."); return; }
+      setMode("closed");
       onCorrected();
     });
   }
 
-  function doSetTimes() {
+  function doReset() {
     setSaveError(null);
     startTransition(async () => {
-      // undefined = leave field unchanged; only pass a value if the input was filled
-      const checkInAt  = newCheckIn  ? toEasternISO(date, newCheckIn)  : undefined;
-      const checkOutAt = newCheckOut ? toEasternISO(date, newCheckOut) : undefined;
-      const result = await setAttendanceTimes(recordId, checkInAt, checkOutAt, note || undefined);
-      if (!result.success) {
-        setSaveError(result.error ?? "Failed to save.");
-        return;
-      }
-      setOpen(false);
-      setNote("");
-      setNewCheckIn("");
-      setNewCheckOut("");
-      setPendingAction(null);
-      setSaveError(null);
+      const result = await resetAttendanceDay(recordId, adminNote || undefined);
+      if (!result.success) { setSaveError(result.error ?? "Failed to reset."); return; }
+      setMode("closed");
       onCorrected();
     });
   }
 
   return (
     <div className="relative">
-      <button onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-lg border border-sc-gray-200 px-2 py-1 text-label-sm text-sc-gray hover:bg-sc-gray-50 transition-colors">
+      <button
+        onClick={() => setMode((m) => m === "closed" ? "menu" : "closed")}
+        className="flex items-center gap-1 rounded-lg border border-sc-gray-200 px-2 py-1 text-label-sm text-sc-gray hover:bg-sc-gray-50 transition-colors"
+      >
         <ShieldAlert className="size-3.5 text-sc-rose-500" /> Fix
-        <ChevronDown className={cn("size-3 transition-transform", open && "rotate-180")} />
+        <ChevronDown className={cn("size-3 transition-transform", mode !== "closed" && "rotate-180")} />
       </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-60 rounded-xl border border-sc-gray-200 bg-white shadow-lg overflow-hidden">
-          <div className="p-2 space-y-1">
-            <button onClick={() => setPendingAction("set_times")}
-              className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-teal-700 hover:bg-sc-teal-50 font-medium">
-              Set check-in / check-out times
-            </button>
-            {hasCkOut && (
-              <button onClick={() => setPendingAction("undo_checkout")}
-                className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
-                Undo checkout (restore to checked-in)
+
+      {mode === "menu" && (
+        <div className="absolute right-0 top-full mt-1 z-20 w-52 rounded-xl border border-sc-gray-200 bg-white shadow-lg p-2 space-y-1">
+          <button onClick={openEdit}
+            className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-teal-700 hover:bg-sc-teal-50 font-medium">
+            Correct This Record
+          </button>
+          <button onClick={() => { setAdminNote(""); setSaveError(null); setMode("reset_confirm"); }}
+            className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-rose-700 hover:bg-sc-rose-50">
+            Reset Attendance For This Day
+          </button>
+        </div>
+      )}
+
+      {mode === "edit" && (
+        <div className="absolute right-0 top-full mt-1 z-20 w-96 rounded-xl border border-sc-gray-200 bg-white shadow-lg">
+          <div className="px-4 py-3 border-b border-sc-gray-100">
+            <p className="text-label-md font-semibold text-sc-navy">Correct Attendance</p>
+            <p className="text-label-sm text-sc-gray">{fmtDate(date)}</p>
+          </div>
+          <div className="p-4 space-y-3">
+            <div className="space-y-1">
+              <label className="text-label-sm font-medium text-sc-navy">Status</label>
+              <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}
+                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal">
+                <option value="present">Present</option>
+                <option value="absent">Absent</option>
+                <option value="tardy">Tardy</option>
+                <option value="excused">Excused</option>
+                <option value="checked_in">Checked In</option>
+                <option value="early_dismissal">Early Dismissal</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-label-sm font-medium text-sc-navy">Check-In (Eastern)</label>
+                <input ref={ciRef} type="time"
+                  className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-label-sm font-medium text-sc-navy">Check-Out (Eastern)</label>
+                <input ref={coRef} type="time"
+                  className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-1.5 text-label-sm text-sc-navy cursor-pointer">
+                <input type="checkbox" checked={editIsLate} onChange={(e) => setEditIsLate(e.target.checked)} className="rounded" />
+                Late
+              </label>
+              <label className="flex items-center gap-1.5 text-label-sm text-sc-navy cursor-pointer">
+                <input type="checkbox" checked={editIsEP} onChange={(e) => setEditIsEP(e.target.checked)} className="rounded" />
+                Early Pickup
+              </label>
+            </div>
+            <div className="space-y-1">
+              <label className="text-label-sm font-medium text-sc-navy">Notes</label>
+              <textarea rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)}
+                placeholder="Optional notes"
+                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm resize-none focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-label-sm font-medium text-sc-navy">Correction Reason</label>
+              <input type="text" value={adminNote} onChange={(e) => setAdminNote(e.target.value)}
+                placeholder="Why is this being corrected?"
+                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
+            </div>
+            {saveError && <p className="text-label-sm text-sc-rose-700">{saveError}</p>}
+            <div className="flex gap-2">
+              <button onClick={doSaveCorrection} disabled={isPending}
+                className="flex-1 rounded-lg bg-sc-teal px-3 py-2 text-white text-label-sm font-medium disabled:opacity-60">
+                {isPending ? "Saving…" : "Save Correction"}
               </button>
-            )}
-            {hasCkIn && !hasCkOut && (
-              <button onClick={() => setPendingAction("undo_checkin")}
-                className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-rose-700 hover:bg-sc-rose-50">
-                Remove check-in entirely
+              <button onClick={() => setMode("closed")}
+                className="rounded-lg border border-sc-gray-200 px-3 py-2 text-sc-gray text-label-sm">
+                Cancel
               </button>
-            )}
-            <button onClick={() => setPendingAction("mark_absent")}
-              className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
-              Mark as Absent
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mode === "reset_confirm" && (
+        <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-xl border border-sc-rose-200 bg-white shadow-lg p-4 space-y-3">
+          <p className="text-label-md font-semibold text-sc-rose-700">Reset Attendance?</p>
+          <p className="text-label-sm text-sc-gray">
+            Deletes all attendance data for {fmtDate(date)}. The student returns to "Not Recorded"
+            and can be checked in again normally.
+          </p>
+          <input type="text" value={adminNote} onChange={(e) => setAdminNote(e.target.value)}
+            placeholder="Reason for reset (optional)"
+            className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-rose" />
+          {saveError && <p className="text-label-sm text-sc-rose-700">{saveError}</p>}
+          <div className="flex gap-2">
+            <button onClick={doReset} disabled={isPending}
+              className="flex-1 rounded-lg bg-sc-rose px-3 py-2 text-white text-label-sm font-medium disabled:opacity-60">
+              {isPending ? "Resetting…" : "Confirm Reset"}
             </button>
-            <button onClick={() => setPendingAction("mark_excused")}
-              className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
-              Mark as Excused
-            </button>
-            <button onClick={() => setPendingAction("mark_present")}
-              className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50">
-              Mark as Present
+            <button onClick={() => setMode("closed")}
+              className="rounded-lg border border-sc-gray-200 px-3 py-2 text-sc-gray text-label-sm">
+              Cancel
             </button>
           </div>
-          {pendingAction === "set_times" && (
-            <div className="border-t border-sc-gray-100 p-2 space-y-2">
-              <p className="text-label-sm text-sc-gray px-1">Enter Eastern time (AM/PM):</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-label-sm text-sc-gray mb-0.5 block">Check-In</label>
-                  <input type="time" value={newCheckIn} onChange={(e) => setNewCheckIn(e.target.value)}
-                    className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
-                </div>
-                <div>
-                  <label className="text-label-sm text-sc-gray mb-0.5 block">Check-Out</label>
-                  <input type="time" value={newCheckOut} onChange={(e) => setNewCheckOut(e.target.value)}
-                    className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
-                </div>
-              </div>
-              <input value={note} onChange={(e) => setNote(e.target.value)}
-                placeholder="Reason (optional)"
-                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
-              {saveError && (
-                <p className="text-label-sm text-sc-rose-700 px-1">{saveError}</p>
-              )}
-              <div className="flex gap-2">
-                <button onClick={doSetTimes} disabled={isPending || (!newCheckIn && !newCheckOut)}
-                  className="flex-1 rounded-lg bg-sc-teal px-2 py-1.5 text-white text-label-sm font-medium disabled:opacity-60">
-                  {isPending ? "Saving…" : "Save Times"}
-                </button>
-                <button onClick={() => { setPendingAction(null); setOpen(false); }}
-                  className="rounded-lg border border-sc-gray-200 px-2 py-1.5 text-sc-gray text-label-sm">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-          {pendingAction && pendingAction !== "set_times" && (
-            <div className="border-t border-sc-gray-100 p-2 space-y-2">
-              <input value={note} onChange={(e) => setNote(e.target.value)}
-                placeholder="Reason (optional)"
-                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
-              <div className="flex gap-2">
-                <button onClick={() => doCorrection(pendingAction as CorrectionAction)} disabled={isPending}
-                  className="flex-1 rounded-lg bg-sc-navy px-2 py-1.5 text-white text-label-sm font-medium disabled:opacity-60">
-                  {isPending ? "Saving…" : "Confirm"}
-                </button>
-                <button onClick={() => { setPendingAction(null); setOpen(false); }}
-                  className="rounded-lg border border-sc-gray-200 px-2 py-1.5 text-sc-gray text-label-sm">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -279,8 +351,12 @@ export function AttendanceTab({ studentId, isAdmin = false }: Props) {
                       <CorrectionMenu
                         recordId={r.id}
                         date={r.date}
-                        hasCkIn={!!r.check_in_at}
-                        hasCkOut={!!r.check_out_at}
+                        checkInAt={r.check_in_at}
+                        checkOutAt={r.check_out_at}
+                        status={r.status}
+                        isLate={r.is_late ?? false}
+                        isEarlyPickup={r.is_early_pickup ?? false}
+                        notes={r.notes ?? null}
                         onCorrected={reload}
                       />
                     )}
