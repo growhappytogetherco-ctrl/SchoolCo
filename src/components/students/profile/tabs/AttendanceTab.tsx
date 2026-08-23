@@ -189,41 +189,43 @@ export function AttendanceTab({ studentId, isAdmin = false }: Props) {
             {records.map((r) => {
               const cfg = STATUS_CFG[r.status] ?? STATUS_CFG.present;
               return (
-                <div key={r.id} className="flex items-center gap-4 px-5 py-3">
-                  {/* Date */}
-                  <div className="w-32 shrink-0">
-                    <p className="text-label-md text-sc-navy font-medium">{fmtDate(r.date)}</p>
-                  </div>
+                <div key={r.id} className="px-5 py-3">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {/* Date */}
+                    <div className="w-28 shrink-0">
+                      <p className="text-label-md text-sc-navy font-medium">{fmtDate(r.date)}</p>
+                    </div>
 
-                  {/* Status chip */}
-                  <span className={cn("rounded-full border px-2.5 py-0.5 text-label-sm font-medium shrink-0", cfg.cls)}>
-                    {cfg.label}
-                  </span>
+                    {/* Status chip */}
+                    <span className={cn("rounded-full border px-2.5 py-0.5 text-label-sm font-medium shrink-0", cfg.cls)}>
+                      {cfg.label}
+                      {r.is_late && " · Late"}
+                      {r.is_early_pickup && " · Early Pickup"}
+                    </span>
 
-                  {/* Check in / out times */}
-                  <div className="flex gap-4 text-label-sm text-sc-gray ml-auto">
-                    <span className="hidden sm:block">In: {fmtTime(r.check_in_at)}</span>
-                    <span className="hidden sm:block">Out: {fmtTime(r.check_out_at)}</span>
-                  </div>
+                    {/* Times — always visible */}
+                    <div className="flex gap-3 text-label-sm ml-auto shrink-0">
+                      <span className={cn("font-medium", r.check_in_at ? "text-sc-navy" : "text-sc-gray-400")}>
+                        In: {fmtTime(r.check_in_at)}
+                      </span>
+                      <span className={cn("font-medium", r.check_out_at ? "text-sc-navy" : "text-sc-gray-400")}>
+                        Out: {fmtTime(r.check_out_at)}
+                      </span>
+                    </div>
 
-                  {/* Flags */}
-                  <div className="flex gap-1 shrink-0">
-                    {r.is_late && (
-                      <span title="Late arrival" className="rounded-full bg-sc-gold-50 border border-sc-gold-200 px-1.5 py-0.5 text-label-sm text-sc-gold-700">Late</span>
+                    {/* Admin correction */}
+                    {isAdmin && (
+                      <CorrectionMenu
+                        recordId={r.id}
+                        hasCkIn={!!r.check_in_at}
+                        hasCkOut={!!r.check_out_at}
+                        onCorrected={reload}
+                      />
                     )}
-                    {r.is_early_pickup && (
-                      <span title="Early pickup" className="rounded-full bg-sc-navy-50 border border-sc-navy-200 px-1.5 py-0.5 text-label-sm text-sc-navy">Early</span>
-                    )}
                   </div>
-
-                  {/* Admin correction */}
-                  {isAdmin && (
-                    <CorrectionMenu
-                      recordId={r.id}
-                      hasCkIn={!!r.check_in_at}
-                      hasCkOut={!!r.check_out_at}
-                      onCorrected={reload}
-                    />
+                  {/* Notes on second line if present */}
+                  {r.notes && (
+                    <p className="mt-1 text-label-sm text-sc-gray italic ml-28">{r.notes}</p>
                   )}
                 </div>
               );

@@ -149,9 +149,9 @@ export async function getOrgStats(orgId: string) {
  */
 export async function getStudents(
   orgId: string,
-  options: { limit?: number; offset?: number; search?: string } = {}
+  options: { limit?: number; offset?: number; search?: string; enrollmentStatuses?: string[] } = {}
 ) {
-  const { limit = 50, offset = 0, search } = options;
+  const { limit = 50, offset = 0, search, enrollmentStatuses } = options;
   const supabase = await createClient();
 
   let query = supabase
@@ -165,6 +165,12 @@ export async function getStudents(
     .is("archived_at", null)
     .order("last_name", { ascending: true })
     .range(offset, offset + limit - 1);
+
+  if (enrollmentStatuses && enrollmentStatuses.length > 0) {
+    query = query.in("enrollment_status", enrollmentStatuses);
+  } else {
+    query = query.eq("enrollment_status", "enrolled");
+  }
 
   if (search) {
     query = query.or(
