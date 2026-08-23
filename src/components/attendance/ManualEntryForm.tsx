@@ -4,6 +4,7 @@ import { useState, useEffect, useTransition } from "react";
 import { Save, Search, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toEasternISO } from "@/lib/format-attendance-time";
+import { saveManualAttendance } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
 
 interface StudentOption {
@@ -65,38 +66,27 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
 
   function handleSave() {
     if (!studentId) { setMessage({ text: "Please select a student.", ok: false }); return; }
-    const orgId = localStorage.getItem("sc_active_org");
-    if (!orgId) { setMessage({ text: "No active organization.", ok: false }); return; }
 
     startTransition(async () => {
-      const supabase = createClient();
-      // Build timezone-correct UTC timestamps from Eastern wall-clock times
       const checkInAt  = checkIn  ? toEasternISO(date, checkIn)  : null;
       const checkOutAt = checkOut ? toEasternISO(date, checkOut) : null;
 
-      // Upsert attendance record for this student+date
-      const { error } = await supabase
-        .from("attendance_records")
-        .upsert({
-          organization_id: orgId,
-          student_id:      studentId,
-          date,
-          status:          status === "late" ? "present" : status,
-          check_in_at:     checkInAt,
-          check_out_at:    checkOutAt,
-          is_late:         isLate || status === "late",
-          is_early_pickup: isEarlyPickup || status === "early_pickup",
-          notes:           notes || null,
-        } as never, {
-          onConflict: "organization_id,student_id,date",
-        });
+      const result = await saveManualAttendance({
+        studentId,
+        date,
+        status:        status === "late" ? "present" : status,
+        checkInAt,
+        checkOutAt,
+        isLate:        isLate || status === "late",
+        isEarlyPickup: isEarlyPickup || status === "early_pickup",
+        notes:         notes || null,
+      });
 
-      if (error) {
-        setMessage({ text: `Error: ${error.message}`, ok: false });
+      if (!result.success) {
+        setMessage({ text: `Error: ${result.error}`, ok: false });
       } else {
         setMessage({ text: "Attendance record saved.", ok: true });
         onSaved?.();
-        // Reset form
         setStudentId(""); setSearch(""); setCheckIn(""); setCheckOut("");
         setNotes(""); setIsLate(false); setIsEarlyPickup(false); setStatus("present");
       }

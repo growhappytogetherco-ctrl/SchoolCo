@@ -347,6 +347,48 @@ export async function correctAttendanceRecord(
   return { success: true };
 }
 
+// ── Manual attendance entry (from ManualEntryForm) ───────────────────────
+// Saves a full attendance record for any date. check_in_at / check_out_at
+// must already be UTC ISO strings (caller converts from Eastern wall-clock).
+
+export async function saveManualAttendance(params: {
+  studentId: string;
+  date: string;
+  status: string;
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  isLate: boolean;
+  isEarlyPickup: boolean;
+  notes: string | null;
+}): Promise<AR> {
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  if (!user || !orgId) return { success: false, error: "Not authenticated." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("attendance_records")
+    .upsert({
+      organization_id: orgId,
+      student_id:      params.studentId,
+      date:            params.date,
+      status:          params.status,
+      check_in_at:     params.checkInAt,
+      check_out_at:    params.checkOutAt,
+      is_late:         params.isLate,
+      is_early_pickup: params.isEarlyPickup,
+      notes:           params.notes,
+      check_in_method: "manual",
+    } as never, {
+      onConflict: "organization_id,student_id,date",
+    });
+
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/attendance");
+  revalidatePath("/dashboard/home");
+  return { success: true };
+}
+
 // ── Admin: set exact check-in / check-out timestamps ──────────────────────
 // Accepts UTC ISO strings (caller converts from Eastern wall-clock).
 
