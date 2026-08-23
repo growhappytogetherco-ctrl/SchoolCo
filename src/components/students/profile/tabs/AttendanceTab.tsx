@@ -20,7 +20,9 @@ const STATUS_CFG: Record<string, { label: string; cls: string; dot: string }> = 
 };
 
 function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  // d is YYYY-MM-DD (date-only, no timezone). Append T12:00:00 so it parses as midday
+  // and avoids off-by-one from UTC midnight interpretation.
+  return new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
 function fmtTime(iso: string | null) {

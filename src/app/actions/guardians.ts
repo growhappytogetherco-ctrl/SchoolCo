@@ -490,6 +490,7 @@ export async function addGuardianRecord(
 export async function sendPortalInvite(
   rawData: { profile_id: string; family_id: string }
 ): Promise<ActionResult<void>> {
+  try {
   const supabase = await createClient();
   const { data: { user: actingUser } } = await supabase.auth.getUser();
   if (!actingUser) return { success: false, error: "Not authenticated." };
@@ -560,6 +561,10 @@ export async function sendPortalInvite(
 
   revalidatePath(`/dashboard/families/${rawData.family_id}`);
   return { success: true, data: undefined };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "An unexpected error occurred sending the portal invite.";
+    return { success: false, error: msg };
+  }
 }
 
 /**
