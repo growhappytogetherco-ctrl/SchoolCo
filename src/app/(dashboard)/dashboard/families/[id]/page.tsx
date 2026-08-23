@@ -50,11 +50,13 @@ export default async function FamilyDetailPage({
     .filter((h) => !h.archived_at)
     .sort((a, b) => a.sort_order - b.sort_order);
 
-  const students = ((family.students ?? []) as StudentRow[])
+  const allStudents = ((family.students ?? []) as StudentRow[])
     .filter((s) => !s.archived_at);
+  const students        = allStudents.filter((s) => s.enrollment_status === "enrolled");
+  const formerStudents  = allStudents.filter((s) => s.enrollment_status !== "enrolled");
 
   // Build flat list of active guardianship rows with student info
-  const activeGships = students.flatMap((s) =>
+  const activeGships = allStudents.flatMap((s) =>
     ((s.guardianships ?? []) as GuardianshipRow[])
       .filter((g) => g.status === "active" && !g.archived_at)
       .map((g) => ({ ...g, _student: s }))
@@ -210,7 +212,7 @@ export default async function FamilyDetailPage({
                 </span>
               )}
               <span className="text-label-sm text-sc-gray">
-                {students.length} student{students.length !== 1 ? "s" : ""} · {households.length} household{households.length !== 1 ? "s" : ""}
+                {students.length} enrolled · {formerStudents.length > 0 ? `${formerStudents.length} former · ` : ""}{households.length} household{households.length !== 1 ? "s" : ""}
               </span>
               {family.is_split_household && (
                 <Badge variant="gold">Split Household</Badge>
@@ -245,7 +247,7 @@ export default async function FamilyDetailPage({
           </TabsTrigger>
           <TabsTrigger value="students">
             <GraduationCap className="size-4" />
-            Students ({students.length})
+            Students ({allStudents.length})
           </TabsTrigger>
           <TabsTrigger value="guardians">
             <Users className="size-4" />
@@ -269,13 +271,13 @@ export default async function FamilyDetailPage({
             isSplit={family.is_split_household}
             canManage={canManage}
             isFullAdmin={isFullAdmin}
-            familyStudents={students.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
+            familyStudents={allStudents.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
           />
         </TabsContent>
 
         {/* ── Students Tab ───────────────────────────────────── */}
         <TabsContent value="students">
-          {students.length === 0 ? (
+          {allStudents.length === 0 ? (
             <div className="rounded-xl border border-dashed border-sc-gray-200 p-8 text-center">
               <p className="text-body-md text-sc-gray">
                 No students yet.{" "}
@@ -286,42 +288,91 @@ export default async function FamilyDetailPage({
               </p>
             </div>
           ) : (
-            <div className="rounded-xl bg-white border border-sc-gray-100 shadow-card overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-sc-gray-100 bg-sc-cream">
-                    <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Student</th>
-                    <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Grade / Track</th>
-                    <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-sc-gray-100">
-                  {students.map((s) => (
-                    <tr key={s.id} className="hover:bg-sc-cream/50 transition-colors">
-                      <td className="py-3 px-4">
-                        <Link href={`/dashboard/students/${s.id}`} className="group">
-                          <p className="font-medium text-sc-navy group-hover:text-sc-teal transition-colors">
-                            {s.last_name}, {s.first_name}
-                            {s.preferred_name ? <span className="text-sc-gray font-normal"> ({s.preferred_name})</span> : null}
-                          </p>
-                          {s.student_display_id && (
-                            <p className="font-mono text-label-sm text-sc-gray-400">{s.student_display_id}</p>
-                          )}
-                        </Link>
-                      </td>
-                      <td className="py-3 px-4 text-sc-gray">
-                        {s.grade_level ?? "–"}
-                        {s.track && <span className="text-sc-gray-400"> · {s.track}</span>}
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge variant={s.enrollment_status === "enrolled" ? "green" : "muted"}>
-                          {ENROLLMENT_LABELS[s.enrollment_status as EnrollmentStatus] ?? s.enrollment_status}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-6">
+              {/* Active students */}
+              {students.length > 0 && (
+                <div className="rounded-xl bg-white border border-sc-gray-100 shadow-card overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-sc-gray-100 bg-sc-cream">
+                        <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Student</th>
+                        <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Grade / Track</th>
+                        <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-sc-gray-100">
+                      {students.map((s) => (
+                        <tr key={s.id} className="hover:bg-sc-cream/50 transition-colors">
+                          <td className="py-3 px-4">
+                            <Link href={`/dashboard/students/${s.id}`} className="group">
+                              <p className="font-medium text-sc-navy group-hover:text-sc-teal transition-colors">
+                                {s.last_name}, {s.first_name}
+                                {s.preferred_name ? <span className="text-sc-gray font-normal"> ({s.preferred_name})</span> : null}
+                              </p>
+                              {s.student_display_id && (
+                                <p className="font-mono text-label-sm text-sc-gray-400">{s.student_display_id}</p>
+                              )}
+                            </Link>
+                          </td>
+                          <td className="py-3 px-4 text-sc-gray">
+                            {s.grade_level ?? "–"}
+                            {s.track && <span className="text-sc-gray-400"> · {s.track}</span>}
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge variant="green">
+                              {ENROLLMENT_LABELS["enrolled"]}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Former students */}
+              {formerStudents.length > 0 && (
+                <div>
+                  <h3 className="text-label-sm font-semibold text-sc-gray-400 uppercase tracking-wide mb-3">Former Students</h3>
+                  <div className="rounded-xl bg-white border border-sc-gray-100 shadow-card overflow-hidden opacity-80">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-sc-gray-100 bg-sc-cream">
+                          <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Student</th>
+                          <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Grade / Track</th>
+                          <th className="text-left py-3 px-4 text-label-sm font-semibold text-sc-gray uppercase tracking-wide">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-sc-gray-100">
+                        {formerStudents.map((s) => (
+                          <tr key={s.id} className="hover:bg-sc-cream/50 transition-colors">
+                            <td className="py-3 px-4">
+                              <Link href={`/dashboard/students/${s.id}`} className="group">
+                                <p className="font-medium text-sc-gray group-hover:text-sc-teal transition-colors">
+                                  {s.last_name}, {s.first_name}
+                                  {s.preferred_name ? <span className="text-sc-gray-400 font-normal"> ({s.preferred_name})</span> : null}
+                                </p>
+                                {s.student_display_id && (
+                                  <p className="font-mono text-label-sm text-sc-gray-400">{s.student_display_id}</p>
+                                )}
+                              </Link>
+                            </td>
+                            <td className="py-3 px-4 text-sc-gray-400">
+                              {s.grade_level ?? "–"}
+                              {s.track && <span className="text-sc-gray-400"> · {s.track}</span>}
+                            </td>
+                            <td className="py-3 px-4">
+                              <Badge variant="muted">
+                                {ENROLLMENT_LABELS[s.enrollment_status as EnrollmentStatus] ?? s.enrollment_status}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <div className="mt-4 flex">
@@ -341,9 +392,9 @@ export default async function FamilyDetailPage({
             <p className="text-label-sm text-sc-gray">
               Guardians are linked per student. Authorized pickup contacts are listed separately below.
             </p>
-            {students.length > 0 && canManage && (
+            {allStudents.length > 0 && canManage && (
               <AddGuardianDialog
-                students={students.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
+                students={allStudents.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
                 familyId={id}
                 households={households.map((h) => ({ id: h.id, household_label: h.household_label }))}
               />
@@ -353,7 +404,7 @@ export default async function FamilyDetailPage({
             groups={guardianGroups}
             familyId={id}
             households={households.map((h) => ({ id: h.id, household_label: h.household_label }))}
-            students={students.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
+            students={allStudents.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }))}
             canManage={canManage}
             isFullAdmin={isFullAdmin}
           />

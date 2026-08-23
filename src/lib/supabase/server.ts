@@ -166,11 +166,12 @@ export async function getStudents(
     .order("last_name", { ascending: true })
     .range(offset, offset + limit - 1);
 
-  if (enrollmentStatuses && enrollmentStatuses.length > 0) {
-    query = query.in("enrollment_status", enrollmentStatuses);
-  } else {
+  if (enrollmentStatuses === undefined) {
     query = query.eq("enrollment_status", "enrolled");
+  } else if (enrollmentStatuses.length > 0) {
+    query = query.in("enrollment_status", enrollmentStatuses);
   }
+  // empty array = no filter = show all statuses
 
   if (search) {
     query = query.or(

@@ -84,10 +84,14 @@ function PortalInviteDialog({
   function confirm() {
     startSend(async () => {
       setError(null);
-      const result = await sendPortalInvite({ profile_id: profileId, family_id: familyId });
-      if (!result.success) { setError(result.error); return; }
-      setSent(true);
-      setTimeout(() => { onClose(); router.refresh(); }, 1200);
+      try {
+        const result = await sendPortalInvite({ profile_id: profileId, family_id: familyId });
+        if (!result.success) { setError(result.error ?? "Failed to send invite."); return; }
+        setSent(true);
+        setTimeout(() => { onClose(); router.refresh(); }, 1200);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "An unexpected error occurred.");
+      }
     });
   }
 

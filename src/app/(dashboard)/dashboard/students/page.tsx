@@ -35,7 +35,7 @@ export default async function StudentsPage({
 
   const students = await getStudents(orgId, {
     limit: 200,
-    enrollmentStatuses: filterCfg.statuses.length > 0 ? [...filterCfg.statuses] : undefined,
+    enrollmentStatuses: filterCfg.key === "all" ? [] : [...filterCfg.statuses],
   });
 
   const activeCount  = activeFilter === "active"  ? students.length : null;

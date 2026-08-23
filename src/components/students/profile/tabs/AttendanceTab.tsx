@@ -25,7 +25,7 @@ function fmtDate(d: string) {
 
 function fmtTime(iso: string | null) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
 }
 
 function CorrectionMenu({ recordId, hasCkIn, hasCkOut, onCorrected }: {

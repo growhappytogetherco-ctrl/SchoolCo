@@ -2,25 +2,20 @@
 
 import { useState, useEffect, useTransition } from "react";
 import { Save, Search, Clock } from "lucide-react";
-
-// Generate time options every 15 min from 06:00–17:45
-function buildTimeOptions() {
-  const opts: { value: string; label: string }[] = [{ value: "", label: "— No time —" }];
-  for (let h = 6; h <= 17; h++) {
-    for (const m of [0, 15, 30, 45]) {
-      if (h === 17 && m > 45) break;
-      const hh  = String(h).padStart(2, "0");
-      const mm  = String(m).padStart(2, "0");
-      const val = `${hh}:${mm}`;
-      const hr  = h > 12 ? h - 12 : h === 0 ? 12 : h;
-      const ampm = h < 12 ? "AM" : "PM";
-      opts.push({ value: val, label: `${hr}:${mm} ${ampm}` });
-    }
-  }
-  return opts;
-}
-const TIME_OPTIONS = buildTimeOptions();
 import { createClient } from "@/lib/supabase/client";
+
+// Convert a date string (YYYY-MM-DD) and time string (HH:MM) entered in
+// America/New_York to a UTC ISO string for storage in timestamptz columns.
+function toEasternISO(dateStr: string, hhmm: string): string {
+  // Build a Date as if it were UTC, then measure the Eastern offset at that wall time.
+  const naiveUtc = new Date(`${dateStr}T${hhmm}:00Z`);
+  // Format the same instant in Eastern to find what UTC equivalent Eastern "thinks" it is.
+  const easternStr = naiveUtc.toLocaleString("en-US", { timeZone: "America/New_York" });
+  const easternDate = new Date(easternStr);
+  // Difference tells us the Eastern UTC offset at that moment (handles DST automatically).
+  const offsetMs = naiveUtc.getTime() - easternDate.getTime();
+  return new Date(naiveUtc.getTime() + offsetMs).toISOString();
+}
 import { cn } from "@/lib/utils";
 
 interface StudentOption {
@@ -87,9 +82,9 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
 
     startTransition(async () => {
       const supabase = createClient();
-      // Build timestamps from date + time
-      const checkInAt  = checkIn  ? `${date}T${checkIn}:00` : null;
-      const checkOutAt = checkOut ? `${date}T${checkOut}:00` : null;
+      // Build timezone-correct UTC timestamps from Eastern wall-clock times
+      const checkInAt  = checkIn  ? toEasternISO(date, checkIn)  : null;
+      const checkOutAt = checkOut ? toEasternISO(date, checkOut) : null;
 
       // Upsert attendance record for this student+date
       const { error } = await supabase
@@ -196,29 +191,23 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
             <label className="text-label-sm font-semibold text-sc-navy flex items-center gap-1.5">
               <Clock className="size-3.5 text-sc-gray-400" /> Check-In Time
             </label>
-            <select
+            <input
+              type="time"
               value={checkIn}
               onChange={(e) => setCheckIn(e.target.value)}
               className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md text-sc-navy bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal"
-            >
-              {TIME_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            />
           </div>
           <div className="space-y-1.5">
             <label className="text-label-sm font-semibold text-sc-navy flex items-center gap-1.5">
               <Clock className="size-3.5 text-sc-gray-400" /> Check-Out Time
             </label>
-            <select
+            <input
+              type="time"
               value={checkOut}
               onChange={(e) => setCheckOut(e.target.value)}
               className="w-full rounded-xl border border-sc-gray-200 px-3 py-2.5 text-label-md text-sc-navy bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal"
-            >
-              {TIME_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 
