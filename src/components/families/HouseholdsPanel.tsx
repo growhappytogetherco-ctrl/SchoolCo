@@ -1,9 +1,15 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Home, MapPin, Phone, Mail, Shield, User, GraduationCap, CheckCircle, Clock, XCircle, UserX } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Home, MapPin, Phone, Mail, Shield, User, GraduationCap, CheckCircle, Clock, XCircle, UserX, Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { EditHouseholdDialog } from "./EditHouseholdDialog";
+import { updateGuardianProfile } from "@/app/actions/guardians";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -57,6 +63,70 @@ interface Props {
   familyStudents: { id: string; first_name: string; last_name: string }[];
 }
 
+// ── Inline edit contact dialog (household panel) ───────────────────────────
+
+function EditPersonDialog({ profileId, familyId, fullName, email, phone, onClose }: {
+  profileId: string;
+  familyId:  string;
+  fullName:  string;
+  email:     string | null;
+  phone:     string | null;
+  onClose:   () => void;
+}) {
+  const router = useRouter();
+  const [name,   setName]  = useState(fullName);
+  const [eMail,  setEmail] = useState(email ?? "");
+  const [ph,     setPh]    = useState(phone ?? "");
+  const [err,    setErr]   = useState<string | null>(null);
+  const [saving, startSave] = useTransition();
+
+  function save() {
+    startSave(async () => {
+      const r = await updateGuardianProfile({
+        profile_id: profileId,
+        family_id:  familyId,
+        full_name:  name.trim() || undefined,
+        email:      eMail.trim() || null,
+        phone:      ph.trim() || null,
+      });
+      if (!r.success) { setErr(r.error); return; }
+      onClose();
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-sc-navy/40" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-xl p-6 space-y-4">
+        <div>
+          <p className="font-serif text-heading-2 text-sc-navy">Edit Contact Info</p>
+          <p className="text-label-sm text-sc-gray mt-0.5">{fullName}</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ep-hh-name">Full Name</Label>
+          <Input id="ep-hh-name" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ep-hh-email">Email</Label>
+          <Input id="ep-hh-email" type="email" value={eMail} onChange={(e) => setEmail(e.target.value)} placeholder="(none)" />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ep-hh-phone">Phone</Label>
+          <Input id="ep-hh-phone" value={ph} onChange={(e) => setPh(e.target.value)} placeholder="(none)" />
+        </div>
+        {err && (
+          <p className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">{err}</p>
+        )}
+        <div className="flex gap-3 pt-1">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-1" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save"}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Portal status badge ────────────────────────────────────────────────────
 
 const PORTAL_STATUS: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
@@ -77,6 +147,7 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
 export function HouseholdsPanel({
   households, familyId, isSplit, canManage, isFullAdmin, familyStudents,
 }: Props) {
+  const [editingPerson, setEditingPerson] = useState<HouseholdGuardian | null>(null);
   if (households.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-sc-gray-200 p-8 text-center">
@@ -169,9 +240,20 @@ export function HouseholdsPanel({
                               <p className="text-label-md font-semibold text-sc-navy">{g.full_name}</p>
                               <p className="text-label-sm text-sc-gray capitalize">{relLabels}</p>
                             </div>
-                            <span className={cn("flex items-center gap-1 rounded-full border px-2 py-0.5 text-label-sm font-medium shrink-0", ps.cls)}>
-                              <PsIcon className="size-3" /> {ps.label}
-                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {canManage && (
+                                <button
+                                  onClick={() => setEditingPerson(g)}
+                                  className="rounded-lg p-1 text-sc-gray-400 hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+                                  title="Edit contact info"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </button>
+                              )}
+                              <span className={cn("flex items-center gap-1 rounded-full border px-2 py-0.5 text-label-sm font-medium", ps.cls)}>
+                                <PsIcon className="size-3" /> {ps.label}
+                              </span>
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             {hasLegal && (
@@ -244,6 +326,17 @@ export function HouseholdsPanel({
           </div>
         );
       })}
+
+      {editingPerson && (
+        <EditPersonDialog
+          profileId={editingPerson.profile_id}
+          familyId={familyId}
+          fullName={editingPerson.full_name}
+          email={editingPerson.email}
+          phone={editingPerson.phone}
+          onClose={() => setEditingPerson(null)}
+        />
+      )}
     </div>
   );
 }

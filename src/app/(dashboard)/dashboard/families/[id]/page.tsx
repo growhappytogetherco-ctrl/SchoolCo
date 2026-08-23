@@ -447,8 +447,8 @@ interface GuardianshipRow {
 
 interface ProfileRow {
   id:         string;
-  full_name:  string;
-  email:      string;
+  full_name:  string | null;
+  email:      string | null;
   phone:      string | null;
 }
 

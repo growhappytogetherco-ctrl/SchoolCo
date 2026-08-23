@@ -678,58 +678,83 @@ export const UpdateGuardianProfileSchema = z.object({
 export async function updateGuardianProfile(
   rawData: z.infer<typeof UpdateGuardianProfileSchema>
 ): Promise<ActionResult<void>> {
-  const parse = UpdateGuardianProfileSchema.safeParse(rawData);
-  if (!parse.success) return { success: false, error: "Validation failed." };
-
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { success: false, error: "Not authenticated." };
-
-  const orgId = await getActiveOrgId();
-  if (!orgId) return { success: false, error: "No active organization." };
-
-  const { data: membership } = await supabase.from("organization_members")
-    .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
-  if (!membership || !["registrar","admin","full_admin","platform_admin"].includes(membership.role as string))
-    return { success: false, error: "Insufficient permissions." };
-
-  const { profile_id, family_id, ...updates } = parse.data;
-  const filtered = Object.fromEntries(
-    Object.entries(updates).filter(([, v]) => v !== undefined)
-  );
-  if (Object.keys(filtered).length === 0) return { success: true, data: undefined };
-
-  // Check email uniqueness before attempting update
-  if (filtered.email) {
-    const { data: existing } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("email", filtered.email)
-      .neq("id", profile_id)
-      .maybeSingle();
-    if (existing) {
-      return { success: false, error: "This email is already associated with another SchoolCo profile." };
-    }
-  }
-
   try {
-    const { error } = await supabase.from("profiles").update(filtered).eq("id", profile_id);
-    if (error) {
-      if (error.code === "23505") {
+    console.log("[updateGuardianProfile] step 1: parsing input");
+    const parse = UpdateGuardianProfileSchema.safeParse(rawData);
+    if (!parse.success) {
+      console.error("[updateGuardianProfile] validation failed:", parse.error.message);
+      return { success: false, error: "Validation failed." };
+    }
+
+    console.log("[updateGuardianProfile] step 2: getting auth user");
+    const supabase = await createClient();
+    const authResult = await supabase.auth.getUser();
+    const user = authResult.data?.user;
+    if (!user) {
+      console.error("[updateGuardianProfile] not authenticated");
+      return { success: false, error: "Not authenticated." };
+    }
+
+    console.log("[updateGuardianProfile] step 3: getting orgId");
+    const orgId = await getActiveOrgId();
+    if (!orgId) {
+      console.error("[updateGuardianProfile] no active org");
+      return { success: false, error: "No active organization." };
+    }
+
+    console.log("[updateGuardianProfile] step 4: checking membership");
+    const { data: membership, error: memErr } = await supabase.from("organization_members")
+      .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
+    if (memErr) console.error("[updateGuardianProfile] membership query error:", memErr.message);
+    if (!membership || !["registrar","admin","full_admin","platform_admin"].includes(membership.role as string)) {
+      console.error("[updateGuardianProfile] insufficient permissions, role:", membership?.role);
+      return { success: false, error: "Insufficient permissions." };
+    }
+
+    const { profile_id, family_id, ...updates } = parse.data;
+    const filtered = Object.fromEntries(
+      Object.entries(updates).filter(([, v]) => v !== undefined)
+    );
+    if (Object.keys(filtered).length === 0) return { success: true, data: undefined };
+
+    console.log("[updateGuardianProfile] step 5: checking email uniqueness, filtered keys:", Object.keys(filtered));
+    // Check email uniqueness before attempting update
+    if (filtered.email) {
+      const { data: existing, error: emailCheckErr } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", filtered.email as string)
+        .neq("id", profile_id)
+        .maybeSingle();
+      if (emailCheckErr) console.error("[updateGuardianProfile] email check error:", emailCheckErr.message);
+      if (existing) {
         return { success: false, error: "This email is already associated with another SchoolCo profile." };
       }
-      return { success: false, error: error.message };
     }
 
+    console.log("[updateGuardianProfile] step 6: updating profile row");
+    const { error: updateErr } = await supabase.from("profiles").update(filtered).eq("id", profile_id);
+    if (updateErr) {
+      console.error("[updateGuardianProfile] update error:", updateErr.message, updateErr.code);
+      if (updateErr.code === "23505") {
+        return { success: false, error: "This email is already associated with another SchoolCo profile." };
+      }
+      return { success: false, error: updateErr.message };
+    }
+
+    console.log("[updateGuardianProfile] step 7: writing audit log");
     await logAudit({
       organization_id: orgId, actor_id: user.id, action: "guardian.profile_updated",
       resource_type: "profile", resource_id: profile_id, metadata: filtered,
     });
 
+    console.log("[updateGuardianProfile] step 8: revalidating path");
     revalidatePath(`/dashboard/families/${family_id}`);
+
+    console.log("[updateGuardianProfile] step 9: done — returning success");
     return { success: true, data: undefined };
   } catch (err) {
-    console.error("[updateGuardianProfile] unexpected error:", err);
+    console.error("[updateGuardianProfile] UNHANDLED EXCEPTION:", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : "");
     return { success: false, error: "An unexpected error occurred. Please try again." };
   }
 }
