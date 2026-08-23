@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useRef } from "react";
 import { Save, Search, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toEasternISO } from "@/lib/format-attendance-time";
@@ -32,6 +32,8 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
   const [status,   setStatus]   = useState("present");
   const [checkIn,  setCheckIn]  = useState("");
   const [checkOut, setCheckOut] = useState("");
+  const checkInRef  = useRef<HTMLInputElement>(null);
+  const checkOutRef = useRef<HTMLInputElement>(null);
   const [notes,    setNotes]    = useState("");
   const [isLate,   setIsLate]   = useState(false);
   const [isEarlyPickup, setIsEarlyPickup] = useState(false);
@@ -68,11 +70,16 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
     if (!studentId) { setMessage({ text: "Please select a student.", ok: false }); return; }
 
     startTransition(async () => {
-      const checkInAt  = checkIn  ? toEasternISO(date, checkIn)  : null;
-      const checkOutAt = checkOut ? toEasternISO(date, checkOut) : null;
+      // Read from DOM refs as the authoritative source — bypasses any React
+      // state update timing issues with <input type="time"> in various browsers.
+      const checkInVal  = checkInRef.current?.value  || checkIn;
+      const checkOutVal = checkOutRef.current?.value || checkOut;
+
+      const checkInAt  = checkInVal  ? toEasternISO(date, checkInVal)  : null;
+      const checkOutAt = checkOutVal ? toEasternISO(date, checkOutVal) : null;
 
       // DEBUG — visible in production UI to trace the actual values
-      const debugInfo = `[DEBUG] checkIn="${checkIn}" checkOut="${checkOut}" → in=${checkInAt} out=${checkOutAt}`;
+      const debugInfo = `[DEBUG] checkIn="${checkInVal}" checkOut="${checkOutVal}" → in=${checkInAt} out=${checkOutAt}`;
 
       const result = await saveManualAttendance({
         studentId,
@@ -173,6 +180,7 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
               <Clock className="size-3.5 text-sc-gray-400" /> Check-In Time
             </label>
             <input
+              ref={checkInRef}
               type="time"
               value={checkIn}
               onChange={(e) => setCheckIn(e.target.value)}
@@ -184,6 +192,7 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
               <Clock className="size-3.5 text-sc-gray-400" /> Check-Out Time
             </label>
             <input
+              ref={checkOutRef}
               type="time"
               value={checkOut}
               onChange={(e) => setCheckOut(e.target.value)}
