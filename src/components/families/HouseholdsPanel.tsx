@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Home, MapPin, Phone, Mail, Shield, User, GraduationCap, CheckCircle, Clock, XCircle, UserX, Pencil } from "lucide-react";
@@ -78,10 +78,12 @@ function EditPersonDialog({ profileId, familyId, fullName, email, phone, onClose
   const [eMail,  setEmail] = useState(email ?? "");
   const [ph,     setPh]    = useState(phone ?? "");
   const [err,    setErr]   = useState<string | null>(null);
-  const [saving, startSave] = useTransition();
+  const [saving, setSaving] = useState(false);
 
-  function save() {
-    startSave(async () => {
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    try {
       const r = await updateGuardianProfile({
         profile_id: profileId,
         family_id:  familyId,
@@ -89,10 +91,13 @@ function EditPersonDialog({ profileId, familyId, fullName, email, phone, onClose
         email:      eMail.trim() || null,
         phone:      ph.trim() || null,
       });
-      if (!r.success) { setErr(r.error); return; }
+      if (!r.success) { setErr(r.error); setSaving(false); return; }
       onClose();
       router.refresh();
-    });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Unexpected error. Please try again.");
+      setSaving(false);
+    }
   }
 
   return (

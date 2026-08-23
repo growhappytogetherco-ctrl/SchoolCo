@@ -111,10 +111,12 @@ function EditProfileDialog({ group, familyId, onClose }: {
   const [email, setEmail] = useState(group.email ?? "");
   const [phone, setPhone] = useState(group.phone ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [saving, startSave] = useTransition();
+  const [saving, setSaving] = useState(false);
 
-  function save() {
-    startSave(async () => {
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
       const r = await updateGuardianProfile({
         profile_id: group.profile_id,
         family_id:  familyId,
@@ -122,10 +124,13 @@ function EditProfileDialog({ group, familyId, onClose }: {
         email:      email.trim() || null,
         phone:      phone.trim() || null,
       });
-      if (!r.success) { setError(r.error); return; }
+      if (!r.success) { setError(r.error); setSaving(false); return; }
       onClose();
       router.refresh();
-    });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unexpected error. Please try again.");
+      setSaving(false);
+    }
   }
 
   return (

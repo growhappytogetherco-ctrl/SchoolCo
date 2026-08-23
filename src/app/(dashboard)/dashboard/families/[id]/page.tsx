@@ -46,9 +46,15 @@ export default async function FamilyDetailPage({
 
   const canManage = getRoleLevel(role ?? "") >= getRoleLevel("registrar");
 
-  const households = ((family.households ?? []) as HouseholdRow[])
-    .filter((h) => !h.archived_at)
-    .sort((a, b) => a.sort_order - b.sort_order);
+  let households: HouseholdRow[];
+  try {
+    households = ((family.households ?? []) as HouseholdRow[])
+      .filter((h) => !h.archived_at)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  } catch (e) {
+    console.error("[FamilyDetailPage] households build error:", e);
+    throw e;
+  }
 
   const allStudents = ((family.students ?? []) as StudentRow[])
     .filter((s) => !s.archived_at);
