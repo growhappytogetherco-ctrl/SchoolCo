@@ -101,11 +101,14 @@ async function renderFamilyDetail({
     const profile = g.profiles as ProfileRow | null;
     if (!profile) continue;
     if (!groupMap.has(profile.id)) {
+      // Fall back to the guardian's household email/phone when the profile has none.
+      // Household contact fields are the same data the Households tab header displays.
+      const hhRow = households.find(h => h.id === g.household_id);
       groupMap.set(profile.id, {
         profile_id:    profile.id,
         full_name:     profile.full_name ?? "Unknown",
-        email:         profile.email ?? null,
-        phone:         profile.phone ?? null,
+        email:         profile.email ?? hhRow?.email ?? null,
+        phone:         profile.phone ?? hhRow?.phone ?? null,
         has_auth:      !!(profile as any).auth_user_id,
         portal_status: portalStatusMap[profile.id] ?? "no_account",
         portal_role:   portalRoleMap[profile.id]   ?? null,
