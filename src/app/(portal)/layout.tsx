@@ -3,9 +3,10 @@ import Link from "next/link";
 import { getUser, getProfile } from "@/lib/supabase/server";
 import { getActiveOrgId, getActiveRole, HAS_PARENT_COOKIE_NAME, PORTAL_VIEW_COOKIE_NAME } from "@/lib/supabase/org-context";
 import { setPortalView } from "@/app/actions/org";
+import { signOutAction } from "@/app/actions/auth";
 import { PortalMessagesLink } from "@/components/messages/PortalMessagesLink";
 import { getParentUnreadForWidget } from "@/app/actions/messages";
-import { Home, User, GraduationCap, Calendar, BookOpen, LayoutDashboard } from "lucide-react";
+import { Home, User, GraduationCap, Calendar, BookOpen, LayoutDashboard, LogOut } from "lucide-react";
 import { cookies } from "next/headers";
 
 /**
@@ -101,6 +102,8 @@ export default async function PortalLayout({ children }: { children: React.React
               <User className="size-4" />
               <span className="hidden md:block">{firstName ?? "Account"}</span>
             </Link>
+
+            {/* Multi-role: Switch to Staff Dashboard */}
             {isMultiRole && (
               <form action={async () => {
                 "use server";
@@ -118,6 +121,18 @@ export default async function PortalLayout({ children }: { children: React.React
                 </button>
               </form>
             )}
+
+            {/* Sign Out */}
+            <form action={signOutAction}>
+              <button
+                type="submit"
+                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-rose hover:text-sc-rose-700 hover:bg-sc-rose-50 transition-colors"
+                title="Sign Out"
+              >
+                <LogOut className="size-4" />
+                <span className="hidden lg:block">Sign Out</span>
+              </button>
+            </form>
           </nav>
         </div>
       </header>

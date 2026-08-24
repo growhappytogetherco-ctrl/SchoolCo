@@ -44,18 +44,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const orgId = localStorage.getItem("sc_active_org");
       if (!orgId) { router.push("/select-mission"); return; }
 
-      // Fetch profile
+      // Fetch profile — use .or() to handle guardian stub accounts where
+      // profiles.id != auth.uid() (auth_user_id column bridges the two)
       const { data: profile } = await supabase
         .from("profiles")
-        .select("full_name, avatar_url")
-        .eq("id", user.id)
-        .single();
+        .select("id, full_name, avatar_url")
+        .or(`id.eq.${user.id},auth_user_id.eq.${user.id}`)
+        .maybeSingle();
+      const profileId = (profile as { id: string } | null)?.id ?? user.id;
 
-      // Fetch membership + org
+      // Fetch membership + org using canonical profileId
       const { data: membership } = await supabase
         .from("organization_members")
         .select(`role, roles, organizations ( id, name, logo_url )`)
-        .eq("profile_id", user.id)
+        .eq("profile_id", profileId)
         .eq("organization_id", orgId)
         .eq("status", "active")
         .single();
@@ -78,10 +80,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
 
       const org = membership.organizations as OrgContext;
-      const resolvedUserId = user.id;
 
       setCtx({
-        id:             resolvedUserId,
+        id:             profileId,
         full_name:      profile?.full_name ?? "User",
         avatar_url:     profile?.avatar_url ?? null,
         role:           membership.role as UserRole,

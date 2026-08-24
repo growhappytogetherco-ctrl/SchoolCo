@@ -2,14 +2,13 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Menu, Search, Bell, ChevronDown, LogOut, User, Settings, RefreshCw, Home } from "lucide-react";
 import { setPortalView } from "@/app/actions/org";
+import { signOutAction } from "@/app/actions/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ROLE_LABELS, type UserRole } from "@/lib/constants";
-import { createClient } from "@/lib/supabase/client";
 import { getInitials } from "@/lib/utils";
 
 interface AppHeaderProps {
@@ -22,9 +21,9 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ userName, userAvatar, orgName, role, hasParentAccess = false, onMenuToggle }: AppHeaderProps) {
-  const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
   const [, startParentTransition] = useTransition();
+  const [, startSignOutTransition] = useTransition();
 
   function switchToParent() {
     setProfileOpen(false);
@@ -33,10 +32,9 @@ export function AppHeader({ userName, userAvatar, orgName, role, hasParentAccess
     startParentTransition(() => setPortalView(form));
   }
 
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
+  function handleSignOut() {
+    setProfileOpen(false);
+    startSignOutTransition(() => signOutAction());
   }
 
   const initials = getInitials(userName || "User");
