@@ -34,47 +34,18 @@ export default async function FamilyDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  // Outer try covers EVERYTHING including getUser/getFamily/redirect/notFound.
-  // Re-throw Next.js built-in signals (redirect, notFound) so routing still works.
-  try {
-    const { id } = await params;
-    const user   = await getUser();
-    if (!user) redirect("/login");
+  const { id } = await params;
+  const user   = await getUser();
+  if (!user) redirect("/login");
 
-    const orgId = await getActiveOrgId();
-    if (!orgId) redirect("/select-mission");
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/select-mission");
 
-    const [family, role] = await Promise.all([getFamily(id), getCurrentRole()]);
-    if (!family) notFound();
+  const [family, role] = await Promise.all([getFamily(id), getCurrentRole()]);
+  if (!family) notFound();
 
-    const canManage = getRoleLevel(role ?? "") >= getRoleLevel("registrar");
-
-    return await renderFamilyDetail({ id, family: family!, role, canManage, orgId: orgId! });
-  } catch (e: unknown) {
-    // Re-throw Next.js internal signals (redirect, notFound, etc.)
-    if (
-      e != null &&
-      typeof e === "object" &&
-      "digest" in e &&
-      typeof (e as { digest: unknown }).digest === "string" &&
-      ((e as { digest: string }).digest.startsWith("NEXT_") ||
-       (e as { digest: string }).digest.includes("REDIRECT") ||
-       (e as { digest: string }).digest.includes("NOT_FOUND"))
-    ) {
-      throw e;
-    }
-    const msg   = e instanceof Error ? e.message : String(e);
-    const stack = e instanceof Error ? (e.stack ?? "") : "";
-    console.error("[FamilyDetailPage] CRASH:", msg, "\n", stack);
-    // Staff-only route: safe to show real error for diagnosis
-    return (
-      <div className="p-8 rounded-2xl bg-sc-rose-50 border border-sc-rose-200 max-w-3xl space-y-3">
-        <h2 className="font-serif text-2xl text-sc-rose">Page error — staff debug</h2>
-        <p className="text-label-sm text-sc-gray font-semibold">Copy this and send to your developer:</p>
-        <pre className="text-xs text-sc-gray font-mono whitespace-pre-wrap bg-white border border-sc-rose-200 rounded-lg p-4 overflow-x-auto break-all">{msg}{"\n\n"}{stack}</pre>
-      </div>
-    );
-  }
+  const canManage = getRoleLevel(role ?? "") >= getRoleLevel("registrar");
+  return renderFamilyDetail({ id, family: family!, role, canManage, orgId: orgId! });
 }
 
 async function renderFamilyDetail({
@@ -86,15 +57,9 @@ async function renderFamilyDetail({
   canManage: boolean;
   orgId: string;
 }) {
-  let households: HouseholdRow[];
-  try {
-    households = ((family.households ?? []) as HouseholdRow[])
-      .filter((h) => !h.archived_at)
-      .sort((a, b) => a.sort_order - b.sort_order);
-  } catch (e) {
-    console.error("[FamilyDetailPage] households build error:", e);
-    throw e;
-  }
+  const households: HouseholdRow[] = ((family.households ?? []) as HouseholdRow[])
+    .filter((h) => !h.archived_at)
+    .sort((a, b) => a.sort_order - b.sort_order);
 
   const allStudents = ((family.students ?? []) as StudentRow[])
     .filter((s) => !s.archived_at);

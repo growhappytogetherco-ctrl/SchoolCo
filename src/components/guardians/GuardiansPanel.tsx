@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Pencil, Trash2, UserPlus, UserMinus, Phone, Mail, AlertTriangle,
   ChevronDown, ChevronUp, User, ShieldCheck, Car,
@@ -15,7 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { GuardianPortalControls } from "@/components/guardians/GuardianPortalControls";
 import type { PortalPreviewStudent } from "@/components/guardians/GuardianPortalControls";
 import {
-  updateGuardianProfile, updateGuardianship, linkGuardianToStudent,
+  updateGuardianship, linkGuardianToStudent,
   removeGuardianship, deleteGuardianProfile,
 } from "@/app/actions/guardians";
 import { RELATIONSHIP_LABELS, CUSTODY_LABELS, requiresSupervisionAlert } from "@/lib/constants";
@@ -98,63 +99,6 @@ function ErrBanner({ msg }: { msg: string | null }) {
   if (!msg) return null;
   return (
     <p className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">{msg}</p>
-  );
-}
-
-// ── Edit Guardian Profile dialog ──────────────────────────────────────────────
-
-function EditProfileDialog({ group, familyId, onClose }: {
-  group: GuardianGroup; familyId: string; onClose: () => void;
-}) {
-  const router = useRouter();
-  const [name,  setName]  = useState(group.full_name);
-  const [email, setEmail] = useState(group.email ?? "");
-  const [phone, setPhone] = useState(group.phone ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  async function save() {
-    setSaving(true);
-    setError(null);
-    try {
-      const r = await updateGuardianProfile({
-        profile_id: group.profile_id,
-        family_id:  familyId,
-        full_name:  name.trim() || undefined,
-        email:      email.trim() || null,
-        phone:      phone.trim() || null,
-      });
-      if (!r.success) { setError(r.error); setSaving(false); return; }
-      onClose();
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unexpected error. Please try again.");
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal title="Edit Contact Info" subtitle={group.full_name} onClose={onClose}>
-      <div className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="ep-name">Full Name</Label>
-          <Input id="ep-name" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ep-email">Email</Label>
-          <Input id="ep-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="(none)" />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ep-phone">Phone</Label>
-          <Input id="ep-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(none)" />
-        </div>
-        <ErrBanner msg={error} />
-        <div className="flex gap-3 pt-1">
-          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-1" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save"}</Button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 
@@ -453,8 +397,8 @@ function GuardianPersonCard({
   group: GuardianGroup; familyId: string; households: Household[];
   students: Student[]; canManage: boolean; isFullAdmin: boolean;
 }) {
+  const router = useRouter();
   const [expanded,       setExpanded]       = useState(false);
-  const [editProfile,    setEditProfile]    = useState(false);
   const [editRel,        setEditRel]        = useState<GuardianRelationship | null>(null);
   const [removeRel,      setRemoveRel]      = useState<GuardianRelationship | null>(null);
   const [addRel,         setAddRel]         = useState(false);
@@ -513,13 +457,13 @@ function GuardianPersonCard({
 
           <div className="flex items-center gap-1 shrink-0">
             {canManage && (
-              <button
-                onClick={() => setEditProfile(true)}
+              <Link
+                href={`/dashboard/families/${familyId}`}
                 className="rounded-lg p-1.5 text-sc-gray-400 hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
-                title="Edit contact info"
+                title="Edit contact info in Households"
               >
                 <Pencil className="size-3.5" />
-              </button>
+              </Link>
             )}
             {isFullAdmin && (
               <button
@@ -554,7 +498,7 @@ function GuardianPersonCard({
               guardianEmail={group.email}
               previewStudents={previewStudents}
               isStaffMember={isStaffMember}
-              onEditContact={() => setEditProfile(true)}
+              onEditContact={() => router.push(`/dashboard/families/${familyId}`)}
             />
           </div>
         )}
@@ -653,7 +597,6 @@ function GuardianPersonCard({
       </div>
 
       {/* Modals */}
-      {editProfile   && <EditProfileDialog    group={group} familyId={familyId} onClose={() => setEditProfile(false)} />}
       {editRel       && <EditRelationshipDialog rel={editRel} group={group} familyId={familyId} households={households} onClose={() => setEditRel(null)} />}
       {removeRel     && <RemoveRelationshipDialog rel={removeRel} group={group} familyId={familyId} onClose={() => setRemoveRel(null)} />}
       {addRel        && <AddRelationshipDialog group={group} familyId={familyId} households={households} students={students} existingStudentIds={existingStudentIds} onClose={() => setAddRel(false)} />}
