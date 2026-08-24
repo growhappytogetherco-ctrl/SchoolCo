@@ -40,11 +40,19 @@ export async function setActiveOrg(formData: FormData): Promise<ActionResult<voi
     return { success: false, error: "Not authenticated." };
   }
 
+  // Resolve canonical profile ID — guardian stubs have profiles.id ≠ auth.uid()
+  const { data: profileRow } = await supabase
+    .from("profiles")
+    .select("id")
+    .or(`id.eq.${user.id},auth_user_id.eq.${user.id}`)
+    .maybeSingle();
+  const profileId = (profileRow as { id: string } | null)?.id ?? user.id;
+
   // Validate that this user is an active member of the requested org
   const { data: membership, error } = await supabase
     .from("organization_members")
     .select("role, roles")
-    .eq("profile_id", user.id)
+    .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();

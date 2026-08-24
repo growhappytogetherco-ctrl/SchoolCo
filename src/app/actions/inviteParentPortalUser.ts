@@ -9,7 +9,7 @@
  *  - All expected operational errors are returned as { success: false, error }
  *  - Unexpected errors are caught and returned as { success: false, error }
  *  - Admin client used for all DB writes (no RLS interference)
- *  - "invited" is NOT a valid membership_status enum value; uses "pending" instead
+ *  - Uses status "active" immediately — Supabase Auth gates actual access, not membership_status
  */
 
 import { createClient } from "@/lib/supabase/server";
@@ -181,23 +181,24 @@ export async function inviteParentPortalUser(rawData: {
     }
 
     // ── 11. Create or update org_members row ──────────────────────────────
-    // membership_status enum: active | inactive | pending | suspended
-    // "pending" = invite sent, not yet accepted
+    // Use "active" immediately — Supabase Auth gates actual login, so a parent
+    // only gains access after accepting the email invite. "pending" would prevent
+    // the portal from loading even after acceptance.
     const now = new Date().toISOString();
     const isResend = !!existing; // row already exists from a prior invite attempt
     let outcome: "invited" | "resent" = "invited";
 
     if (existing) {
-      // Re-invite: update status to pending
+      // Re-invite: reset to active (re-enables disabled access too)
       const { error: updErr } = await adminClient
         .from("organization_members")
-        .update({ role: "parent", roles: ["parent"], status: "pending", updated_at: now })
+        .update({ role: "parent", roles: ["parent"], status: "active", updated_at: now })
         .eq("profile_id", rawData.profile_id)
         .eq("organization_id", orgId);
       if (updErr) return { success: false, error: `Failed to update member record: ${updErr.message}` };
       outcome = "resent";
     } else {
-      // First invite: insert new row
+      // First invite: insert new row as active
       const { error: insErr } = await adminClient
         .from("organization_members")
         .insert({
@@ -205,7 +206,7 @@ export async function inviteParentPortalUser(rawData: {
           profile_id:      rawData.profile_id,
           role:            "parent",
           roles:           ["parent"],
-          status:          "pending",
+          status:          "active",
           created_at:      now,
           updated_at:      now,
         });

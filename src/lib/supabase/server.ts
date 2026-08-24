@@ -49,18 +49,38 @@ export async function getUser() {
 }
 
 /**
- * Returns the profile row for the given user ID, or null if not found.
+ * Returns the profile row for the given auth user ID, or null if not found.
+ * Handles guardian stubs where profiles.id ≠ auth.uid() by also checking
+ * profiles.auth_user_id.
  */
 export async function getProfile(userId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("profiles")
     .select("*")
-    .eq("id", userId)
-    .single();
+    .or(`id.eq.${userId},auth_user_id.eq.${userId}`)
+    .maybeSingle();
 
   if (error) return null;
   return data;
+}
+
+/**
+ * Resolves the canonical profiles.id for a given auth user ID.
+ * For native users: profiles.id = authUserId.
+ * For guardian stubs (post-00041): profiles.id is the stub UUID;
+ *   profiles.auth_user_id = authUserId.
+ * Falls back to authUserId if no profile found (safe for callers that
+ * need a non-null value before a profile exists).
+ */
+async function resolveProfileId(authUserId: string): Promise<string> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("id")
+    .or(`id.eq.${authUserId},auth_user_id.eq.${authUserId}`)
+    .maybeSingle();
+  return (data as { id: string } | null)?.id ?? authUserId;
 }
 
 /**
@@ -68,6 +88,7 @@ export async function getProfile(userId: string) {
  * joined with organization data. Used by the mission switcher.
  */
 export async function getUserOrganizations(userId: string) {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("organization_members")
@@ -80,7 +101,7 @@ export async function getUserOrganizations(userId: string) {
         logo_url, primary_color, is_active
       )
     `)
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("status", "active");
 
   if (error) return [];
@@ -94,11 +115,12 @@ export async function getUserOrganizations(userId: string) {
  * Used in server actions to verify role before mutations.
  */
 export async function getOrgMembership(userId: string, orgId: string) {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("organization_members")
     .select("*")
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();
@@ -394,6 +416,7 @@ export async function getStudentTimelineForParent(
  * RLS enforces split-household isolation automatically.
  */
 export async function getGuardianChildren(userId: string, orgId: string): Promise<ParentChild[]> {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("guardianships")
@@ -405,7 +428,7 @@ export async function getGuardianChildren(userId: string, orgId: string): Promis
         avatar_url
       )
     `)
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .is("archived_at", null);
@@ -461,6 +484,7 @@ export async function getStudentForParent(
   userId: string,
   orgId: string
 ): Promise<ParentStudentDetail | null> {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
   const today = new Date().toISOString().split("T")[0];
 
@@ -468,7 +492,7 @@ export async function getStudentForParent(
   const { data: guardianship } = await supabase
     .from("guardianships")
     .select("id, relationship_type, custody_type")
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
     .eq("status", "active")
@@ -560,13 +584,14 @@ export async function getAttendanceHistoryForParent(
   orgId: string,
   limit = 14
 ): Promise<AttendanceDay[]> {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
 
   // Verify guardianship first
   const { data: gd } = await supabase
     .from("guardianships")
     .select("id")
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
     .eq("status", "active")
@@ -606,12 +631,13 @@ export async function getProgressCheckinsForParent(
   orgId: string,
   limit = 5
 ): Promise<ProgressCheckin[]> {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
 
   const { data: gd } = await supabase
     .from("guardianships")
     .select("id")
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
     .eq("status", "active")
@@ -650,12 +676,13 @@ export async function getStudentGoalsForParent(
   userId: string,
   orgId: string
 ): Promise<ParentGoal[]> {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
 
   const { data: gd } = await supabase
     .from("guardianships")
     .select("id")
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
     .eq("status", "active")
@@ -689,12 +716,13 @@ export async function getMedicalSummaryForParent(
   userId: string,
   orgId: string
 ): Promise<MedicalSummary> {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
 
   const { data: gd } = await supabase
     .from("guardianships")
     .select("id")
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
     .eq("status", "active")
@@ -730,6 +758,7 @@ export async function getMedicalSummaryForParent(
  * Returns all guardianships for a parent (for the settings page).
  */
 export async function getMyGuardianships(userId: string, orgId: string) {
+  const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("guardianships")
@@ -738,7 +767,7 @@ export async function getMyGuardianships(userId: string, orgId: string) {
       is_primary_contact, is_emergency_contact, status,
       students ( id, first_name, last_name, preferred_name, grade_level )
     `)
-    .eq("profile_id", userId)
+    .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .is("archived_at", null);

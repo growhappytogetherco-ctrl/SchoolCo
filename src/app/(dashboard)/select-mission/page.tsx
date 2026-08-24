@@ -39,13 +39,16 @@ export default function SelectMissionPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
 
-      // Get profile name
+      // Get profile — use or() to handle guardian stubs (profiles.id ≠ auth.uid())
       const { data: profile } = await supabase
         .from("profiles")
-        .select("full_name")
-        .eq("id", user.id)
-        .single();
+        .select("id, full_name")
+        .or(`id.eq.${user.id},auth_user_id.eq.${user.id}`)
+        .maybeSingle();
       setUserName(profile?.full_name?.split(" ")[0] ?? "");
+
+      // Use canonical profile.id (not user.id) so guardian stubs get their memberships
+      const profileId = (profile as { id: string } | null)?.id ?? user.id;
 
       // Get org memberships
       const { data } = await supabase
@@ -56,7 +59,7 @@ export default function SelectMissionPage() {
             id, name, slug, logo_url, tagline, primary_color, is_active
           )
         `)
-        .eq("profile_id", user.id)
+        .eq("profile_id", profileId)
         .eq("status", "active");
 
       setMemberships((data as OrgMembership[]) ?? []);
