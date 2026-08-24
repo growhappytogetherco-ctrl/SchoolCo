@@ -522,10 +522,10 @@ export async function sendPortalInvite(
   if (existingRow && STAFF_ROLES.includes(existingRow.role)) {
     // This person already has staff-level access. Portal invite would downgrade them.
     // Log the event but leave their role/status untouched.
-    await logAudit({
-      organization_id: orgId, actor_id: actingUser.id,
+    await writeAuditLog(supabase, {
+      organizationId: orgId, actorId: actingUser.id,
       action: "guardian.portal_invite_skipped_staff",
-      resource_type: "profile", resource_id: rawData.profile_id,
+      resourceType: "profile", resourceId: rawData.profile_id,
       metadata: { existing_role: existingRow.role, email: profile.email },
     });
     revalidatePath(`/dashboard/families/${rawData.family_id}`);
@@ -537,26 +537,35 @@ export async function sendPortalInvite(
     data: { full_name: profile.full_name },
     redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/auth/callback?next=/portal/children`,
   });
-  if (inviteError && !inviteError.message.includes("already been registered")) {
+  // Treat "already registered" as success — the user exists and can log in
+  const alreadyRegistered = inviteError && (
+    inviteError.message.toLowerCase().includes("already registered") ||
+    inviteError.message.toLowerCase().includes("already been registered") ||
+    inviteError.message.toLowerCase().includes("user already")
+  );
+  if (inviteError && !alreadyRegistered) {
     return { success: false, error: `Failed to send invite: ${inviteError.message}` };
   }
 
-  // If they already have a parent/volunteer row, update it; otherwise insert
+  // Use admin client for org_members write — consistent with auth operation above
+  const now = new Date().toISOString();
   if (existingRow) {
-    await supabase.from("organization_members")
-      .update({ role: "parent", status: "invited", updated_at: new Date().toISOString() })
+    const { error: updateErr } = await adminClient.from("organization_members")
+      .update({ role: "parent", status: "invited", updated_at: now })
       .eq("profile_id", rawData.profile_id)
       .eq("organization_id", orgId);
+    if (updateErr) return { success: false, error: `Failed to update member record: ${updateErr.message}` };
   } else {
-    await supabase.from("organization_members").insert({
+    const { error: insertErr } = await adminClient.from("organization_members").insert({
       organization_id: orgId, profile_id: rawData.profile_id, role: "parent", status: "invited",
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      created_at: now, updated_at: now,
     });
+    if (insertErr) return { success: false, error: `Failed to create member record: ${insertErr.message}` };
   }
 
-  await logAudit({
-    organization_id: orgId, actor_id: actingUser.id, action: "guardian.portal_invited",
-    resource_type: "profile", resource_id: rawData.profile_id, metadata: {},
+  await writeAuditLog(supabase, {
+    organizationId: orgId, actorId: actingUser.id, action: "guardian.portal_invited",
+    resourceType: "profile", resourceId: rawData.profile_id, metadata: {},
   });
 
   revalidatePath(`/dashboard/families/${rawData.family_id}`);
@@ -574,6 +583,7 @@ export async function sendPortalInvite(
 export async function setPortalAccess(
   rawData: { profile_id: string; family_id: string; action: "disable" | "restore" }
 ): Promise<ActionResult<void>> {
+  try {
   const supabase = await createClient();
   const { data: { user: actingUser } } = await supabase.auth.getUser();
   if (!actingUser) return { success: false, error: "Not authenticated." };
@@ -590,22 +600,26 @@ export async function setPortalAccess(
   }
 
   const newStatus = rawData.action === "disable" ? "disabled" : "active";
-  const { error } = await supabase
+  const { error } = await createAdminClient()
     .from("organization_members")
-    .update({ status: newStatus, updated_by: actingUser.id })
+    .update({ status: newStatus, updated_at: new Date().toISOString() })
     .eq("profile_id", rawData.profile_id)
     .eq("organization_id", orgId);
 
   if (error) return { success: false, error: error.message };
 
-  await logAudit({
-    organization_id: orgId, actor_id: actingUser.id,
+  await writeAuditLog(supabase, {
+    organizationId: orgId, actorId: actingUser.id,
     action: rawData.action === "disable" ? "guardian.portal_disabled" : "guardian.portal_restored",
-    resource_type: "profile", resource_id: rawData.profile_id, metadata: {},
+    resourceType: "profile", resourceId: rawData.profile_id, metadata: {},
   });
 
   revalidatePath(`/dashboard/families/${rawData.family_id}`);
   return { success: true, data: undefined };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
+    return { success: false, error: msg };
+  }
 }
 
 /**
