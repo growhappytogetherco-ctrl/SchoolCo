@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, UserX, UserCheck, GraduationCap, Home, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { sendPortalInvite, setPortalAccess } from "@/app/actions/guardians";
+import { setPortalAccess } from "@/app/actions/guardians";
+import { inviteParentPortalUser } from "@/app/actions/inviteParentPortalUser";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -85,10 +86,11 @@ function PortalInviteDialog({
     startSend(async () => {
       setError(null);
       try {
-        const result = await sendPortalInvite({ profile_id: profileId, family_id: familyId });
+        const result = await inviteParentPortalUser({ profile_id: profileId, family_id: familyId });
         if (!result.success) { setError(result.error ?? "Failed to send invite."); return; }
         setSent(true);
-        setTimeout(() => { onClose(); router.refresh(); }, 1200);
+        // router.refresh() is called client-side after success — invite does not depend on page re-render
+        setTimeout(() => { onClose(); router.refresh(); }, 1500);
       } catch (e) {
         setError(e instanceof Error ? e.message : "An unexpected error occurred.");
       }

@@ -599,7 +599,9 @@ export async function setPortalAccess(
     return { success: false, error: "Insufficient permissions." };
   }
 
-  const newStatus = rawData.action === "disable" ? "disabled" : "active";
+  // membership_status enum values: active | inactive | pending | suspended
+  // "inactive" = portal disabled by staff
+  const newStatus = rawData.action === "disable" ? "inactive" : "active";
   const { error } = await createAdminClient()
     .from("organization_members")
     .update({ status: newStatus, updated_at: new Date().toISOString() })

@@ -87,7 +87,14 @@ async function renderFamilyDetail({
       .eq("organization_id", orgId)
       .in("profile_id", profileIds);
     for (const m of (members ?? []) as { profile_id: string; status: string; role: string }[]) {
-      portalStatusMap[m.profile_id] = m.status === "active" ? "active" : m.status === "invited" ? "invited" : m.status === "disabled" ? "disabled" : "no_account";
+      // membership_status enum: active | inactive | pending | suspended
+      // "pending" = invite sent, awaiting first login
+      // "inactive" / "suspended" = access disabled by staff
+      const ps = m.status === "active"   ? "active"
+               : m.status === "pending"  ? "invited"
+               : (m.status === "inactive" || m.status === "suspended") ? "disabled"
+               : "no_account";
+      portalStatusMap[m.profile_id] = ps as "active" | "invited" | "disabled" | "no_account";
       portalRoleMap[m.profile_id]   = m.role;
     }
     for (const pid of profileIds) {
