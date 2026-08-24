@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, resolveProfileId } from "@/lib/supabase/server";
 import { getUser } from "@/lib/supabase/server";
 import { getActiveOrgId } from "@/lib/supabase/org-context";
 import { writeAuditLog } from "@/lib/audit";
@@ -90,15 +90,16 @@ async function requireParent() {
   if (!user) throw new Error("Unauthenticated");
   const orgId = await getActiveOrgId();
   if (!orgId) throw new Error("No active org");
+  const profileId = await resolveProfileId(user.id);
   const { data: member } = await supabase
     .from("organization_members")
     .select("role")
     .eq("organization_id", orgId)
-    .eq("profile_id", user.id)
+    .eq("profile_id", profileId)
     .eq("status", "active")
     .single();
   if (!member) throw new Error("Not a member");
-  return { supabase, user, orgId, role: member.role };
+  return { supabase, user, orgId, role: member.role, profileId };
 }
 
 function sanitizeBody(body: unknown): string | null {
@@ -142,7 +143,7 @@ async function createNotifications(
 
 export async function getMyConversations(): Promise<ActionResult<ConversationSummary[]>> {
   try {
-    const { supabase, user, orgId } = await requireParent();
+    const { supabase, user, orgId, profileId } = await requireParent();
 
     const { data: convRows, error } = await supabase
       .from("conversations")
@@ -178,7 +179,7 @@ export async function getMyConversations(): Promise<ActionResult<ConversationSum
         ? supabase
             .from("conversation_participants")
             .select("conversation_id, last_read_at")
-            .eq("profile_id", user.id)
+            .eq("profile_id", profileId)
             .in("conversation_id", convIds)
         : Promise.resolve({ data: [] }),
     ]);
@@ -204,7 +205,7 @@ export async function getMyConversations(): Promise<ActionResult<ConversationSum
 
     const unreadCountMap: Record<string, number> = {};
     for (const m of lastMsgs ?? []) {
-      if (m.sender_id === user.id) continue;
+      if (m.sender_id === profileId) continue;
       const readAt = readAtMap[m.conversation_id];
       if (!readAt || new Date(m.created_at) > new Date(readAt)) {
         unreadCountMap[m.conversation_id] = (unreadCountMap[m.conversation_id] ?? 0) + 1;
@@ -251,7 +252,7 @@ export async function getMyConversationThread(
   conversationId: string
 ): Promise<ActionResult<ConversationDetail>> {
   try {
-    const { supabase, user, orgId } = await requireParent();
+    const { supabase, user, orgId, profileId } = await requireParent();
 
     const { data: conv, error: convErr } = await supabase
       .from("conversations")
@@ -286,13 +287,13 @@ export async function getMyConversationThread(
       .from("conversation_participants")
       .select("last_read_at")
       .eq("conversation_id", conversationId)
-      .eq("profile_id", user.id)
+      .eq("profile_id", profileId)
       .single();
     const prevReadAt = myPart?.last_read_at ?? null;
 
     // Compute first_unread_at: earliest message from another sender that is unread
     const firstUnread = (msgRows ?? []).find(m =>
-      m.sender_id !== user.id &&
+      m.sender_id !== profileId &&
       (!prevReadAt || new Date(m.created_at) > new Date(prevReadAt))
     );
     const firstUnreadAt = firstUnread?.created_at ?? null;
@@ -302,13 +303,13 @@ export async function getMyConversationThread(
       .from("conversation_participants")
       .update({ last_read_at: new Date().toISOString() })
       .eq("conversation_id", conversationId)
-      .eq("profile_id", user.id);
+      .eq("profile_id", profileId);
 
     // Mark related notifications read so nav badge Realtime fires a decrement
     await supabase
       .from("notifications")
       .update({ read_at: new Date().toISOString() })
-      .eq("recipient_id", user.id)
+      .eq("recipient_id", profileId)
       .eq("resource_id", conversationId)
       .eq("resource_type", "conversation")
       .is("read_at", null);
@@ -375,7 +376,7 @@ export async function createParentConversation(params: {
   body:       string;
 }): Promise<ActionResult<{ conversation_id: string }>> {
   try {
-    const { supabase, user, orgId } = await requireParent();
+    const { supabase, user, orgId, profileId } = await requireParent();
 
     const subject = params.subject?.trim();
     if (!subject || subject.length < 2 || subject.length > 200) {
@@ -384,44 +385,34 @@ export async function createParentConversation(params: {
     const body = sanitizeBody(params.body);
     if (!body) return { success: false, error: "Message cannot be empty (max 5,000 characters)." };
 
-    // Verify family ownership via guardianship
-    const { data: guardianship } = await supabase
-      .from("guardianships")
-      .select("id")
-      .eq("profile_id", user.id)
-      .eq("status", "active")
-      .limit(1)
-      .then(async (r) => {
-        if (r.data && r.data.length > 0) return r;
-        return { data: null };
-      });
-
-    // Check family is linked to this user via student guardianship
-    const { data: familyCheck } = await supabase
-      .from("students")
-      .select("family_id")
-      .eq("family_id", params.family_id)
-      .eq("organization_id", orgId)
-      .limit(1);
-
-    if (!familyCheck?.length) {
-      return { success: false, error: "Invalid family." };
-    }
-
-    // Double-check guardianship links this parent to this family
+    // Verify this parent has at least one active guardianship (server-side, using canonical profileId)
     const { data: guardCheck } = await supabase
       .from("guardianships")
-      .select("id")
-      .eq("profile_id", user.id)
+      .select("id, students!inner(family_id)")
+      .eq("profile_id", profileId)
       .eq("status", "active")
-      .then(async (r) => {
-        if (!r.data?.length) return r;
-        // Check any of their students belong to this family
-        const stuIds = r.data.map(() => null); // we just need guardianship existence
-        return r;
-      });
+      .eq("students.organization_id", orgId)
+      .limit(1);
 
-    // Insert conversation (RLS will enforce family ownership)
+    if (!guardCheck?.length) {
+      return { success: false, error: "No active guardianships found." };
+    }
+
+    // If a student_id was supplied, verify this parent is a guardian of that student
+    if (params.student_id) {
+      const { data: stuCheck } = await supabase
+        .from("guardianships")
+        .select("id")
+        .eq("profile_id", profileId)
+        .eq("student_id", params.student_id)
+        .eq("status", "active")
+        .limit(1);
+      if (!stuCheck?.length) {
+        return { success: false, error: "You are not a guardian of that student." };
+      }
+    }
+
+    // Insert conversation (RLS will enforce org scope)
     const { data: conv, error: convErr } = await supabase
       .from("conversations")
       .insert({
@@ -430,7 +421,7 @@ export async function createParentConversation(params: {
         student_id:      params.student_id ?? null,
         subject,
         category:        params.category,
-        created_by:      user.id,
+        created_by:      profileId,
         last_message_at: new Date().toISOString(),
       })
       .select("id")
@@ -441,20 +432,20 @@ export async function createParentConversation(params: {
       return { success: false, error: "Failed to create conversation." };
     }
 
-    // Add parent as participant
+    // Add parent as participant using canonical profileId
     await supabase.from("conversation_participants").insert({
       conversation_id: conv.id,
       organization_id: orgId,
-      profile_id:      user.id,
+      profile_id:      profileId,
       participant_type: "parent",
       last_read_at:    new Date().toISOString(),
     });
 
-    // Insert first message
+    // Insert first message using canonical profileId as sender
     const { error: msgErr } = await supabase.from("messages").insert({
       conversation_id: conv.id,
       organization_id: orgId,
-      sender_id:       user.id,
+      sender_id:       profileId,
       body,
       message_type:    "message",
       parent_visible:  true,
@@ -488,12 +479,12 @@ export async function createParentConversation(params: {
     const { data: senderProfile } = await supabase
       .from("profiles")
       .select("full_name")
-      .eq("id", user.id)
+      .eq("id", profileId)
       .single();
 
     await createNotifications(supabase, {
       orgId,
-      senderId:       user.id,
+      senderId:       profileId,
       senderName:     senderProfile?.full_name ?? "A parent",
       conversationId: conv.id,
       subject,
@@ -519,17 +510,17 @@ export async function sendParentReply(
   body: string
 ): Promise<ActionResult<void>> {
   try {
-    const { supabase, user, orgId } = await requireParent();
+    const { supabase, user, orgId, profileId } = await requireParent();
 
     const clean = sanitizeBody(body);
     if (!clean) return { success: false, error: "Message cannot be empty (max 5,000 characters)." };
 
-    // Verify participation (RLS also enforces this)
+    // Verify participation using canonical profileId (RLS also enforces this)
     const { data: part } = await supabase
       .from("conversation_participants")
       .select("id")
       .eq("conversation_id", conversationId)
-      .eq("profile_id", user.id)
+      .eq("profile_id", profileId)
       .single();
 
     if (!part) return { success: false, error: "Conversation not found." };
@@ -537,7 +528,7 @@ export async function sendParentReply(
     const { error: msgErr } = await supabase.from("messages").insert({
       conversation_id: conversationId,
       organization_id: orgId,
-      sender_id:       user.id,
+      sender_id:       profileId,
       body:            clean,
       message_type:    "message",
       parent_visible:  true,
@@ -559,7 +550,7 @@ export async function sendParentReply(
       .from("conversation_participants")
       .update({ last_read_at: new Date().toISOString() })
       .eq("conversation_id", conversationId)
-      .eq("profile_id", user.id);
+      .eq("profile_id", profileId);
 
     // Notify staff participants
     const { data: staffParts } = await supabase
@@ -577,12 +568,12 @@ export async function sendParentReply(
     const { data: senderProfile } = await supabase
       .from("profiles")
       .select("full_name")
-      .eq("id", user.id)
+      .eq("id", profileId)
       .single();
 
     await createNotifications(supabase, {
       orgId,
-      senderId:       user.id,
+      senderId:       profileId,
       senderName:     senderProfile?.full_name ?? "A parent",
       conversationId,
       subject:        conv?.subject ?? "",
@@ -1319,12 +1310,12 @@ export async function getMyFamiliesForCompose(): Promise<ActionResult<Array<{
   students: Array<{ id: string; name: string }>;
 }>>> {
   try {
-    const { supabase, user, orgId } = await requireParent();
+    const { supabase, orgId, profileId } = await requireParent();
 
     const { data: guardianships } = await supabase
       .from("guardianships")
       .select("student_id, students!inner(id, first_name, last_name, preferred_name, family_id, families!inner(id, family_name))")
-      .eq("profile_id", user.id)
+      .eq("profile_id", profileId)
       .eq("status", "active")
       .eq("students.organization_id", orgId);
 
@@ -1548,12 +1539,12 @@ export async function getParentUnreadForWidget(): Promise<ActionResult<{
   latest_at: string | null;
 }>> {
   try {
-    const { supabase, user, orgId } = await requireParent();
+    const { supabase, orgId, profileId } = await requireParent();
 
     const { data: parts } = await supabase
       .from("conversation_participants")
       .select("conversation_id, last_read_at")
-      .eq("profile_id", user.id);
+      .eq("profile_id", profileId);
 
     if (!parts?.length) return { success: true, data: { unread_count: 0, latest_subject: null, latest_at: null } };
 
@@ -1567,7 +1558,7 @@ export async function getParentUnreadForWidget(): Promise<ActionResult<{
       .in("conversation_id", convIds)
       .eq("parent_visible", true)
       .is("deleted_at", null)
-      .neq("sender_id", user.id);
+      .neq("sender_id", profileId);
 
     const unreadConvIds = new Set<string>();
     for (const m of msgs ?? []) {
@@ -1608,12 +1599,12 @@ export async function getParentUnreadForWidget(): Promise<ActionResult<{
 
 export async function getParentConversationsForWidget(): Promise<ActionResult<ConversationSummary[]>> {
   try {
-    const { supabase, user, orgId } = await requireParent();
+    const { supabase, orgId, profileId } = await requireParent();
 
     const { data: parts } = await supabase
       .from("conversation_participants")
       .select("conversation_id, last_read_at")
-      .eq("profile_id", user.id);
+      .eq("profile_id", profileId);
 
     if (!parts?.length) return { success: true, data: [] };
 
@@ -1650,7 +1641,7 @@ export async function getParentConversationsForWidget(): Promise<ActionResult<Co
         const p = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
         lastMsgMap[m.conversation_id] = { body: m.body, sender: (p as { full_name: string })?.full_name ?? "Unknown" };
       }
-      if (m.sender_id !== user.id) {
+      if (m.sender_id !== profileId) {
         const readAt = readAtMap[m.conversation_id];
         if (!readAt || new Date(m.created_at) > new Date(readAt)) {
           unreadMap[m.conversation_id] = (unreadMap[m.conversation_id] ?? 0) + 1;

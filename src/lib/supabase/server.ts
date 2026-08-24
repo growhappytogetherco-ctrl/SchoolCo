@@ -73,7 +73,7 @@ export async function getProfile(userId: string) {
  * Falls back to authUserId if no profile found (safe for callers that
  * need a non-null value before a profile exists).
  */
-async function resolveProfileId(authUserId: string): Promise<string> {
+export async function resolveProfileId(authUserId: string): Promise<string> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
