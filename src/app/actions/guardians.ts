@@ -678,36 +678,47 @@ export const UpdateGuardianProfileSchema = z.object({
 export async function updateGuardianProfile(
   rawData: z.infer<typeof UpdateGuardianProfileSchema>
 ): Promise<ActionResult<void>> {
+  // ── TEMPORARY DIAGNOSTIC — remove after crash identified ──────────────────
+  const sessionKey = `debug-${Date.now()}`;
+  async function dbg(step: string, payload?: Record<string, unknown>) {
+    try {
+      const admin = createAdminClient();
+      await admin.from("guardian_edit_debug" as never).insert({ session_key: sessionKey, step, payload: payload ?? null });
+    } catch { /* ignore */ }
+    console.log(`[updateGuardianProfile:${sessionKey}] ${step}`, payload ?? "");
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   try {
-    console.log("[updateGuardianProfile] step 1: parsing input");
+    await dbg("step1:parse_input", { raw_keys: Object.keys(rawData ?? {}) });
     const parse = UpdateGuardianProfileSchema.safeParse(rawData);
     if (!parse.success) {
-      console.error("[updateGuardianProfile] validation failed:", parse.error.message);
+      await dbg("FAIL:validation", { errors: parse.error.message });
       return { success: false, error: "Validation failed." };
     }
 
-    console.log("[updateGuardianProfile] step 2: getting auth user");
+    await dbg("step2:get_auth_user");
     const supabase = await createClient();
     const authResult = await supabase.auth.getUser();
     const user = authResult.data?.user;
     if (!user) {
-      console.error("[updateGuardianProfile] not authenticated");
+      await dbg("FAIL:not_authenticated");
       return { success: false, error: "Not authenticated." };
     }
 
-    console.log("[updateGuardianProfile] step 3: getting orgId");
+    await dbg("step3:get_orgId", { user_id: user.id });
     const orgId = await getActiveOrgId();
     if (!orgId) {
-      console.error("[updateGuardianProfile] no active org");
+      await dbg("FAIL:no_active_org");
       return { success: false, error: "No active organization." };
     }
 
-    console.log("[updateGuardianProfile] step 4: checking membership");
+    await dbg("step4:check_membership", { org_id: orgId });
     const { data: membership, error: memErr } = await supabase.from("organization_members")
       .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
-    if (memErr) console.error("[updateGuardianProfile] membership query error:", memErr.message);
+    if (memErr) await dbg("WARN:membership_query_error", { error: memErr.message });
     if (!membership || !["registrar","admin","full_admin","platform_admin"].includes(membership.role as string)) {
-      console.error("[updateGuardianProfile] insufficient permissions, role:", membership?.role);
+      await dbg("FAIL:insufficient_permissions", { role: membership?.role ?? null });
       return { success: false, error: "Insufficient permissions." };
     }
 
@@ -715,46 +726,63 @@ export async function updateGuardianProfile(
     const filtered = Object.fromEntries(
       Object.entries(updates).filter(([, v]) => v !== undefined)
     );
-    if (Object.keys(filtered).length === 0) return { success: true, data: undefined };
+    if (Object.keys(filtered).length === 0) {
+      await dbg("step5:no_changes_nothing_to_update");
+      return { success: true, data: undefined };
+    }
 
-    console.log("[updateGuardianProfile] step 5: checking email uniqueness, filtered keys:", Object.keys(filtered));
-    // Check email uniqueness before attempting update
+    await dbg("step5:email_uniqueness_check", { profile_id, filtered_keys: Object.keys(filtered) });
     if (filtered.email) {
       const { data: existing, error: emailCheckErr } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("email", filtered.email as string)
-        .neq("id", profile_id)
-        .maybeSingle();
-      if (emailCheckErr) console.error("[updateGuardianProfile] email check error:", emailCheckErr.message);
+        .from("profiles").select("id")
+        .eq("email", filtered.email as string).neq("id", profile_id).maybeSingle();
+      if (emailCheckErr) await dbg("WARN:email_check_error", { error: emailCheckErr.message });
       if (existing) {
+        await dbg("FAIL:email_conflict", { email: filtered.email });
         return { success: false, error: "This email is already associated with another SchoolCo profile." };
       }
     }
 
-    console.log("[updateGuardianProfile] step 6: updating profile row");
-    const { error: updateErr } = await supabase.from("profiles").update(filtered).eq("id", profile_id);
+    await dbg("step6:update_profile_row", { profile_id });
+    const { error: updateErr, count } = await supabase.from("profiles")
+      .update(filtered).eq("id", profile_id).select();
+    await dbg("step6:update_result", {
+      error: updateErr?.message ?? null,
+      error_code: updateErr?.code ?? null,
+      rows_affected: count ?? "unknown"
+    });
     if (updateErr) {
-      console.error("[updateGuardianProfile] update error:", updateErr.message, updateErr.code);
       if (updateErr.code === "23505") {
+        await dbg("FAIL:unique_constraint");
         return { success: false, error: "This email is already associated with another SchoolCo profile." };
       }
+      await dbg("FAIL:update_error", { error: updateErr.message });
       return { success: false, error: updateErr.message };
     }
 
-    console.log("[updateGuardianProfile] step 7: writing audit log");
-    await logAudit({
+    await dbg("step7:write_audit_log");
+    const auditOk = await logAudit({
       organization_id: orgId, actor_id: user.id, action: "guardian.profile_updated",
       resource_type: "profile", resource_id: profile_id, metadata: filtered,
     });
+    await dbg("step7:audit_result", { audit_ok: auditOk });
 
-    console.log("[updateGuardianProfile] step 8: revalidating path");
+    await dbg("step8:revalidate_path", { family_id });
     revalidatePath(`/dashboard/families/${family_id}`);
 
-    console.log("[updateGuardianProfile] step 9: done — returning success");
+    await dbg("step9:returning_success");
     return { success: true, data: undefined };
   } catch (err) {
-    console.error("[updateGuardianProfile] UNHANDLED EXCEPTION:", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : "");
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : "";
+    try {
+      const admin = createAdminClient();
+      await admin.from("guardian_edit_debug" as never).insert({
+        session_key: sessionKey, step: "UNHANDLED_EXCEPTION",
+        payload: { message: msg, stack }
+      });
+    } catch { /* ignore */ }
+    console.error("[updateGuardianProfile] UNHANDLED EXCEPTION:", msg, stack);
     return { success: false, error: "An unexpected error occurred. Please try again." };
   }
 }
