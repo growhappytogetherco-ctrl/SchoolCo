@@ -743,13 +743,15 @@ export async function updateGuardianProfile(
       }
     }
 
+    // Use admin client to bypass RLS — guardian stub profiles have random UUIDs
+    // that don't match auth.uid(), so the user-scoped client silently blocks updates.
     await dbg("step6:update_profile_row", { profile_id });
-    const { error: updateErr, count } = await supabase.from("profiles")
-      .update(filtered).eq("id", profile_id).select();
+    const adminForUpdate = createAdminClient();
+    const { error: updateErr } = await adminForUpdate.from("profiles")
+      .update(filtered).eq("id", profile_id);
     await dbg("step6:update_result", {
       error: updateErr?.message ?? null,
       error_code: updateErr?.code ?? null,
-      rows_affected: count ?? "unknown"
     });
     if (updateErr) {
       if (updateErr.code === "23505") {
@@ -761,9 +763,11 @@ export async function updateGuardianProfile(
     }
 
     await dbg("step7:write_audit_log");
-    const auditOk = await logAudit({
-      organization_id: orgId, actor_id: user.id, action: "guardian.profile_updated",
-      resource_type: "profile", resource_id: profile_id, metadata: filtered,
+    // Use writeAuditLog directly with the user-scoped client so auth.uid() is set
+    const { writeAuditLog } = await import("@/lib/audit");
+    const auditOk = await writeAuditLog(supabase, {
+      organizationId: orgId, actorId: user.id, action: "guardian.profile_updated",
+      resourceType: "profile", resourceId: profile_id, metadata: filtered,
     });
     await dbg("step7:audit_result", { audit_ok: auditOk });
 
