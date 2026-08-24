@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActiveOrgId } from "@/lib/supabase/org-context";
-import { logAudit } from "@/lib/audit";
+import { logAudit, writeAuditLog } from "@/lib/audit";
 import { createTimelineEntry } from "./timeline";
 import { sendWelcomeGuardianEmail } from "@/lib/email/resend";
 import type { ActionResult } from "@/types/actions";
@@ -763,8 +763,6 @@ export async function updateGuardianProfile(
     }
 
     await dbg("step7:write_audit_log");
-    // Use writeAuditLog directly with the user-scoped client so auth.uid() is set
-    const { writeAuditLog } = await import("@/lib/audit");
     const auditOk = await writeAuditLog(supabase, {
       organizationId: orgId, actorId: user.id, action: "guardian.profile_updated",
       resourceType: "profile", resourceId: profile_id, metadata: filtered,
