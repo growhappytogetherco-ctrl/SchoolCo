@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Home, MapPin, Phone, Mail, Shield, User, GraduationCap, CheckCircle, Clock, XCircle, UserX, Pencil } from "lucide-react";
+import { Home, MapPin, Phone, Mail, Shield, User, GraduationCap, CheckCircle, Clock, XCircle, UserX, Pencil, UserCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +42,14 @@ export interface HouseholdStudent {
   enrollment_status: string;
 }
 
+export interface HouseholdPickupContact {
+  profile_id:         string;
+  full_name:          string;
+  phone:              string | null;
+  email:              string | null;
+  pickup_restrictions: string | null;
+}
+
 export interface HouseholdData {
   id:              string;
   family_id:       string;
@@ -52,6 +60,7 @@ export interface HouseholdData {
   email:           string | null;
   guardians:       HouseholdGuardian[];
   students:        HouseholdStudent[];
+  pickupContacts:  HouseholdPickupContact[];
 }
 
 interface Props {
@@ -221,7 +230,7 @@ export function HouseholdsPanel({
               </div>
             </div>
 
-            <div className="p-5 grid sm:grid-cols-2 gap-6">
+            <div className={cn("p-5 grid gap-6", hh.pickupContacts.length > 0 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
               {/* ── Adults ──────────────────────────────────────── */}
               <div>
                 <p className="text-label-sm font-semibold text-sc-gray uppercase tracking-wide mb-3 flex items-center gap-1.5">
@@ -327,6 +336,42 @@ export function HouseholdsPanel({
                   </div>
                 )}
               </div>
+
+              {/* ── Authorized Pickup Contacts ───────────────────── */}
+              {hh.pickupContacts.length > 0 && (
+                <div>
+                  <p className="text-label-sm font-semibold text-sc-gray uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                    <UserCheck className="size-3.5" /> Pickup Contacts ({hh.pickupContacts.length})
+                  </p>
+                  <div className="space-y-2">
+                    {hh.pickupContacts.map((c) => (
+                      <div key={c.profile_id} className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-4 py-3 space-y-1">
+                        <p className="text-label-md font-semibold text-sc-navy">{c.full_name}</p>
+                        <p className="text-label-sm text-sc-gray">Authorized Pickup</p>
+                        {(c.phone || c.email) && (
+                          <div className="flex flex-wrap gap-3 pt-1">
+                            {c.phone && (
+                              <a href={`tel:${c.phone}`} className="flex items-center gap-1 text-label-sm text-sc-teal hover:underline">
+                                <Phone className="size-3" /> {c.phone}
+                              </a>
+                            )}
+                            {c.email && (
+                              <a href={`mailto:${c.email}`} className="flex items-center gap-1 text-label-sm text-sc-teal hover:underline">
+                                <Mail className="size-3" /> {c.email}
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {c.pickup_restrictions && (
+                          <p className="text-label-sm text-sc-gray border-t border-sc-gray-100 pt-2">
+                            Note: {c.pickup_restrictions}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );

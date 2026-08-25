@@ -10,7 +10,7 @@ import { AddHouseholdDialog } from "@/components/families/AddHouseholdDialog";
 import { AddGuardianDialog } from "@/components/guardians/AddGuardianDialog";
 import { GuardiansPanel } from "@/components/guardians/GuardiansPanel";
 import { HouseholdsPanel } from "@/components/families/HouseholdsPanel";
-import type { HouseholdData, HouseholdGuardian, HouseholdStudent } from "@/components/families/HouseholdsPanel";
+import type { HouseholdData, HouseholdGuardian, HouseholdStudent, HouseholdPickupContact } from "@/components/families/HouseholdsPanel";
 import { ENROLLMENT_LABELS, getRoleLevel } from "@/lib/constants";
 import type { EnrollmentStatus } from "@/lib/constants";
 import type { GuardianGroup } from "@/components/guardians/GuardiansPanel";
@@ -161,9 +161,10 @@ async function renderFamilyDetail({
   const householdDataList: HouseholdData[] = households.map((h) => {
     const hhGships = activeGships.filter((g) => g.household_id === h.id);
 
-    // Unique guardians in this household
+    // Household adults = actual guardian/custody relationships only (not pickup-only)
     const guardianMap = new Map<string, HouseholdGuardian>();
     for (const g of hhGships) {
+      if (g.relationship_type === "other") continue; // pickup-only, not a household adult
       const profile = g.profiles as ProfileRow | null;
       if (!profile) continue;
       if (!guardianMap.has(profile.id)) {
@@ -188,10 +189,11 @@ async function renderFamilyDetail({
       });
     }
 
-    // Unique students in this household
+    // Current household students = enrolled only (withdrawn/inactive excluded from current view)
     const studentMap = new Map<string, HouseholdStudent>();
     for (const g of hhGships) {
       const s = g._student;
+      if (s.enrollment_status !== "enrolled") continue;
       if (!studentMap.has(s.id)) {
         studentMap.set(s.id, {
           id:               s.id,
@@ -201,6 +203,24 @@ async function renderFamilyDetail({
           preferred_name:   s.preferred_name,
           grade_level:      s.grade_level,
           enrollment_status: s.enrollment_status,
+        });
+      }
+    }
+
+    // Authorized pickup contacts = relationship_type "other" linked to enrolled students
+    const pickupMap = new Map<string, HouseholdPickupContact>();
+    for (const g of hhGships) {
+      if (g.relationship_type !== "other") continue;
+      if (g._student.enrollment_status !== "enrolled") continue;
+      const profile = g.profiles as ProfileRow | null;
+      if (!profile) continue;
+      if (!pickupMap.has(profile.id)) {
+        pickupMap.set(profile.id, {
+          profile_id:          profile.id,
+          full_name:           profile.full_name ?? "Unknown",
+          phone:               (profile as any).phone ?? null,
+          email:               profile.email ?? null,
+          pickup_restrictions: g.pickup_restrictions,
         });
       }
     }
@@ -215,6 +235,7 @@ async function renderFamilyDetail({
       email:           h.email,
       guardians:       Array.from(guardianMap.values()),
       students:        Array.from(studentMap.values()),
+      pickupContacts:  Array.from(pickupMap.values()),
     };
   });
 
