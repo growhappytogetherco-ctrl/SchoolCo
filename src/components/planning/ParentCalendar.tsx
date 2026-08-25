@@ -91,14 +91,28 @@ export function ParentCalendar({ events }: ParentCalendarProps) {
   });
   const nextThree = upcoming.slice(0, 3);
 
-  // Group all by date
+  // Group all by date; expand multi-day all-day events across every covered date
   const groups = new Map<string, CalendarEvent[]>();
   for (const e of events) {
-    // For all-day events, use the date portion directly to avoid UTC→local timezone shift
-    const key = e.is_all_day ? e.start_at.slice(0, 10) : format(parseISO(e.start_at), "yyyy-MM-dd");
-    const arr = groups.get(key) ?? [];
-    arr.push(e);
-    groups.set(key, arr);
+    if (e.is_all_day && e.end_at) {
+      const start = e.start_at.slice(0, 10);
+      const end = e.end_at.slice(0, 10);
+      let cur = start;
+      while (cur <= end) {
+        const arr = groups.get(cur) ?? [];
+        arr.push(e);
+        groups.set(cur, arr);
+        // Advance by one calendar day without timezone conversion
+        const d = new Date(cur + "T12:00:00");
+        d.setDate(d.getDate() + 1);
+        cur = format(d, "yyyy-MM-dd");
+      }
+    } else {
+      const key = e.is_all_day ? e.start_at.slice(0, 10) : format(parseISO(e.start_at), "yyyy-MM-dd");
+      const arr = groups.get(key) ?? [];
+      arr.push(e);
+      groups.set(key, arr);
+    }
   }
   const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
 

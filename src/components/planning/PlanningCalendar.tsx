@@ -119,12 +119,17 @@ function MonthView({ events, currentDate }: { events: CalendarEvent[]; currentDa
   const calEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
   const days = eachDayOfInterval({ start: calStart, end: calEnd });
 
-  const eventsOnDay = (day: Date) =>
-    events.filter((e) =>
-      e.is_all_day
-        ? e.start_at.slice(0, 10) === format(day, "yyyy-MM-dd")
-        : isSameDay(parseISO(e.start_at), day)
-    );
+  const eventsOnDay = (day: Date) => {
+    const dayStr = format(day, "yyyy-MM-dd");
+    return events.filter((e) => {
+      if (e.is_all_day) {
+        const start = e.start_at.slice(0, 10);
+        const end = e.end_at ? e.end_at.slice(0, 10) : start;
+        return dayStr >= start && dayStr <= end;
+      }
+      return isSameDay(parseISO(e.start_at), day);
+    });
+  };
 
   return (
     <div>
