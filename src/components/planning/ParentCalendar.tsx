@@ -45,7 +45,7 @@ function UpcomingEventCard({ event }: { event: CalendarEvent }) {
             <p className="text-label-sm text-sc-gray flex items-center gap-1">
               <Calendar className="size-3 shrink-0" />
               {event.is_all_day
-                ? format(parseISO(event.start_at), "MMMM d, yyyy")
+                ? format(parseISO(event.start_at.slice(0, 10)), "MMMM d, yyyy")
                 : `${format(parseISO(event.start_at), "MMMM d, yyyy")} · ${format(parseISO(event.start_at), "h:mm a")}`}
             </p>
             {event.location && (
@@ -83,13 +83,19 @@ function UpcomingEventCard({ event }: { event: CalendarEvent }) {
 }
 
 export function ParentCalendar({ events }: ParentCalendarProps) {
-  const upcoming = events.filter((e) => isFuture(parseISO(e.start_at)) || isToday(parseISO(e.start_at)));
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const upcoming = events.filter((e) => {
+    // For all-day events, compare date strings directly to avoid UTC→local shift
+    if (e.is_all_day) return e.start_at.slice(0, 10) >= todayStr;
+    return isFuture(parseISO(e.start_at)) || isToday(parseISO(e.start_at));
+  });
   const nextThree = upcoming.slice(0, 3);
 
   // Group all by date
   const groups = new Map<string, CalendarEvent[]>();
   for (const e of events) {
-    const key = format(parseISO(e.start_at), "yyyy-MM-dd");
+    // For all-day events, use the date portion directly to avoid UTC→local timezone shift
+    const key = e.is_all_day ? e.start_at.slice(0, 10) : format(parseISO(e.start_at), "yyyy-MM-dd");
     const arr = groups.get(key) ?? [];
     arr.push(e);
     groups.set(key, arr);

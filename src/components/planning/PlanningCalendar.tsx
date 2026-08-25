@@ -49,7 +49,8 @@ function AgendaView({ events }: { events: CalendarEvent[] }) {
   const groups = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
     for (const e of events) {
-      const key = format(parseISO(e.start_at), "yyyy-MM-dd");
+      // For all-day events, use the date portion directly to avoid UTC→local timezone shift
+      const key = e.is_all_day ? e.start_at.slice(0, 10) : format(parseISO(e.start_at), "yyyy-MM-dd");
       const arr = map.get(key) ?? [];
       arr.push(e);
       map.set(key, arr);
@@ -119,7 +120,11 @@ function MonthView({ events, currentDate }: { events: CalendarEvent[]; currentDa
   const days = eachDayOfInterval({ start: calStart, end: calEnd });
 
   const eventsOnDay = (day: Date) =>
-    events.filter((e) => isSameDay(parseISO(e.start_at), day));
+    events.filter((e) =>
+      e.is_all_day
+        ? e.start_at.slice(0, 10) === format(day, "yyyy-MM-dd")
+        : isSameDay(parseISO(e.start_at), day)
+    );
 
   return (
     <div>

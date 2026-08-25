@@ -49,8 +49,12 @@ export function EventForm({ event }: EventFormProps) {
   const [title, setTitle] = useState(event?.title ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
   const [location, setLocation] = useState(event?.location ?? "");
-  const [startAt, setStartAt] = useState(event ? toDatetimeLocal(event.start_at) : defaultStart);
-  const [endAt, setEndAt] = useState(event ? toDatetimeLocal(event.end_at) : defaultEnd);
+  const [startAt, setStartAt] = useState(
+    event ? (event.is_all_day ? event.start_at.slice(0, 10) + "T00:00" : toDatetimeLocal(event.start_at)) : defaultStart
+  );
+  const [endAt, setEndAt] = useState(
+    event ? (event.is_all_day ? event.end_at.slice(0, 10) + "T23:59" : toDatetimeLocal(event.end_at)) : defaultEnd
+  );
   const [isAllDay, setIsAllDay] = useState(event?.is_all_day ?? false);
   const [category, setCategory] = useState<EventCategory>(event?.category ?? "other");
   const [visibility, setVisibility] = useState<EventVisibility>(event?.visibility ?? "school_wide");
@@ -73,8 +77,8 @@ export function EventForm({ event }: EventFormProps) {
       title: title.trim(),
       description: description || null,
       location: location || null,
-      start_at: toIso(startAt),
-      end_at: toIso(endAt),
+      start_at: isAllDay ? (startAt.split("T")[0] + "T00:00:00+00:00") : toIso(startAt),
+      end_at: isAllDay ? (endAt.split("T")[0] + "T23:59:59+00:00") : toIso(endAt),
       is_all_day: isAllDay,
       category,
       visibility,
