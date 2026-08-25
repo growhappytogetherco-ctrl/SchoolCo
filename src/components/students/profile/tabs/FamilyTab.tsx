@@ -73,22 +73,26 @@ export function FamilyTab({ studentId, role = "staff", isAdmin = false }: Props)
     );
   }
 
-  // Filter to only households this student has guardians in
-  const relevantHouseholdIds = new Set(guardians.map((g) => g.household_id).filter(Boolean));
+  // Split guardians: "other" relationship_type = pickup-only contact, not a real guardian
+  const realGuardians   = guardians.filter((g) => g.relationship_type !== "other");
+  const pickupOnlyInHousehold = guardians.filter((g) => g.relationship_type === "other");
+
+  // Filter to only households this student has real guardians in
+  const relevantHouseholdIds = new Set(realGuardians.map((g) => g.household_id).filter(Boolean));
   const relevantHouseholds = allHouseholds
     .filter((hh) => relevantHouseholdIds.has(hh.id))
     .sort((a, b) => a.sort_order - b.sort_order);
 
-  // Map guardians by household_id
+  // Map real guardians by household_id
   const guardiansByHousehold = new Map<string, typeof guardians>();
-  for (const g of guardians) {
+  for (const g of realGuardians) {
     if (!g.household_id) continue;
     if (!guardiansByHousehold.has(g.household_id)) guardiansByHousehold.set(g.household_id, []);
     guardiansByHousehold.get(g.household_id)!.push(g);
   }
 
-  // Ungrouped guardians (no household_id)
-  const ungrouped = guardians.filter((g) => !g.household_id);
+  // Ungrouped real guardians (no household_id)
+  const ungrouped = realGuardians.filter((g) => !g.household_id);
 
   const splitHousehold = family.is_split_household;
 
@@ -319,6 +323,46 @@ export function FamilyTab({ studentId, role = "staff", isAdmin = false }: Props)
         <div className="rounded-2xl border border-sc-gold-200 bg-sc-gold-50 p-5">
           <h2 className="font-serif text-heading-3 text-sc-gold-700 mb-2">Authorized Pickup Notes</h2>
           <p className="text-body-sm text-sc-navy">{data.authorized_pickup_notes}</p>
+        </div>
+      )}
+
+      {/* Authorized Pickup Contacts (relationship_type = "other" in guardianships) */}
+      {pickupOnlyInHousehold.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="font-serif text-heading-3 text-sc-navy">Authorized Pickup Contacts</h2>
+          {pickupOnlyInHousehold.map((g) => {
+            const profile = g.profiles;
+            return (
+              <div key={g.id} className="rounded-xl border border-sc-gray-100 bg-white p-4 space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sc-gray-200 text-sc-gray text-label-sm font-bold">
+                    {profile?.full_name?.split(" ").map((n) => n[0]).join("").slice(0, 2) ?? "?"}
+                  </div>
+                  <div>
+                    <p className="text-label-md font-semibold text-sc-navy">{profile?.full_name ?? "Unknown"}</p>
+                    <p className="text-label-sm text-sc-gray">Authorized Pickup Contact</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {profile?.phone && (
+                    <a href={`tel:${profile.phone}`} className="flex items-center gap-1 text-label-sm text-sc-teal">
+                      <Phone className="size-3" /> {profile.phone}
+                    </a>
+                  )}
+                  {profile?.email && (
+                    <a href={`mailto:${profile.email}`} className="flex items-center gap-1 text-label-sm text-sc-teal">
+                      <Mail className="size-3" /> {profile.email}
+                    </a>
+                  )}
+                </div>
+                {g.pickup_restrictions && (
+                  <p className="text-label-sm text-sc-gray border-t border-sc-gray-100 pt-2.5">
+                    Pickup note: {g.pickup_restrictions}
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

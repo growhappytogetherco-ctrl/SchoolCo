@@ -67,15 +67,23 @@ async function renderFamilyDetail({
   const formerStudents  = allStudents.filter((s) => s.enrollment_status !== "enrolled");
 
   // Build flat list of active guardianship rows with student info
+  // activeGships includes all students (enrolled + former) — used for household display
   const activeGships = allStudents.flatMap((s) =>
     ((s.guardianships ?? []) as GuardianshipRow[])
       .filter((g) => g.status === "active" && !g.archived_at)
       .map((g) => ({ ...g, _student: s }))
   );
+  // enrolledGships: only enrolled students — used for the Guardians tab
+  // so withdrawn students' relationships don't appear as current guardianships
+  const enrolledGships = students.flatMap((s) =>
+    ((s.guardianships ?? []) as GuardianshipRow[])
+      .filter((g) => g.status === "active" && !g.archived_at)
+      .map((g) => ({ ...g, _student: s }))
+  );
 
-  // Fetch portal status for all guardian profiles
+  // Fetch portal status for all guardian profiles (from enrolled gships only)
   const profileIds = Array.from(new Set(
-    activeGships.map((g) => (g.profiles as ProfileRow | null)?.id).filter(Boolean) as string[]
+    enrolledGships.map((g) => (g.profiles as ProfileRow | null)?.id).filter(Boolean) as string[]
   ));
   let portalStatusMap: Record<string, "no_account" | "invited" | "active" | "disabled"> = {};
   let portalRoleMap:   Record<string, string> = {};
@@ -102,9 +110,9 @@ async function renderFamilyDetail({
     }
   }
 
-  // Group guardianships by person → GuardianGroup[]
+  // Group guardianships by person → GuardianGroup[] (enrolled students only)
   const groupMap = new Map<string, GuardianGroup>();
-  for (const g of activeGships) {
+  for (const g of enrolledGships) {
     const profile = g.profiles as ProfileRow | null;
     if (!profile) continue;
     if (!groupMap.has(profile.id)) {
