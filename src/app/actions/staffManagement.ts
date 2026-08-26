@@ -198,3 +198,57 @@ export async function inviteStaffMember(payload: {
   revalidatePath("/dashboard/staff");
   return { success: true };
 }
+
+/**
+ * grantStaffAccess — promotes an existing parent portal user to dual-role staff+parent.
+ *
+ * Updates the single organization_members row: role → "staff", roles → ["staff","parent"].
+ * The parent's guardianships and portal account are preserved. They will see a View Switcher
+ * on next login allowing them to toggle between staff dashboard and parent portal.
+ *
+ * Requires admin role. The target must already be an active parent member of the org.
+ */
+export async function grantStaffAccess(
+  profileId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const user = await getUser();
+  const orgId = await getActiveOrgId();
+  const role = await getActiveRole();
+  if (!user || !orgId) return { success: false, error: "Not authenticated" };
+  if (!isAdminRole(role)) return { success: false, error: "Admin access required" };
+
+  const supabase = await createClient();
+
+  const { data: member } = await supabase
+    .from("organization_members")
+    .select("id, role")
+    .eq("profile_id", profileId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+
+  if (!member) return { success: false, error: "Active membership not found for this person" };
+
+  const mem = member as unknown as { id: string; role: string };
+  if (mem.role !== "parent") return { success: false, error: "Can only grant staff access to parent accounts" };
+
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ role: "staff", roles: ["staff", "parent"] } as never)
+    .eq("id", mem.id);
+
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    organization_id: orgId,
+    actor_id:        user.id,
+    action:          "member.role_changed",
+    resource_type:   "organization_member",
+    resource_id:     mem.id,
+    new_values:      { role: "staff", roles: ["staff", "parent"] },
+  });
+
+  revalidatePath("/dashboard/families");
+  revalidatePath("/dashboard/staff");
+  return { success: true };
+}

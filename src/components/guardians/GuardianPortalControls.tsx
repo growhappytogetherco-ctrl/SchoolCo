@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, UserX, UserCheck, GraduationCap, Home, Pencil, X } from "lucide-react";
+import { Mail, UserX, UserCheck, GraduationCap, Home, Pencil, X, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setPortalAccess } from "@/app/actions/guardians";
 import { inviteParentPortalUser } from "@/app/actions/inviteParentPortalUser";
+import { grantStaffAccess } from "@/app/actions/staffManagement";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -191,6 +192,7 @@ export function GuardianPortalControls({
   guardianEmail,
   previewStudents,
   isStaffMember,
+  isAdminViewer,
   onEditContact,
 }: {
   profileId:       string;
@@ -201,6 +203,7 @@ export function GuardianPortalControls({
   guardianEmail:   string | null;
   previewStudents: PortalPreviewStudent[];
   isStaffMember:   boolean;
+  isAdminViewer?:  boolean;
   onEditContact?:  () => void;
 }) {
   const router = useRouter();
@@ -210,6 +213,15 @@ export function GuardianPortalControls({
 
   const displayStatus = deriveDisplayStatus(status, hasEmail, isStaffMember);
   const ui = STATUS_UI[displayStatus];
+
+  async function handleGrantStaff() {
+    setError(null);
+    startAction(async () => {
+      const r = await grantStaffAccess(profileId);
+      if (!r.success) { setError(r.error); return; }
+      router.refresh();
+    });
+  }
 
   async function handleDisable() {
     setError(null);
@@ -275,16 +287,30 @@ export function GuardianPortalControls({
         )}
 
         {displayStatus === "active" && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-label-sm px-2.5 text-sc-rose hover:text-sc-rose-700 border-sc-rose-200 hover:border-sc-rose"
-            disabled={busy}
-            onClick={handleDisable}
-          >
-            <UserX className="size-3.5 mr-1" />
-            Disable Access
-          </Button>
+          <>
+            {isAdminViewer && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-label-sm px-2.5 text-sc-navy border-sc-gray-200 hover:border-sc-navy"
+                disabled={busy}
+                onClick={handleGrantStaff}
+              >
+                <ShieldCheck className="size-3.5 mr-1" />
+                Grant Staff Access
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-label-sm px-2.5 text-sc-rose hover:text-sc-rose-700 border-sc-rose-200 hover:border-sc-rose"
+              disabled={busy}
+              onClick={handleDisable}
+            >
+              <UserX className="size-3.5 mr-1" />
+              Disable Access
+            </Button>
+          </>
         )}
 
         {displayStatus === "disabled" && (

@@ -498,6 +498,7 @@ function GuardianPersonCard({
               guardianEmail={group.email}
               previewStudents={previewStudents}
               isStaffMember={isStaffMember}
+              isAdminViewer={isFullAdmin}
               onEditContact={() => router.push(`/dashboard/families/${familyId}`)}
             />
           </div>
