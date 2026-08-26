@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, resolveProfileId } from "@/lib/supabase/server";
 import { getUser } from "@/lib/supabase/server";
 import { getActiveOrgId } from "@/lib/supabase/org-context";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit";
 import { logger } from "@/lib/logger";
 import type { ActionResult } from "@/types/actions";
@@ -455,8 +456,10 @@ export async function createParentConversation(params: {
       logger.error("createParentConversation message error", { error: msgErr.message });
     }
 
-    // Add all active staff as participants so they see this in unread widget queries
-    const { data: staffMembers } = await supabase
+    // Add all active staff as participants using the admin client so RLS does not
+    // block these system-level inserts (the parent session cannot insert staff rows)
+    const adminClient = createAdminClient();
+    const { data: staffMembers } = await adminClient
       .from("organization_members")
       .select("profile_id")
       .eq("organization_id", orgId)
@@ -465,7 +468,7 @@ export async function createParentConversation(params: {
 
     const staffIds = (staffMembers ?? []).map(m => m.profile_id);
     if (staffIds.length > 0) {
-      await supabase.from("conversation_participants").insert(
+      const { error: staffPartErr } = await adminClient.from("conversation_participants").insert(
         staffIds.map(pid => ({
           conversation_id:  conv.id,
           organization_id:  orgId,
@@ -474,6 +477,9 @@ export async function createParentConversation(params: {
           last_read_at:     null,
         }))
       );
+      if (staffPartErr) {
+        logger.error("createParentConversation staff participant insert error", { error: staffPartErr.message });
+      }
     }
 
     const { data: senderProfile } = await supabase
