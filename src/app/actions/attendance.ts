@@ -411,10 +411,10 @@ export async function saveManualAttendance(params: {
     return { success: false, error: "Attendance was written but could not be verified. Please check Attendance History." };
   }
 
-  if (params.checkInAt !== null && saved.check_in_at !== params.checkInAt) {
+  if (params.checkInAt !== null && new Date(saved.check_in_at).getTime() !== new Date(params.checkInAt).getTime()) {
     return { success: false, error: `Check-in time verification failed. Expected ${params.checkInAt}, got ${saved.check_in_at}. Please retry.` };
   }
-  if (params.checkOutAt !== null && saved.check_out_at !== params.checkOutAt) {
+  if (params.checkOutAt !== null && new Date(saved.check_out_at).getTime() !== new Date(params.checkOutAt).getTime()) {
     return { success: false, error: `Check-out time verification failed. Expected ${params.checkOutAt}, got ${saved.check_out_at}. Please retry.` };
   }
 
@@ -528,10 +528,10 @@ export async function editAttendanceRecord(params: {
   if (fetchError || !saved) {
     return { success: false, error: "Record updated but could not be verified. Please check Attendance History." };
   }
-  if (params.checkInAt !== null && saved.check_in_at !== params.checkInAt) {
+  if (params.checkInAt !== null && new Date(saved.check_in_at).getTime() !== new Date(params.checkInAt).getTime()) {
     return { success: false, error: `Check-in verification failed (got ${saved.check_in_at}). Please retry.` };
   }
-  if (params.checkOutAt !== null && saved.check_out_at !== params.checkOutAt) {
+  if (params.checkOutAt !== null && new Date(saved.check_out_at).getTime() !== new Date(params.checkOutAt).getTime()) {
     return { success: false, error: `Check-out verification failed (got ${saved.check_out_at}). Please retry.` };
   }
 
