@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getActiveRole } from "@/lib/supabase/org-context";
+import { writeAuditLog } from "@/lib/audit";
 // ── Types ─────────────────────────────────────────────────────────────────
 
 type AR = { success: true } | { success: false; error: string };
@@ -293,7 +296,6 @@ export async function correctAttendanceRecord(
   action: CorrectionAction,
   adminNote?: string
 ): Promise<AR> {
-  const { getActiveRole } = await import("@/lib/supabase/org-context");
   const user  = await getUser();
   const orgId = await getActiveOrgId();
   const role  = await getActiveRole();
@@ -350,23 +352,34 @@ export async function correctAttendanceRecord(
 // ── Manual attendance entry (from ManualEntryForm) ───────────────────────
 // Saves a full attendance record for any date. check_in_at / check_out_at
 // must already be UTC ISO strings (caller converts from Eastern wall-clock).
+// After the upsert, SELECT the row back and verify both timestamps were persisted.
 
 export async function saveManualAttendance(params: {
-  studentId: string;
-  date: string;
-  status: string;
-  checkInAt: string | null;
-  checkOutAt: string | null;
-  isLate: boolean;
+  studentId:     string;
+  date:          string;
+  status:        string;
+  checkInAt:     string | null;
+  checkOutAt:    string | null;
+  isLate:        boolean;
   isEarlyPickup: boolean;
-  notes: string | null;
+  notes:         string | null;
 }): Promise<AR> {
   const user  = await getUser();
   const orgId = await getActiveOrgId();
   if (!user || !orgId) return { success: false, error: "Not authenticated." };
 
+  // Validate status against DB constraint before hitting the DB
+  const VALID_STATUSES = ["present", "absent", "tardy", "excused", "checked_in", "early_dismissal"];
+  if (!VALID_STATUSES.includes(params.status)) {
+    return { success: false, error: `Invalid status: "${params.status}". Valid values: ${VALID_STATUSES.join(", ")}` };
+  }
+
   const supabase = await createClient();
-  const { error } = await supabase
+
+  // Upsert into the canonical attendance record for this student/date.
+  // onConflict matches the unique constraint: (organization_id, student_id, date).
+  // On conflict, ALL provided columns are updated (merge-duplicates behavior).
+  const { error: upsertError } = await supabase
     .from("attendance_records")
     .upsert({
       organization_id: orgId,
@@ -383,7 +396,28 @@ export async function saveManualAttendance(params: {
       onConflict: "organization_id,student_id,date",
     });
 
-  if (error) return { success: false, error: error.message };
+  if (upsertError) return { success: false, error: upsertError.message };
+
+  // Verify: read the row back from the DB. Do not report success until confirmed.
+  const { data: saved, error: fetchError } = await supabase
+    .from("attendance_records")
+    .select("check_in_at, check_out_at, status")
+    .eq("organization_id", orgId)
+    .eq("student_id", params.studentId)
+    .eq("date", params.date)
+    .single();
+
+  if (fetchError || !saved) {
+    return { success: false, error: "Attendance was written but could not be verified. Please check Attendance History." };
+  }
+
+  if (params.checkInAt !== null && saved.check_in_at !== params.checkInAt) {
+    return { success: false, error: `Check-in time verification failed. Expected ${params.checkInAt}, got ${saved.check_in_at}. Please retry.` };
+  }
+  if (params.checkOutAt !== null && saved.check_out_at !== params.checkOutAt) {
+    return { success: false, error: `Check-out time verification failed. Expected ${params.checkOutAt}, got ${saved.check_out_at}. Please retry.` };
+  }
+
   revalidatePath("/dashboard/attendance");
   revalidatePath("/dashboard/home");
   return { success: true };
@@ -399,7 +433,6 @@ export async function setAttendanceTimes(
   checkOutAt: string | null | undefined,
   adminNote?: string
 ): Promise<AR> {
-  const { getActiveRole } = await import("@/lib/supabase/org-context");
   const user  = await getUser();
   const orgId = await getActiveOrgId();
   const role  = await getActiveRole();
@@ -427,44 +460,52 @@ export async function setAttendanceTimes(
   return { success: true };
 }
 
-// ── Full attendance correction (admin / staff) ────────────────────────────
-// Replaces ALL fields on a record. Caller converts times from Eastern → UTC.
+// ── Edit attendance record — FULL ADMIN ONLY ─────────────────────────────
+// Updates ALL editable fields on a record. Caller passes UTC ISO strings.
+// Uses admin client to bypass RLS. Role check enforces full_admin+ server-side.
+// After update, reads the row back to confirm both times were persisted.
 
-export async function correctAttendanceFull(params: {
-  recordId: string;
-  status: string;
-  checkInAt: string | null;
-  checkOutAt: string | null;
-  isLate: boolean;
+export async function editAttendanceRecord(params: {
+  recordId:      string;
+  date:          string;          // YYYY-MM-DD (for re-keying if date changes)
+  status:        string;
+  checkInAt:     string | null;
+  checkOutAt:    string | null;
+  isLate:        boolean;
   isEarlyPickup: boolean;
-  notes: string | null;
-  adminNote?: string;
+  notes:         string | null;
+  reason?:       string;
 }): Promise<AR> {
-  const { getActiveRole } = await import("@/lib/supabase/org-context");
   const user  = await getUser();
   const orgId = await getActiveOrgId();
   const role  = await getActiveRole();
   if (!user || !orgId) return { success: false, error: "Not authenticated." };
-  if (!["admin", "full_admin", "platform_admin", "registrar", "staff", "teacher"].includes(role ?? "")) {
-    return { success: false, error: "Staff access required." };
+  // FULL ADMIN ONLY — staff/teacher/registrar cannot edit historical records
+  if (!["full_admin", "platform_admin"].includes(role ?? "")) {
+    return { success: false, error: "Full Admin access required to edit attendance records." };
   }
 
-  const validStatuses = ["present", "absent", "tardy", "excused", "checked_in", "early_dismissal"];
-  const safeStatus = validStatuses.includes(params.status) ? params.status : "present";
+  const VALID_STATUSES = ["present", "absent", "tardy", "excused", "checked_in", "early_dismissal"];
+  if (!VALID_STATUSES.includes(params.status)) {
+    return { success: false, error: `Invalid status: "${params.status}".` };
+  }
 
-  const supabase = await createClient();
+  const admin = createAdminClient();
 
-  const { data: prev } = await supabase
+  const { data: prev } = await admin
     .from("attendance_records")
-    .select("status, check_in_at, check_out_at, is_late, is_early_pickup, notes")
+    .select("date, status, check_in_at, check_out_at, is_late, is_early_pickup, notes, student_id")
     .eq("id", params.recordId)
     .eq("organization_id", orgId)
     .single();
 
-  const { error } = await supabase
+  if (!prev) return { success: false, error: "Attendance record not found." };
+
+  const { error } = await admin
     .from("attendance_records")
     .update({
-      status:          safeStatus,
+      date:            params.date,
+      status:          params.status,
       check_in_at:     params.checkInAt,
       check_out_at:    params.checkOutAt,
       is_late:         params.isLate,
@@ -476,22 +517,40 @@ export async function correctAttendanceFull(params: {
 
   if (error) return { success: false, error: error.message };
 
-  const { writeAuditLog } = await import("@/lib/audit");
-  await writeAuditLog(supabase, {
+  // Verify the write — read the row back
+  const { data: saved, error: fetchError } = await admin
+    .from("attendance_records")
+    .select("date, check_in_at, check_out_at, status")
+    .eq("id", params.recordId)
+    .eq("organization_id", orgId)
+    .single();
+
+  if (fetchError || !saved) {
+    return { success: false, error: "Record updated but could not be verified. Please check Attendance History." };
+  }
+  if (params.checkInAt !== null && saved.check_in_at !== params.checkInAt) {
+    return { success: false, error: `Check-in verification failed (got ${saved.check_in_at}). Please retry.` };
+  }
+  if (params.checkOutAt !== null && saved.check_out_at !== params.checkOutAt) {
+    return { success: false, error: `Check-out verification failed (got ${saved.check_out_at}). Please retry.` };
+  }
+
+  await writeAuditLog(admin, {
     organizationId: orgId,
     actorId:        user.id,
-    action:         "attendance.corrected",
+    action:         "attendance.edited",
     resourceType:   "attendance_record",
     resourceId:     params.recordId,
-    previousValues: prev ?? {},
-    newValues:      {
-      status:          safeStatus,
+    previousValues: prev,
+    newValues: {
+      date:            params.date,
+      status:          params.status,
       check_in_at:     params.checkInAt,
       check_out_at:    params.checkOutAt,
       is_late:         params.isLate,
       is_early_pickup: params.isEarlyPickup,
     },
-    metadata: { adminNote: params.adminNote ?? null },
+    metadata: { reason: params.reason ?? null },
   });
 
   revalidatePath("/dashboard/attendance");
@@ -499,31 +558,36 @@ export async function correctAttendanceFull(params: {
   return { success: true };
 }
 
-// ── Reset attendance for a day (deletes record; student → "Not Recorded") ──
+// ── Delete attendance record — FULL ADMIN ONLY ───────────────────────────
+// Permanently deletes a canonical attendance record.
+// Uses admin client (bypasses RLS). Role check is enforced server-side.
+// Audit log captures who deleted, when, and why.
 
-export async function resetAttendanceDay(
-  recordId: string,
-  adminNote?: string
+export async function deleteAttendanceRecord(
+  recordId:  string,
+  reason:    string
 ): Promise<AR> {
-  const { getActiveRole } = await import("@/lib/supabase/org-context");
   const user  = await getUser();
   const orgId = await getActiveOrgId();
   const role  = await getActiveRole();
   if (!user || !orgId) return { success: false, error: "Not authenticated." };
-  if (!["admin", "full_admin", "platform_admin", "registrar", "staff", "teacher"].includes(role ?? "")) {
-    return { success: false, error: "Staff access required." };
+  // FULL ADMIN ONLY
+  if (!["full_admin", "platform_admin"].includes(role ?? "")) {
+    return { success: false, error: "Full Admin access required to delete attendance records." };
   }
 
-  const supabase = await createClient();
+  const admin = createAdminClient();
 
-  const { data: prev } = await supabase
+  const { data: prev } = await admin
     .from("attendance_records")
     .select("student_id, date, status, check_in_at, check_out_at")
     .eq("id", recordId)
     .eq("organization_id", orgId)
     .single();
 
-  const { error } = await supabase
+  if (!prev) return { success: false, error: "Attendance record not found." };
+
+  const { error } = await admin
     .from("attendance_records")
     .delete()
     .eq("id", recordId)
@@ -531,15 +595,25 @@ export async function resetAttendanceDay(
 
   if (error) return { success: false, error: error.message };
 
-  const { writeAuditLog } = await import("@/lib/audit");
-  await writeAuditLog(supabase, {
+  // Confirm the record is gone
+  const { data: stillThere } = await admin
+    .from("attendance_records")
+    .select("id")
+    .eq("id", recordId)
+    .maybeSingle();
+
+  if (stillThere) {
+    return { success: false, error: "Delete appeared to succeed but record still exists. Please retry." };
+  }
+
+  await writeAuditLog(admin, {
     organizationId: orgId,
     actorId:        user.id,
-    action:         "attendance.reset",
+    action:         "attendance.deleted",
     resourceType:   "attendance_record",
     resourceId:     recordId,
-    previousValues: prev ?? {},
-    metadata:       { adminNote: adminNote ?? null },
+    previousValues: prev,
+    metadata:       { reason: reason || null },
   });
 
   revalidatePath("/dashboard/attendance");

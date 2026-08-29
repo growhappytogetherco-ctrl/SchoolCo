@@ -137,7 +137,8 @@ export function StudentProfile({
   const hasCriticalFlags = alertBannerFlags.some((f) => f.priority === "critical");
   const hasHighFlags = alertBannerFlags.some((f) => f.priority === "high");
   const hasPickupAlerts = pickupAlerts.length > 0;
-  const isAdmin = ["admin", "full_admin", "platform_admin", "registrar"].includes(role);
+  const isAdmin      = ["admin", "full_admin", "platform_admin", "registrar"].includes(role);
+  const isFullAdmin  = ["full_admin", "platform_admin"].includes(role);
 
   function TabRow({ tabs }: { tabs: typeof ROW1_TABS }) {
     const visible = tabs.filter((t) => !hiddenTabs.includes(t.id));
@@ -287,7 +288,7 @@ export function StudentProfile({
         {activeTab === "academics"        && <AcademicsTab        studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "assessments"      && <AssessmentsTab      studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} isAdmin={isAdmin} role={role} />}
-        {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isAdmin={isAdmin} />}
+        {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isFullAdmin={isFullAdmin} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} role={role} initialNoteId={initialNoteId} />}
         {activeTab === "plan"             && <StudentSuccessPlanTab studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "progress"         && <ProgressTab           studentId={data.id} isAdmin={isAdmin} />}

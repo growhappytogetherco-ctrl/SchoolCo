@@ -17,11 +17,14 @@ interface ManualEntryFormProps {
   onSaved?: () => void;
 }
 
+// Values match the attendance_records.status CHECK constraint:
+// present | absent | tardy | excused | checked_in | early_dismissal
 const STATUS_OPTIONS = [
-  { value: "present",  label: "Present" },
-  { value: "absent",   label: "Absent" },
-  { value: "late",     label: "Late Arrival" },
-  { value: "early_pickup", label: "Early Pickup" },
+  { value: "present",          label: "Present" },
+  { value: "absent",           label: "Absent" },
+  { value: "tardy",            label: "Tardy / Late" },
+  { value: "excused",          label: "Excused Absence" },
+  { value: "early_dismissal",  label: "Early Pickup" },
 ];
 
 export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
@@ -77,11 +80,11 @@ export function ManualEntryForm({ onSaved }: ManualEntryFormProps) {
       const result = await saveManualAttendance({
         studentId,
         date,
-        status:        status === "late" ? "present" : status,
+        status,
         checkInAt,
         checkOutAt,
-        isLate:        isLate || status === "late",
-        isEarlyPickup: isEarlyPickup || status === "early_pickup",
+        isLate,
+        isEarlyPickup: isEarlyPickup || status === "early_dismissal",
         notes:         notes || null,
       });
 

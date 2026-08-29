@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { CheckCircle, X, Clock, AlertTriangle, TrendingUp, ShieldAlert, ChevronDown } from "lucide-react";
+import { CheckCircle, X, Clock, AlertTriangle, TrendingUp, Pencil, Trash2 } from "lucide-react";
 import { getStudentAttendanceData } from "@/app/actions/profileData";
-import { correctAttendanceFull, resetAttendanceDay } from "@/app/actions/attendance";
+import { editAttendanceRecord, deleteAttendanceRecord } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
 import { formatAttendanceTime, toEasternISO } from "@/lib/format-attendance-time";
 
-interface Props { studentId: string; isAdmin?: boolean; }
+interface Props { studentId: string; isFullAdmin?: boolean; }
 
 type AttData = Awaited<ReturnType<typeof getStudentAttendanceData>>;
 
@@ -20,9 +20,16 @@ const STATUS_CFG: Record<string, { label: string; cls: string; dot: string }> = 
   checked_in:      { label: "Present",         cls: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200",  dot: "bg-sc-teal" },
 };
 
+const STATUS_OPTIONS = [
+  { value: "present",          label: "Present" },
+  { value: "absent",           label: "Absent" },
+  { value: "tardy",            label: "Tardy" },
+  { value: "excused",          label: "Excused" },
+  { value: "checked_in",       label: "Checked In" },
+  { value: "early_dismissal",  label: "Early Dismissal / Pickup" },
+];
+
 function fmtDate(d: string) {
-  // d is YYYY-MM-DD (date-only, no timezone). Append T12:00:00 so it parses as midday
-  // and avoids off-by-one from UTC midnight interpretation.
   return new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
@@ -43,35 +50,43 @@ function isoToEasternHHMM(iso: string | null): string {
   } catch { return ""; }
 }
 
-type MenuMode = "closed" | "menu" | "edit" | "reset_confirm";
+// ── RecordActions — Full Admin only: Edit + Delete ─────────────────────────
+// Rendered inline (no absolute positioning). Edit panel expands below the row.
 
-function CorrectionMenu({
+type ActionMode = "closed" | "edit" | "delete_confirm";
+
+function RecordActions({
   recordId, date, checkInAt, checkOutAt,
   status: initStatus, isLate: initIsLate, isEarlyPickup: initIsEP, notes: initNotes,
-  onCorrected,
+  onChanged,
 }: {
-  recordId: string;
-  date: string;
-  checkInAt: string | null;
-  checkOutAt: string | null;
-  status: string;
-  isLate: boolean;
+  recordId:      string;
+  date:          string;
+  checkInAt:     string | null;
+  checkOutAt:    string | null;
+  status:        string;
+  isLate:        boolean;
   isEarlyPickup: boolean;
-  notes: string | null;
-  onCorrected: () => void;
+  notes:         string | null;
+  onChanged:     () => void;
 }) {
-  const [mode, setMode]               = useState<MenuMode>("closed");
-  const [isPending, startTransition]  = useTransition();
-  const [saveError, setSaveError]     = useState<string | null>(null);
-  const [editStatus, setEditStatus]   = useState(initStatus);
-  const [editIsLate, setEditIsLate]   = useState(initIsLate);
-  const [editIsEP, setEditIsEP]       = useState(initIsEP);
-  const [editNotes, setEditNotes]     = useState(initNotes ?? "");
-  const [adminNote, setAdminNote]     = useState("");
+  const [mode, setMode]              = useState<ActionMode>("closed");
+  const [isPending, startTransition] = useTransition();
+  const [error, setError]            = useState<string | null>(null);
+
+  // Edit state
+  const [editStatus, setEditStatus]  = useState(initStatus);
+  const [editDate,   setEditDate]    = useState(date);
+  const [editIsLate, setEditIsLate]  = useState(initIsLate);
+  const [editIsEP,   setEditIsEP]    = useState(initIsEP);
+  const [editNotes,  setEditNotes]   = useState(initNotes ?? "");
+  const [editReason, setEditReason]  = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
+
   const ciRef = useRef<HTMLInputElement>(null);
   const coRef = useRef<HTMLInputElement>(null);
 
-  // Pre-populate time inputs when edit panel mounts
+  // Pre-populate time inputs when edit panel opens
   useEffect(() => {
     if (mode !== "edit") return;
     if (ciRef.current) ciRef.current.value = isoToEasternHHMM(checkInAt);
@@ -80,164 +95,254 @@ function CorrectionMenu({
 
   function openEdit() {
     setEditStatus(initStatus);
+    setEditDate(date);
     setEditIsLate(initIsLate);
     setEditIsEP(initIsEP);
     setEditNotes(initNotes ?? "");
-    setAdminNote("");
-    setSaveError(null);
+    setEditReason("");
+    setError(null);
     setMode("edit");
   }
 
-  function doSaveCorrection() {
-    setSaveError(null);
+  function doEdit() {
+    setError(null);
     startTransition(async () => {
       const ciVal = ciRef.current?.value ?? "";
       const coVal = coRef.current?.value ?? "";
-      const result = await correctAttendanceFull({
+      const result = await editAttendanceRecord({
         recordId,
-        status:          editStatus,
-        checkInAt:       ciVal ? toEasternISO(date, ciVal) : null,
-        checkOutAt:      coVal ? toEasternISO(date, coVal) : null,
-        isLate:          editIsLate,
-        isEarlyPickup:   editIsEP,
-        notes:           editNotes || null,
-        adminNote:       adminNote || undefined,
+        date:          editDate,
+        status:        editStatus,
+        checkInAt:     ciVal ? toEasternISO(editDate, ciVal) : null,
+        checkOutAt:    coVal ? toEasternISO(editDate, coVal) : null,
+        isLate:        editIsLate,
+        isEarlyPickup: editIsEP,
+        notes:         editNotes || null,
+        reason:        editReason || undefined,
       });
-      if (!result.success) { setSaveError(result.error ?? "Failed to save."); return; }
+      if (!result.success) { setError(result.error ?? "Save failed."); return; }
       setMode("closed");
-      onCorrected();
+      onChanged();
     });
   }
 
-  function doReset() {
-    setSaveError(null);
+  function doDelete() {
+    if (!deleteReason.trim()) { setError("Please enter a reason for deletion."); return; }
+    setError(null);
     startTransition(async () => {
-      const result = await resetAttendanceDay(recordId, adminNote || undefined);
-      if (!result.success) { setSaveError(result.error ?? "Failed to reset."); return; }
+      const result = await deleteAttendanceRecord(recordId, deleteReason.trim());
+      if (!result.success) { setError(result.error ?? "Delete failed."); return; }
       setMode("closed");
-      onCorrected();
+      onChanged();
     });
   }
+
+  const cancel = () => { setMode("closed"); setError(null); };
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setMode((m) => m === "closed" ? "menu" : "closed")}
-        className="flex items-center gap-1 rounded-lg border border-sc-gray-200 px-2 py-1 text-label-sm text-sc-gray hover:bg-sc-gray-50 transition-colors"
-      >
-        <ShieldAlert className="size-3.5 text-sc-rose-500" /> Fix
-        <ChevronDown className={cn("size-3 transition-transform", mode !== "closed" && "rotate-180")} />
-      </button>
-
-      {mode === "menu" && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-52 rounded-xl border border-sc-gray-200 bg-white shadow-lg p-2 space-y-1">
-          <button onClick={openEdit}
-            className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-teal-700 hover:bg-sc-teal-50 font-medium">
-            Correct This Record
+    <>
+      {/* Action buttons */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          onClick={openEdit}
+          className={cn(
+            "flex items-center gap-1 rounded-lg border px-2 py-1 text-label-sm transition-colors",
+            mode === "edit"
+              ? "border-sc-teal bg-sc-teal-50 text-sc-teal-700"
+              : "border-sc-gray-200 text-sc-gray hover:bg-sc-gray-50"
+          )}
+          title="Edit this attendance record"
+        >
+          <Pencil className="size-3" /> Edit
+        </button>
+        <button
+          onClick={() => { setDeleteReason(""); setError(null); setMode("delete_confirm"); }}
+          className={cn(
+            "flex items-center gap-1 rounded-lg border px-2 py-1 text-label-sm transition-colors",
+            mode === "delete_confirm"
+              ? "border-sc-rose-200 bg-sc-rose-50 text-sc-rose-700"
+              : "border-sc-gray-200 text-sc-gray hover:bg-sc-rose-50 hover:text-sc-rose-700 hover:border-sc-rose-200"
+          )}
+          title="Permanently delete this attendance record"
+        >
+          <Trash2 className="size-3" /> Delete
+        </button>
+        {mode !== "closed" && (
+          <button onClick={cancel} className="rounded-lg border border-sc-gray-200 px-1.5 py-1 text-sc-gray hover:bg-sc-gray-50" title="Cancel">
+            <X className="size-3.5" />
           </button>
-          <button onClick={() => { setAdminNote(""); setSaveError(null); setMode("reset_confirm"); }}
-            className="w-full text-left rounded-lg px-3 py-2 text-label-sm text-sc-rose-700 hover:bg-sc-rose-50">
-            Reset Attendance For This Day
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
+      {/* ── Edit panel ──────────────────────────────────────────────────── */}
       {mode === "edit" && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-96 rounded-xl border border-sc-gray-200 bg-white shadow-lg">
-          <div className="px-4 py-3 border-b border-sc-gray-100">
-            <p className="text-label-md font-semibold text-sc-navy">Correct Attendance</p>
-            <p className="text-label-sm text-sc-gray">{fmtDate(date)}</p>
-          </div>
-          <div className="p-4 space-y-3">
+        <div className="mt-3 w-full rounded-xl border border-sc-teal-200 bg-sc-teal-50/30 p-4 space-y-3">
+          <p className="text-label-sm font-semibold text-sc-navy">Edit Attendance Record</p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-label-sm font-medium text-sc-navy">Date</label>
+              <input
+                type="date"
+                value={editDate}
+                onChange={(e) => setEditDate(e.target.value)}
+                className="w-full rounded-lg border border-sc-gray-200 bg-white px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal"
+              />
+            </div>
             <div className="space-y-1">
               <label className="text-label-sm font-medium text-sc-navy">Status</label>
-              <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}
-                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal">
-                <option value="present">Present</option>
-                <option value="absent">Absent</option>
-                <option value="tardy">Tardy</option>
-                <option value="excused">Excused</option>
-                <option value="checked_in">Checked In</option>
-                <option value="early_dismissal">Early Dismissal</option>
+              <select
+                value={editStatus}
+                onChange={(e) => setEditStatus(e.target.value)}
+                className="w-full rounded-lg border border-sc-gray-200 bg-white px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal"
+              >
+                {STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <label className="text-label-sm font-medium text-sc-navy">Check-In (Eastern)</label>
-                <input ref={ciRef} type="time"
-                  className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-label-sm font-medium text-sc-navy">Check-Out (Eastern)</label>
-                <input ref={coRef} type="time"
-                  className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-1.5 text-label-sm text-sc-navy cursor-pointer">
-                <input type="checkbox" checked={editIsLate} onChange={(e) => setEditIsLate(e.target.checked)} className="rounded" />
-                Late
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-label-sm font-medium text-sc-navy flex items-center gap-1">
+                <Clock className="size-3 text-sc-gray-400" /> Check-In (Eastern)
               </label>
-              <label className="flex items-center gap-1.5 text-label-sm text-sc-navy cursor-pointer">
-                <input type="checkbox" checked={editIsEP} onChange={(e) => setEditIsEP(e.target.checked)} className="rounded" />
-                Early Pickup
-              </label>
+              <input
+                ref={ciRef}
+                type="time"
+                step="60"
+                className="w-full rounded-lg border border-sc-gray-200 bg-white px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal"
+              />
             </div>
             <div className="space-y-1">
-              <label className="text-label-sm font-medium text-sc-navy">Notes</label>
-              <textarea rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)}
-                placeholder="Optional notes"
-                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm resize-none focus:outline-none focus:ring-1 focus:ring-sc-teal" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-label-sm font-medium text-sc-navy">Correction Reason</label>
-              <input type="text" value={adminNote} onChange={(e) => setAdminNote(e.target.value)}
-                placeholder="Why is this being corrected?"
-                className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal" />
-            </div>
-            {saveError && <p className="text-label-sm text-sc-rose-700">{saveError}</p>}
-            <div className="flex gap-2">
-              <button onClick={doSaveCorrection} disabled={isPending}
-                className="flex-1 rounded-lg bg-sc-teal px-3 py-2 text-white text-label-sm font-medium disabled:opacity-60">
-                {isPending ? "Saving…" : "Save Correction"}
-              </button>
-              <button onClick={() => setMode("closed")}
-                className="rounded-lg border border-sc-gray-200 px-3 py-2 text-sc-gray text-label-sm">
-                Cancel
-              </button>
+              <label className="text-label-sm font-medium text-sc-navy flex items-center gap-1">
+                <Clock className="size-3 text-sc-gray-400" /> Check-Out (Eastern)
+              </label>
+              <input
+                ref={coRef}
+                type="time"
+                step="60"
+                className="w-full rounded-lg border border-sc-gray-200 bg-white px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal"
+              />
             </div>
           </div>
-        </div>
-      )}
 
-      {mode === "reset_confirm" && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-xl border border-sc-rose-200 bg-white shadow-lg p-4 space-y-3">
-          <p className="text-label-md font-semibold text-sc-rose-700">Reset Attendance?</p>
-          <p className="text-label-sm text-sc-gray">
-            Deletes all attendance data for {fmtDate(date)}. The student returns to "Not Recorded"
-            and can be checked in again normally.
-          </p>
-          <input type="text" value={adminNote} onChange={(e) => setAdminNote(e.target.value)}
-            placeholder="Reason for reset (optional)"
-            className="w-full rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-rose" />
-          {saveError && <p className="text-label-sm text-sc-rose-700">{saveError}</p>}
+          <div className="flex gap-4">
+            <label className="flex items-center gap-1.5 text-label-sm text-sc-navy cursor-pointer">
+              <input type="checkbox" checked={editIsLate} onChange={(e) => setEditIsLate(e.target.checked)} className="rounded" />
+              Late Arrival
+            </label>
+            <label className="flex items-center gap-1.5 text-label-sm text-sc-navy cursor-pointer">
+              <input type="checkbox" checked={editIsEP} onChange={(e) => setEditIsEP(e.target.checked)} className="rounded" />
+              Early Pickup
+            </label>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-label-sm font-medium text-sc-navy">Notes</label>
+            <textarea
+              rows={2}
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              placeholder="Optional notes"
+              className="w-full rounded-lg border border-sc-gray-200 bg-white px-2 py-1.5 text-label-sm resize-none focus:outline-none focus:ring-1 focus:ring-sc-teal"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-label-sm font-medium text-sc-navy">Reason for edit</label>
+            <input
+              type="text"
+              value={editReason}
+              onChange={(e) => setEditReason(e.target.value)}
+              placeholder="Why is this being changed? (optional)"
+              className="w-full rounded-lg border border-sc-gray-200 bg-white px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-teal"
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-sc-rose-200 bg-sc-rose-50 px-3 py-2 text-label-sm text-sc-rose-700 font-medium">
+              {error}
+            </div>
+          )}
+
           <div className="flex gap-2">
-            <button onClick={doReset} disabled={isPending}
-              className="flex-1 rounded-lg bg-sc-rose px-3 py-2 text-white text-label-sm font-medium disabled:opacity-60">
-              {isPending ? "Resetting…" : "Confirm Reset"}
+            <button
+              onClick={doEdit}
+              disabled={isPending}
+              className="flex-1 rounded-lg bg-sc-teal px-3 py-2 text-white text-label-sm font-semibold disabled:opacity-60 hover:bg-sc-teal-700 transition-colors"
+            >
+              {isPending ? "Saving…" : "Save Changes"}
             </button>
-            <button onClick={() => setMode("closed")}
-              className="rounded-lg border border-sc-gray-200 px-3 py-2 text-sc-gray text-label-sm">
+            <button
+              onClick={cancel}
+              className="rounded-lg border border-sc-gray-200 bg-white px-3 py-2 text-sc-gray text-label-sm hover:bg-sc-gray-50"
+            >
               Cancel
             </button>
           </div>
         </div>
       )}
-    </div>
+
+      {/* ── Delete confirmation ──────────────────────────────────────────── */}
+      {mode === "delete_confirm" && (
+        <div className="mt-3 w-full rounded-xl border border-sc-rose-200 bg-sc-rose-50 p-4 space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="size-4 text-sc-rose-700 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-label-md font-semibold text-sc-rose-700">Delete this attendance record?</p>
+              <p className="text-label-sm text-sc-gray mt-1">
+                This will permanently remove the attendance record for{" "}
+                <span className="font-medium text-sc-navy">{fmtDate(date)}</span>.
+                This action cannot be undone.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-label-sm font-medium text-sc-rose-700">
+              Reason for deletion <span className="text-sc-rose-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={deleteReason}
+              onChange={(e) => { setDeleteReason(e.target.value); setError(null); }}
+              placeholder="Why is this record being deleted?"
+              className="w-full rounded-lg border border-sc-rose-200 bg-white px-2 py-1.5 text-label-sm focus:outline-none focus:ring-1 focus:ring-sc-rose"
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-sc-rose-300 bg-white px-3 py-2 text-label-sm text-sc-rose-700 font-medium">
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={doDelete}
+              disabled={isPending}
+              className="flex-1 rounded-lg bg-sc-rose px-3 py-2 text-white text-label-sm font-semibold disabled:opacity-60 hover:bg-sc-rose-700 transition-colors"
+            >
+              {isPending ? "Deleting…" : "Delete Attendance"}
+            </button>
+            <button
+              onClick={cancel}
+              className="rounded-lg border border-sc-gray-200 bg-white px-3 py-2 text-sc-gray text-label-sm hover:bg-sc-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
-export function AttendanceTab({ studentId, isAdmin = false }: Props) {
+// ── AttendanceTab ─────────────────────────────────────────────────────────
+
+export function AttendanceTab({ studentId, isFullAdmin = false }: Props) {
   const [data, setData] = useState<AttData>(null);
   const [loading, setLoading] = useState(true);
 
@@ -308,7 +413,7 @@ export function AttendanceTab({ studentId, isAdmin = false }: Props) {
         </p>
       </div>
 
-      {/* Records list — no overflow-hidden so CorrectionMenu dropdown isn't clipped */}
+      {/* Records list */}
       <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card">
         <div className="px-5 py-4 border-b border-sc-gray-100 flex items-center justify-between rounded-t-2xl">
           <h2 className="font-serif text-heading-3 text-sc-navy">Attendance History</h2>
@@ -337,7 +442,7 @@ export function AttendanceTab({ studentId, isAdmin = false }: Props) {
                     </span>
 
                     {/* Times — always visible */}
-                    <div className="flex gap-3 text-label-sm ml-auto shrink-0">
+                    <div className="flex gap-3 text-label-sm shrink-0">
                       <span className={cn("font-medium", r.check_in_at ? "text-sc-navy" : "text-sc-gray-400")}>
                         In: {fmtTime(r.check_in_at)}
                       </span>
@@ -346,23 +451,26 @@ export function AttendanceTab({ studentId, isAdmin = false }: Props) {
                       </span>
                     </div>
 
-                    {/* Admin correction */}
-                    {isAdmin && (
-                      <CorrectionMenu
-                        recordId={r.id}
-                        date={r.date}
-                        checkInAt={r.check_in_at}
-                        checkOutAt={r.check_out_at}
-                        status={r.status}
-                        isLate={r.is_late ?? false}
-                        isEarlyPickup={r.is_early_pickup ?? false}
-                        notes={r.notes ?? null}
-                        onCorrected={reload}
-                      />
+                    {/* Full Admin: Edit + Delete */}
+                    {isFullAdmin && (
+                      <div className="ml-auto">
+                        <RecordActions
+                          recordId={r.id}
+                          date={r.date}
+                          checkInAt={r.check_in_at}
+                          checkOutAt={r.check_out_at}
+                          status={r.status}
+                          isLate={r.is_late ?? false}
+                          isEarlyPickup={r.is_early_pickup ?? false}
+                          notes={r.notes ?? null}
+                          onChanged={reload}
+                        />
+                      </div>
                     )}
                   </div>
-                  {/* Notes on second line if present */}
-                  {r.notes && (
+
+                  {/* Expanded edit/delete panel renders inside the row */}
+                  {r.notes && !isFullAdmin && (
                     <p className="mt-1 text-label-sm text-sc-gray italic ml-28">{r.notes}</p>
                   )}
                 </div>
