@@ -98,7 +98,11 @@ export function UploadWorkSampleModal({ studentId, driveReady, onClose, onSucces
         };
 
         if (method === "file" && selectedFile && driveReady) {
-          // Server-side file upload
+          // Server-side file upload — 10 MB file cap (base64 overhead keeps us under 20 MB action limit)
+          if (selectedFile.size > 10 * 1024 * 1024) {
+            setError("File is too large (max 10 MB). Compress the image or upload it directly to Drive and paste the link.");
+            return;
+          }
           const arrayBuf = await selectedFile.arrayBuffer();
           const base64   = Buffer.from(arrayBuf).toString("base64");
           const res = await uploadWorkSampleFile(

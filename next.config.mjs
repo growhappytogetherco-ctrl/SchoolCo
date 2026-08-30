@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "20mb",
+    },
+  },
   // Type inference breaks on Supabase join queries because the hand-written
   // Database type lacks Relationships entries. Runtime is correct; fix post-deploy.
   typescript: { ignoreBuildErrors: true },
