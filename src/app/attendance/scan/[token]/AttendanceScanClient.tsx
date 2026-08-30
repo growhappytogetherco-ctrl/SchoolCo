@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle, LogOut, X, ShieldAlert, AlertTriangle,
-  Pill, Clock, RotateCcw,
+  Pill, Clock, RotateCcw, ScanLine,
 } from "lucide-react";
 import { checkInStudent, checkOutStudent, undoAttendanceAction } from "@/app/actions/attendance";
 import { cn } from "@/lib/utils";
 import { formatAttendanceTime } from "@/lib/format-attendance-time";
+
+// Rapid re-scan within this window → block checkout, show "already checked in"
+const DUPLICATE_WINDOW_MS = 120_000; // 2 minutes
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -16,11 +19,24 @@ type Phase =
   | { name: "loading" }
   | { name: "result"; outcome: Outcome }
   | { name: "error"; message: string }
+  | { name: "duplicate_block"; displayName: string; checkInAt: string }
+  | { name: "checkout_confirm"; student: StudentInfo; checkInAt: string; todayRecordId?: string }
+  | { name: "checkout_loading" }
   | { name: "undo_confirm" }
   | { name: "undo_loading" }
   | { name: "undo_done" };
 
 type Action = "checkin" | "checkout" | "already_out";
+
+interface StudentInfo {
+  id: string;
+  firstName: string;
+  lastName: string;
+  preferredName: string | null;
+  gradeLevel: string | null;
+  medicationAlerts: { id: string; medication_name: string; is_emergency: boolean }[];
+  allergies: string[];
+}
 
 interface Outcome {
   action: Action;
@@ -43,7 +59,6 @@ export function AttendanceScanClient({ token }: { token: string }) {
   const [phase, setPhase] = useState<Phase>({ name: "loading" });
   const AUTO_REDIRECT_MS = 2500;
 
-  // Run the attendance action on mount
   useEffect(() => {
     if (!token.startsWith("ATT-")) {
       setPhase({ name: "error", message: "This QR code is not a valid attendance badge." });
@@ -52,7 +67,6 @@ export function AttendanceScanClient({ token }: { token: string }) {
 
     async function run() {
       try {
-        // Fetch student + today's record
         const res = await fetch(`/api/attendance/qr/${encodeURIComponent(token)}`);
 
         if (res.status === 401) {
@@ -70,41 +84,95 @@ export function AttendanceScanClient({ token }: { token: string }) {
         }
 
         const { student, today_record, medication_alerts } = await res.json();
-        const now = new Date().toISOString();
-        let action: Action;
+
+        const studentInfo: StudentInfo = {
+          id:               student.id,
+          firstName:        student.first_name,
+          lastName:         student.last_name,
+          preferredName:    student.preferred_name,
+          gradeLevel:       student.grade_level,
+          medicationAlerts: medication_alerts ?? [],
+          allergies:        student.allergies ?? [],
+        };
+
+        const displayName = student.preferred_name
+          ? `${student.preferred_name} ${student.last_name}`
+          : `${student.first_name} ${student.last_name}`;
 
         if (today_record?.check_out_at) {
-          action = "already_out";
-        } else if (today_record?.check_in_at) {
-          const result = await checkOutStudent(student.id, "qr");
-          if (!result.success) {
-            setPhase({ name: "error", message: result.error ?? "Check-out failed." });
-            return;
+          // Already fully checked out — do nothing, show info
+          setPhase({
+            name: "result",
+            outcome: {
+              action:           "already_out",
+              studentId:        student.id,
+              firstName:        student.first_name,
+              lastName:         student.last_name,
+              preferredName:    student.preferred_name,
+              gradeLevel:       student.grade_level,
+              isLate:           false,
+              isEarlyPickup:    false,
+              timestamp:        today_record.check_out_at,
+              medicationAlerts: medication_alerts ?? [],
+              allergies:        student.allergies ?? [],
+            },
+          });
+          return;
+        }
+
+        if (today_record?.check_in_at) {
+          const checkInMs  = new Date(today_record.check_in_at).getTime();
+          const elapsedMs  = Date.now() - checkInMs;
+
+          if (elapsedMs < DUPLICATE_WINDOW_MS) {
+            // Rapid rescan — show "already checked in", no checkout action
+            setPhase({
+              name:        "duplicate_block",
+              displayName,
+              checkInAt:   today_record.check_in_at,
+            });
+          } else {
+            // Past the protection window — show one-tap checkout confirmation
+            setPhase({
+              name:          "checkout_confirm",
+              student:       studentInfo,
+              checkInAt:     today_record.check_in_at,
+              todayRecordId: today_record.id,
+            });
           }
-          action = "checkout";
-        } else {
-          const result = await checkInStudent(student.id, "qr");
-          if (!result.success) {
+          return;
+        }
+
+        // No attendance today — check in
+        const result = await checkInStudent(student.id, "qr");
+        if (!result.success) {
+          if (result.alreadyCheckedIn) {
+            // Race condition: someone else just checked in between our fetch and action
+            setPhase({
+              name:        "duplicate_block",
+              displayName,
+              checkInAt:   new Date().toISOString(),
+            });
+          } else {
             setPhase({ name: "error", message: result.error ?? "Check-in failed." });
-            return;
           }
-          action = "checkin";
+          return;
         }
 
         setPhase({
           name: "result",
           outcome: {
-            action,
-            studentId: student.id,
-            firstName: student.first_name,
-            lastName: student.last_name,
-            preferredName: student.preferred_name,
-            gradeLevel: student.grade_level,
-            isLate: action === "checkin" ? (today_record?.is_late ?? false) : false,
-            isEarlyPickup: action === "checkout" ? (today_record?.is_early_pickup ?? false) : false,
-            timestamp: now,
+            action:           "checkin",
+            studentId:        student.id,
+            firstName:        student.first_name,
+            lastName:         student.last_name,
+            preferredName:    student.preferred_name,
+            gradeLevel:       student.grade_level,
+            isLate:           today_record?.is_late ?? false,
+            isEarlyPickup:    false,
+            timestamp:        new Date().toISOString(),
             medicationAlerts: medication_alerts ?? [],
-            allergies: student.allergies ?? [],
+            allergies:        student.allergies ?? [],
           },
         });
       } catch {
@@ -116,12 +184,45 @@ export function AttendanceScanClient({ token }: { token: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // Auto-redirect after success (paused during undo flow)
+  // Auto-redirect after successful check-in or already_out (not after checkout confirm)
   useEffect(() => {
     if (phase.name !== "result") return;
+    if (phase.outcome.action === "checkout") return; // let staff linger after checkout
     const t = setTimeout(() => router.push("/dashboard/attendance"), AUTO_REDIRECT_MS);
     return () => clearTimeout(t);
   }, [phase, router]);
+
+  // ── Checkout from confirm screen ──────────────────────────────────────
+
+  const confirmPhase = phase.name === "checkout_confirm" ? phase : null;
+
+  async function handleConfirmCheckout() {
+    if (!confirmPhase) return;
+    setPhase({ name: "checkout_loading" });
+
+    const result = await checkOutStudent(confirmPhase.student.id, "qr");
+    if (!result.success) {
+      setPhase({ name: "error", message: result.error ?? "Check-out failed." });
+      return;
+    }
+
+    setPhase({
+      name: "result",
+      outcome: {
+        action:           "checkout",
+        studentId:        confirmPhase.student.id,
+        firstName:        confirmPhase.student.firstName,
+        lastName:         confirmPhase.student.lastName,
+        preferredName:    confirmPhase.student.preferredName,
+        gradeLevel:       confirmPhase.student.gradeLevel,
+        isLate:           false,
+        isEarlyPickup:    false,
+        timestamp:        new Date().toISOString(),
+        medicationAlerts: confirmPhase.student.medicationAlerts,
+        allergies:        confirmPhase.student.allergies,
+      },
+    });
+  }
 
   // ── Undo handlers ──────────────────────────────────────────────────────
 
@@ -135,7 +236,6 @@ export function AttendanceScanClient({ token }: { token: string }) {
       setPhase({ name: "undo_done" });
       setTimeout(() => router.push("/dashboard/attendance"), 1500);
     } else {
-      // Re-show result with an error note (reuse same outcome)
       setPhase({ name: "result", outcome });
     }
   }
@@ -161,6 +261,74 @@ export function AttendanceScanClient({ token }: { token: string }) {
         <div className="flex flex-col items-center gap-4 py-16">
           <div className="h-14 w-14 rounded-full border-4 border-sc-teal border-t-transparent animate-spin" />
           <p className="text-body-lg text-sc-gray font-medium">Processing badge…</p>
+        </div>
+      )}
+
+      {/* ── Duplicate-scan block ───────────────────────────────────── */}
+      {phase.name === "duplicate_block" && (
+        <div className="w-full space-y-4">
+          <div className="rounded-2xl border-2 border-sc-gold-300 bg-white p-6 text-center space-y-3">
+            <ScanLine className="size-10 text-sc-gold-600 mx-auto" />
+            <p className="font-serif text-heading-2 text-sc-navy">{phase.displayName}</p>
+            <p className="text-label-md font-semibold text-sc-gold-700 uppercase tracking-wide">
+              Already Checked In
+            </p>
+            <p className="text-body-md text-sc-gray">
+              {formatAttendanceTime(phase.checkInAt)}
+            </p>
+            <p className="text-label-sm text-sc-gray-400 mt-1">No attendance change.</p>
+          </div>
+          <button
+            onClick={() => router.push("/dashboard/attendance")}
+            className="w-full rounded-xl bg-sc-navy py-3.5 text-white text-label-md font-semibold"
+          >
+            Next Student
+          </button>
+        </div>
+      )}
+
+      {/* ── Checkout confirmation ─────────────────────────────────── */}
+      {phase.name === "checkout_confirm" && (
+        <div className="w-full space-y-4">
+          <div className="rounded-2xl border-2 border-sc-navy/20 bg-white p-6 text-center space-y-3">
+            <div className="flex h-20 w-20 mx-auto items-center justify-center rounded-full bg-sc-navy/10">
+              <LogOut className="size-10 text-sc-navy" />
+            </div>
+            <p className="font-serif text-display-1 text-sc-navy leading-tight">
+              {phase.student.preferredName
+                ? `${phase.student.preferredName} ${phase.student.lastName}`
+                : `${phase.student.firstName} ${phase.student.lastName}`}
+            </p>
+            {phase.student.gradeLevel && (
+              <p className="text-body-md text-sc-gray">{phase.student.gradeLevel}</p>
+            )}
+            <p className="text-body-md text-sc-gray">
+              Currently checked in at{" "}
+              <span className="font-semibold text-sc-navy">{formatAttendanceTime(phase.checkInAt)}</span>
+            </p>
+          </div>
+
+          <button
+            onClick={handleConfirmCheckout}
+            className="w-full rounded-xl bg-sc-navy py-4 text-white text-label-md font-bold text-lg tracking-wide"
+          >
+            CHECK OUT
+          </button>
+
+          <button
+            onClick={() => router.push("/dashboard/attendance")}
+            className="w-full rounded-xl border-2 border-sc-gray-200 bg-white py-3.5 text-sc-gray text-label-md font-semibold"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* ── Checkout loading ──────────────────────────────────────── */}
+      {phase.name === "checkout_loading" && (
+        <div className="flex flex-col items-center gap-4 py-16">
+          <div className="h-14 w-14 rounded-full border-4 border-sc-navy border-t-transparent animate-spin" />
+          <p className="text-body-lg text-sc-gray font-medium">Checking out…</p>
         </div>
       )}
 
@@ -232,6 +400,7 @@ export function AttendanceScanClient({ token }: { token: string }) {
           outcome={outcome}
           onUndo={() => setPhase({ name: "undo_confirm" })}
           onContinue={() => router.push("/dashboard/attendance")}
+          onViewAttendance={() => router.push(`/dashboard/students/${outcome.studentId}?tab=attendance`)}
         />
       )}
     </div>
@@ -244,10 +413,12 @@ function ResultScreen({
   outcome,
   onUndo,
   onContinue,
+  onViewAttendance,
 }: {
   outcome: Outcome;
   onUndo: () => void;
   onContinue: () => void;
+  onViewAttendance: () => void;
 }) {
   const { action, firstName, lastName, preferredName, gradeLevel,
           isLate, isEarlyPickup, timestamp, medicationAlerts, allergies } = outcome;
@@ -284,19 +455,13 @@ function ResultScreen({
 
       {/* Main card */}
       <div className={cn("rounded-2xl border-2 p-6 flex flex-col items-center gap-4 text-center", config.cardBg)}>
-
-        {/* Avatar */}
         <div className={cn("flex h-24 w-24 items-center justify-center rounded-full text-white text-3xl font-serif font-bold shadow-md", config.avatarBg)}>
           {firstName[0]}{lastName[0]}
         </div>
-
-        {/* Name */}
         <div>
           <p className="font-serif text-display-1 text-sc-navy leading-tight">{displayName}</p>
           {gradeLevel && <p className="text-body-md text-sc-gray mt-0.5">{gradeLevel}</p>}
         </div>
-
-        {/* Action badge + time */}
         <div className="flex flex-col items-center gap-1">
           <div className={cn("flex items-center gap-2 rounded-full px-5 py-2.5 text-label-md font-bold tracking-widest uppercase", config.badgeBg)}>
             <config.Icon className="size-5" />
@@ -304,8 +469,6 @@ function ResultScreen({
           </div>
           <p className="text-body-lg font-semibold text-sc-gray">{time}</p>
         </div>
-
-        {/* Flags */}
         <div className="flex flex-wrap justify-center gap-2">
           {isLate && (
             <span className="flex items-center gap-1 rounded-full bg-sc-gold-100 border border-sc-gold-300 px-3 py-1 text-label-sm text-sc-gold-700 font-medium">
@@ -334,14 +497,22 @@ function ResultScreen({
         </div>
       )}
 
-      {/* Already out explainer */}
+      {/* Already out: show view/fix + context */}
       {action === "already_out" && (
-        <p className="text-center text-body-md text-sc-gray">
-          No action taken — this student was already checked out today.
-        </p>
+        <>
+          <p className="text-center text-body-md text-sc-gray">
+            Already checked out at {time}. No action taken.
+          </p>
+          <button
+            onClick={onViewAttendance}
+            className="w-full rounded-xl border-2 border-sc-teal bg-white py-3 text-label-md text-sc-teal font-semibold hover:bg-sc-teal-50 transition-colors"
+          >
+            View / Fix Attendance
+          </button>
+        </>
       )}
 
-      {/* Admin override */}
+      {/* Admin override undo */}
       {action !== "already_out" && (
         <button
           onClick={onUndo}
@@ -357,12 +528,14 @@ function ResultScreen({
         onClick={onContinue}
         className="w-full rounded-xl bg-sc-navy py-3.5 text-white text-label-md font-semibold"
       >
-        Go to Attendance Page
+        Next Student
       </button>
 
-      <p className="text-center text-label-sm text-sc-gray-400">
-        Returning automatically in a few seconds…
-      </p>
+      {action !== "checkout" && (
+        <p className="text-center text-label-sm text-sc-gray-400">
+          Returning automatically in a few seconds…
+        </p>
+      )}
     </div>
   );
 }

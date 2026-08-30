@@ -62,3 +62,44 @@ export async function generateQrSvg(
     errorCorrectionLevel: "M",
   });
 }
+
+/** Build the URL that goes inside the student record (back) QR code. */
+export function profileQrUrl(token: string): string {
+  return `${APP_ORIGIN}/record/scan/${token}`;
+}
+
+/** Generate a Data URL (PNG) for the student record QR (PRF- token). */
+export async function generateProfileQrDataUrl(
+  token: string,
+  opts: QrOptions = {}
+): Promise<string> {
+  const url = profileQrUrl(token);
+  return QRCode.toDataURL(url, {
+    width: opts.size ?? 300,
+    margin: opts.margin ?? 2,
+    color: {
+      dark: opts.darkColor ?? "#0B1E38",
+      light: opts.lightColor ?? "#FFFFFF",
+    },
+    errorCorrectionLevel: "M",
+  });
+}
+
+/**
+ * Generate a high-resolution print-quality PNG for any URL.
+ * Used for the Canva-ready QR download — 800px, H error correction, max contrast.
+ */
+export async function generatePrintQrDataUrl(
+  url: string,
+  opts: QrOptions = {}
+): Promise<string> {
+  return QRCode.toDataURL(url, {
+    width: opts.size ?? 800,
+    margin: opts.margin ?? 4,
+    color: {
+      dark: opts.darkColor ?? "#000000",
+      light: opts.lightColor ?? "#FFFFFF",
+    },
+    errorCorrectionLevel: "H",
+  });
+}

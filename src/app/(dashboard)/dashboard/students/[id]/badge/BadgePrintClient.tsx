@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowLeft, Printer } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
+import { ArrowLeft, Download, RefreshCw, Printer, AlertCircle, CheckCircle } from "lucide-react";
 import Link from "next/link";
-import { generateQrDataUrl } from "@/lib/qr";
+import { generateQrDataUrl, generateProfileQrDataUrl, generatePrintQrDataUrl, attendanceQrUrl, profileQrUrl } from "@/lib/qr";
+import { regenerateAttendanceQrToken, regenerateProfileQrToken } from "@/app/actions/badge";
 
 interface Student {
   id: string;
@@ -22,48 +23,90 @@ interface Props {
   orgName: string;
   badgeBg: string | null;
   badgeText: string | null;
+  isFullAdmin: boolean;
 }
 
-export function BadgePrintClient({ student, orgName, badgeBg, badgeText }: Props) {
+export function BadgePrintClient({ student, orgName, badgeBg, badgeText, isFullAdmin }: Props) {
+  const [attToken,  setAttToken]  = useState(student.attendance_qr_token);
+  const [prfToken,  setPrfToken]  = useState(student.profile_qr_token);
   const [attQrDataUrl, setAttQrDataUrl] = useState<string | null>(null);
-  const [profileQrDataUrl, setProfileQrDataUrl] = useState<string | null>(null);
+  const [prfQrDataUrl, setPrfQrDataUrl] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
 
-  const bg   = badgeBg   ?? "#0B1747"; // sc-navy
+  const [attPending, startAttTransition] = useTransition();
+  const [prfPending, startPrfTransition] = useTransition();
+
+  const bg   = badgeBg   ?? "#0B1747";
   const text = badgeText ?? "#FFFFFF";
-
-  useEffect(() => {
-    async function gen() {
-      if (student.attendance_qr_token) {
-        const url = await generateQrDataUrl(student.attendance_qr_token, {
-          size: 200,
-          darkColor: bg,
-          lightColor: "#FFFFFF",
-        });
-        setAttQrDataUrl(url);
-      }
-      if (student.profile_qr_token) {
-        // Profile QR encodes the staff profile URL (not attendance)
-        const profileUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://schoolco.vercel.app"}/dashboard/students/${student.id}`;
-        const { default: QRCode } = await import("qrcode");
-        const svg = await QRCode.toDataURL(profileUrl, {
-          width: 200, margin: 2,
-          color: { dark: bg, light: "#FFFFFF" },
-          errorCorrectionLevel: "M",
-        });
-        setProfileQrDataUrl(svg);
-      }
-    }
-    gen();
-  }, [student, bg]);
 
   const displayName = student.preferred_name
     ? `${student.preferred_name} ${student.last_name}`
     : `${student.first_name} ${student.last_name}`;
 
+  // Generate preview QRs whenever tokens change
+  useEffect(() => {
+    async function gen() {
+      if (attToken) {
+        const url = await generateQrDataUrl(attToken, { size: 200, darkColor: bg });
+        setAttQrDataUrl(url);
+      } else {
+        setAttQrDataUrl(null);
+      }
+      if (prfToken) {
+        const url = await generateProfileQrDataUrl(prfToken, { size: 200, darkColor: bg });
+        setPrfQrDataUrl(url);
+      } else {
+        setPrfQrDataUrl(null);
+      }
+    }
+    gen();
+  }, [attToken, prfToken, bg]);
+
+  function showFeedback(type: "ok" | "err", msg: string) {
+    setFeedback({ type, msg });
+    setTimeout(() => setFeedback(null), 4000);
+  }
+
+  async function downloadQr(kind: "attendance" | "record") {
+    const token = kind === "attendance" ? attToken : prfToken;
+    if (!token) return;
+    const url   = kind === "attendance" ? attendanceQrUrl(token) : profileQrUrl(token);
+    const label = kind === "attendance" ? "attendance" : "record";
+    const dataUrl = await generatePrintQrDataUrl(url, { darkColor: "#000000" });
+    const a = document.createElement("a");
+    a.href     = dataUrl;
+    a.download = `${displayName.replace(/\s+/g, "-")}-${label}-qr.png`;
+    a.click();
+  }
+
+  function handleRegenerateAtt() {
+    startAttTransition(async () => {
+      const res = await regenerateAttendanceQrToken(student.id);
+      if (res.success && res.data) {
+        setAttToken(res.data);
+        showFeedback("ok", "Attendance QR regenerated. Old code is now invalid.");
+      } else {
+        showFeedback("err", ("error" in res ? res.error : null) ?? "Failed to regenerate.");
+      }
+    });
+  }
+
+  function handleRegeneratePrf() {
+    startPrfTransition(async () => {
+      const res = await regenerateProfileQrToken(student.id);
+      if (res.success && res.data) {
+        setPrfToken(res.data);
+        showFeedback("ok", "Record QR regenerated. Old code is now invalid.");
+      } else {
+        showFeedback("err", ("error" in res ? res.error : null) ?? "Failed to regenerate.");
+      }
+    });
+  }
+
   return (
     <div>
-      {/* Controls — hidden when printing */}
-      <div className="print:hidden flex items-center gap-4 p-4 border-b border-sc-gray-100 bg-white">
+      {/* Controls */}
+      <div className="print:hidden flex flex-wrap items-center gap-4 p-4 border-b border-sc-gray-100 bg-white">
         <Link href={`/dashboard/students/${student.id}`}
           className="flex items-center gap-2 text-label-sm text-sc-gray hover:text-sc-navy">
           <ArrowLeft className="size-4" /> Back to Profile
@@ -75,6 +118,91 @@ export function BadgePrintClient({ student, orgName, badgeBg, badgeText }: Props
           <Printer className="size-4" /> Print Badge
         </button>
       </div>
+
+      {/* Feedback banner */}
+      {feedback && (
+        <div className={`print:hidden flex items-center gap-3 px-4 py-3 ${
+          feedback.type === "ok"
+            ? "bg-sc-teal-50 border-b border-sc-teal-200 text-sc-teal-700"
+            : "bg-sc-rose-50 border-b border-sc-rose-200 text-sc-rose-700"
+        }`}>
+          {feedback.type === "ok"
+            ? <CheckCircle className="size-4 shrink-0" />
+            : <AlertCircle className="size-4 shrink-0" />}
+          <p className="text-label-sm font-medium">{feedback.msg}</p>
+        </div>
+      )}
+
+      {/* ── QR Management Panel (Full Admin only) ──────────────────── */}
+      {isFullAdmin && (
+        <div className="print:hidden p-4 sm:p-6 bg-sc-gray-50 border-b border-sc-gray-100">
+          <h2 className="text-label-md font-semibold text-sc-navy mb-4">Badge QR Codes — {displayName}</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+            {/* Front — Attendance QR */}
+            <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-5 space-y-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-label-md font-semibold text-sc-navy">FRONT — Attendance QR</p>
+                  <p className="text-label-sm text-sc-gray-400 mt-0.5">Scan to check in / check out</p>
+                </div>
+                {attQrDataUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={attQrDataUrl} alt="Attendance QR preview" className="h-16 w-16 rounded-lg shrink-0" />
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => downloadQr("attendance")}
+                  disabled={!attToken}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-sc-teal bg-sc-teal-50 px-3 py-2 text-label-sm font-medium text-sc-teal-700 hover:bg-sc-teal-100 disabled:opacity-40 transition-colors"
+                >
+                  <Download className="size-3.5" /> Download PNG
+                </button>
+                <button
+                  onClick={handleRegenerateAtt}
+                  disabled={attPending}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm font-medium text-sc-gray hover:border-sc-rose hover:text-sc-rose disabled:opacity-40 transition-colors"
+                >
+                  <RefreshCw className={`size-3.5 ${attPending ? "animate-spin" : ""}`} />
+                  {attPending ? "…" : "Regenerate"}
+                </button>
+              </div>
+            </div>
+
+            {/* Back — Student Record QR */}
+            <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-5 space-y-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-label-md font-semibold text-sc-navy">BACK — Student Record QR</p>
+                  <p className="text-label-sm text-sc-gray-400 mt-0.5">Scan to open student profile</p>
+                </div>
+                {prfQrDataUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={prfQrDataUrl} alt="Record QR preview" className="h-16 w-16 rounded-lg shrink-0" />
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => downloadQr("record")}
+                  disabled={!prfToken}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-sc-teal bg-sc-teal-50 px-3 py-2 text-label-sm font-medium text-sc-teal-700 hover:bg-sc-teal-100 disabled:opacity-40 transition-colors"
+                >
+                  <Download className="size-3.5" /> Download PNG
+                </button>
+                <button
+                  onClick={handleRegeneratePrf}
+                  disabled={prfPending}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm font-medium text-sc-gray hover:border-sc-rose hover:text-sc-rose disabled:opacity-40 transition-colors"
+                >
+                  <RefreshCw className={`size-3.5 ${prfPending ? "animate-spin" : ""}`} />
+                  {prfPending ? "…" : "Regenerate"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Badge preview */}
       <div className="print:p-0 p-8 bg-sc-gray-50 min-h-screen print:min-h-0 flex flex-wrap gap-6 justify-center items-start">
@@ -114,17 +242,17 @@ export function BadgePrintClient({ student, orgName, badgeBg, badgeText }: Props
           </div>
         </div>
 
-        {/* Back — Profile QR (for staff) */}
+        {/* Back — Profile QR */}
         <div
           className="w-[3.375in] h-[2.125in] rounded-xl overflow-hidden flex flex-col items-center justify-center gap-2 shadow-modal print:shadow-none print:rounded-none"
           style={{ backgroundColor: bg }}
         >
-          {profileQrDataUrl && (
+          {prfQrDataUrl && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={profileQrDataUrl} alt="Profile QR" className="h-24 w-24 rounded-lg" />
+            <img src={prfQrDataUrl} alt="Student Record QR" className="h-24 w-24 rounded-lg" />
           )}
           <p className="text-xs font-semibold" style={{ color: text, opacity: 0.7 }}>
-            Staff Profile QR
+            Student Record QR
           </p>
           <p className="text-xs" style={{ color: text, opacity: 0.5 }}>
             {orgName} — {student.student_display_id}

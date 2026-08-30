@@ -6,7 +6,7 @@
  */
 
 import { redirect } from "next/navigation";
-import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createClient, getUser, getActiveOrgId, getActiveRole } from "@/lib/supabase/server";
 import { BadgePrintClient } from "./BadgePrintClient";
 
 export default async function BadgePage({ params }: { params: { id: string } }) {
@@ -15,6 +15,9 @@ export default async function BadgePage({ params }: { params: { id: string } }) 
 
   const orgId = await getActiveOrgId();
   if (!orgId) redirect("/select-mission");
+
+  const role       = (await getActiveRole()) ?? "staff";
+  const isFullAdmin = ["full_admin", "platform_admin"].includes(role);
 
   const supabase = await createClient();
   const { data: student } = await supabase
@@ -49,6 +52,7 @@ export default async function BadgePage({ params }: { params: { id: string } }) 
       orgName="Rising Leaders Academy"
       badgeBg={settings?.badge_background_color as string | null}
       badgeText={settings?.badge_text_color as string | null}
+      isFullAdmin={isFullAdmin}
     />
   );
 }

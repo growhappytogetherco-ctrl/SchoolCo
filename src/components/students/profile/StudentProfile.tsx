@@ -104,6 +104,7 @@ interface Props {
   pickupAlerts?: PickupAlert[];
   followUpSummary?: StaffFollowUpSummary | null;
   studentAlerts?: StudentAlert[];
+  viaRecordQr?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────
@@ -115,6 +116,7 @@ export function StudentProfile({
   pickupAlerts = [],
   followUpSummary = null,
   studentAlerts = [],
+  viaRecordQr = false,
 }: Props) {
   const router = useRouter();
   const hiddenTabs = getHiddenTabs(role);
@@ -263,6 +265,7 @@ export function StudentProfile({
           attendanceQrToken={data.attendance_qr_token}
           role={role}
           isAdmin={isAdmin}
+          viaRecordQr={viaRecordQr}
         />
       </div>
 

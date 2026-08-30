@@ -669,6 +669,7 @@ interface Props {
   attendanceQrToken: string | null;
   role?:             string;
   isAdmin?:          boolean;
+  viaRecordQr?:      boolean;
 }
 
 type ActiveModal = "checkout" | "note" | "incident" | "worksample" | null;
@@ -681,6 +682,7 @@ export function StudentQuickActions({
   attendanceQrToken: _qr,
   role = "staff",
   isAdmin = false,
+  viaRecordQr = false,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -717,6 +719,16 @@ export function StudentQuickActions({
   return (
     <>
       <div className="space-y-2">
+        {/* Prominent "Scan / Upload Work" CTA when profile opened via badge back QR */}
+        {viaRecordQr && !isVolunteer && (
+          <button
+            onClick={() => setModal("worksample")}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-sc-teal py-3.5 text-white text-label-md font-semibold shadow-sm"
+          >
+            <Upload className="size-5" />
+            Scan / Upload Student Work
+          </button>
+        )}
         {feedback && (
           <p className="text-label-sm text-sc-teal-700 font-medium bg-sc-teal-50 border border-sc-teal-200 rounded-lg px-3 py-1.5 inline-block">
             {feedback}

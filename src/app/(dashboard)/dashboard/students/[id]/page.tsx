@@ -8,7 +8,7 @@ export default async function StudentProfilePage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { tab?: string; note?: string };
+  searchParams: { tab?: string; note?: string; via?: string };
 }) {
   const user = await getUser();
   if (!user) redirect("/login");
@@ -21,6 +21,7 @@ export default async function StudentProfilePage({
   const today = new Date().toISOString().split("T")[0];
   const tab = searchParams.tab ?? "overview";
   const initialNoteId = searchParams.note ?? null;
+  const viaRecordQr = searchParams.via === "record_qr";
 
   // Core student — always needed for header
   const { data: student } = await supabase
@@ -159,6 +160,7 @@ export default async function StudentProfilePage({
       pickupAlerts={pickupAlerts}
       followUpSummary={followUpSummary}
       studentAlerts={studentAlerts}
+      viaRecordQr={viaRecordQr}
     />
   );
 }
