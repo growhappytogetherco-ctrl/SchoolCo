@@ -374,12 +374,13 @@ export async function saveManualAttendance(params: {
     return { success: false, error: `Invalid status: "${params.status}". Valid values: ${VALID_STATUSES.join(", ")}` };
   }
 
-  const supabase = await createClient();
+  const admin = createAdminClient();
 
   // Upsert into the canonical attendance record for this student/date.
   // onConflict matches the unique constraint: (organization_id, student_id, date).
   // On conflict, ALL provided columns are updated (merge-duplicates behavior).
-  const { error: upsertError } = await supabase
+  // Uses admin client so RLS never silently blocks writes for stub-account staff.
+  const { error: upsertError } = await admin
     .from("attendance_records")
     .upsert({
       organization_id: orgId,
@@ -399,7 +400,7 @@ export async function saveManualAttendance(params: {
   if (upsertError) return { success: false, error: upsertError.message };
 
   // Verify: read the row back from the DB. Do not report success until confirmed.
-  const { data: saved, error: fetchError } = await supabase
+  const { data: saved, error: fetchError } = await admin
     .from("attendance_records")
     .select("check_in_at, check_out_at, status")
     .eq("organization_id", orgId)
