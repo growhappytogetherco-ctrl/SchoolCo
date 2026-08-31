@@ -236,6 +236,174 @@ export async function getStaffOnDuty(date?: string): Promise<StaffOnDutyMember[]
     .filter(Boolean) as StaffOnDutyMember[];
 }
 
+// ── Attendance history ────────────────────────────────────────────────────
+
+export interface StaffAttendanceHistoryRecord {
+  id:               string;
+  staff_roster_id:  string;
+  date:             string;
+  check_in_at:      string | null;
+  check_out_at:     string | null;
+  check_in_method:  string | null;
+  check_out_method: string | null;
+  notes:            string | null;
+  /** Total minutes present (null if no check-in) */
+  minutes_present:  number | null;
+}
+
+export interface StaffAttendanceSummary {
+  days_present:      number;
+  days_late:         number;
+  days_early_out:    number;
+  total_minutes:     number;
+  current_status:    "checked_in" | "checked_out" | "not_checked_in";
+  check_in_at_today: string | null;
+  check_out_at_today: string | null;
+}
+
+/** School-year boundary: Aug 1 of current or previous calendar year. */
+function schoolYearStart(forDate = new Date()): string {
+  const y = forDate.getMonth() >= 7 ? forDate.getFullYear() : forDate.getFullYear() - 1;
+  return `${y}-08-01`;
+}
+
+export async function getStaffAttendanceHistory(
+  staffRosterId: string,
+): Promise<StaffAttendanceHistoryRecord[]> {
+  const [user, orgId, role] = await Promise.all([getUser(), getActiveOrgId(), getActiveRole()]);
+  if (!user || !orgId || !role || !SCAN_ROLES.has(role)) return [];
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("staff_attendance_records")
+    .select("id, staff_roster_id, date, check_in_at, check_out_at, check_in_method, check_out_method, notes")
+    .eq("organization_id", orgId)
+    .eq("staff_roster_id", staffRosterId)
+    .gte("date", schoolYearStart())
+    .order("date", { ascending: false });
+
+  return ((data ?? []) as unknown[]).map((r) => {
+    const row = r as Record<string, unknown>;
+    const ci  = row.check_in_at  as string | null;
+    const co  = row.check_out_at as string | null;
+    const minutes = ci && co
+      ? Math.round((new Date(co).getTime() - new Date(ci).getTime()) / 60_000)
+      : null;
+    return {
+      id:               row.id               as string,
+      staff_roster_id:  row.staff_roster_id  as string,
+      date:             row.date             as string,
+      check_in_at:      ci,
+      check_out_at:     co,
+      check_in_method:  (row.check_in_method  as string | null) ?? null,
+      check_out_method: (row.check_out_method as string | null) ?? null,
+      notes:            (row.notes           as string | null) ?? null,
+      minutes_present:  minutes,
+    };
+  });
+}
+
+export async function getStaffAttendanceSummary(
+  staffRosterId: string,
+): Promise<StaffAttendanceSummary> {
+  const history = await getStaffAttendanceHistory(staffRosterId);
+  const today   = new Date().toISOString().split("T")[0];
+
+  const todayRecord = history.find((r) => r.date === today);
+  let current_status: StaffAttendanceSummary["current_status"] = "not_checked_in";
+  if (todayRecord?.check_out_at) current_status = "checked_out";
+  else if (todayRecord?.check_in_at) current_status = "checked_in";
+
+  const pastRecords = history.filter((r) => r.date !== today);
+  const days_present = pastRecords.filter((r) => r.check_in_at).length;
+  const total_minutes = pastRecords.reduce((sum, r) => sum + (r.minutes_present ?? 0), 0);
+
+  return {
+    days_present,
+    days_late:      0,  // No late threshold tracked for staff yet
+    days_early_out: 0,  // No early-out threshold tracked for staff yet
+    total_minutes,
+    current_status,
+    check_in_at_today:  todayRecord?.check_in_at  ?? null,
+    check_out_at_today: todayRecord?.check_out_at ?? null,
+  };
+}
+
+// ── Manual attendance management (full_admin only) ────────────────────────
+
+export async function addStaffAttendanceRecord(
+  staffRosterId: string,
+  payload: {
+    date:             string;
+    check_in_at:      string | null;
+    check_out_at:     string | null;
+    check_in_method:  string;
+    check_out_method: string | null;
+    notes:            string | null;
+  },
+): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await assertFullAdmin();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("staff_attendance_records").insert({
+    organization_id:  auth.orgId,
+    staff_roster_id:  staffRosterId,
+    date:             payload.date,
+    check_in_at:      payload.check_in_at,
+    check_out_at:     payload.check_out_at,
+    check_in_method:  payload.check_in_method,
+    check_out_method: payload.check_out_method,
+    notes:            payload.notes,
+  } as never);
+
+  if (error) return { success: false, error: error.message };
+  revalidatePath(`/dashboard/staff/${staffRosterId}`);
+  return { success: true };
+}
+
+export async function updateStaffAttendanceRecord(
+  recordId: string,
+  payload: {
+    date?:             string;
+    check_in_at?:      string | null;
+    check_out_at?:     string | null;
+    check_in_method?:  string;
+    check_out_method?: string | null;
+    notes?:            string | null;
+  },
+): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await assertFullAdmin();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("staff_attendance_records")
+    .update({ ...payload, updated_at: new Date().toISOString() } as never)
+    .eq("id", recordId)
+    .eq("organization_id", auth.orgId);
+
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function deleteStaffAttendanceRecord(
+  recordId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await assertFullAdmin();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("staff_attendance_records")
+    .delete()
+    .eq("id", recordId)
+    .eq("organization_id", auth.orgId);
+
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
 // ── Regenerate QR token ───────────────────────────────────────────────────
 
 export async function regenerateStaffQrToken(

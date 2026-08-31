@@ -14,6 +14,10 @@ import {
 import { ROLE_LABELS, ADMIN_ROLES, type UserRole } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ComplianceSection } from "./ComplianceSection";
+import { StaffAttendanceTab } from "./tabs/StaffAttendanceTab";
+import { StaffRecordsTab } from "./tabs/StaffRecordsTab";
+
+type Tab = "overview" | "attendance" | "records";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -350,8 +354,10 @@ export function StaffProfileView({ member: init, currentRole }: {
   const [showEdit, setShowEdit]      = useState(false);
   const [isPending, startTransition] = useTransition();
   const [toast, setToast]            = useState<{ msg: string; ok: boolean } | null>(null);
+  const [activeTab, setActiveTab]    = useState<Tab>("overview");
 
-  const canManage = ADMIN_ROLES.includes(currentRole as UserRole);
+  const canManage  = ADMIN_ROLES.includes(currentRole as UserRole);
+  const isFullAdmin = ["full_admin", "platform_admin"].includes(currentRole);
 
   function flash(msg: string, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); }
 
@@ -391,7 +397,7 @@ export function StaffProfileView({ member: init, currentRole }: {
         </div>
       )}
 
-      {alerts.length > 0 && (
+      {activeTab === "overview" && alerts.length > 0 && (
         <div className="rounded-xl border border-sc-rose-200 bg-sc-rose-50 px-4 py-3">
           <div className="flex items-start gap-2">
             <AlertTriangle className="size-4 text-sc-rose mt-0.5 shrink-0" />
@@ -405,7 +411,7 @@ export function StaffProfileView({ member: init, currentRole }: {
         </div>
       )}
 
-      {/* Header */}
+      {/* Header — always visible */}
       <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-4">
@@ -482,6 +488,40 @@ export function StaffProfileView({ member: init, currentRole }: {
         {member.bio && <p className="mt-4 pt-4 border-t border-sc-gray-100 text-body-sm text-sc-gray">{member.bio}</p>}
       </div>
 
+      {/* Tab navigation */}
+      <div className="flex border-b border-sc-gray-100 gap-1">
+        {(["overview", "attendance", ...(isFullAdmin ? ["records" as const] : [])] as Tab[]).map((tab) => {
+          const labels: Record<Tab, string> = { overview: "Overview", attendance: "Attendance", records: "Staff Records" };
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                "px-4 py-2.5 text-label-sm font-medium rounded-t-xl transition-colors border-b-2 -mb-px",
+                activeTab === tab
+                  ? "border-sc-navy text-sc-navy bg-white"
+                  : "border-transparent text-sc-gray hover:text-sc-navy hover:bg-sc-gray-50"
+              )}
+            >
+              {labels[tab]}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Attendance tab */}
+      {activeTab === "attendance" && (
+        <StaffAttendanceTab staffRosterId={member.id} isFullAdmin={isFullAdmin} />
+      )}
+
+      {/* Staff Records tab */}
+      {activeTab === "records" && isFullAdmin && (
+        <StaffRecordsTab staffRosterId={member.id} isFullAdmin={isFullAdmin} />
+      )}
+
+      {/* Overview tab content */}
+      {activeTab === "overview" && <>
+
       {/* Compliance — legacy flat fields */}
       <div>
         <h2 className="font-serif text-heading-3 text-sc-navy mb-3 flex items-center gap-2">
@@ -548,6 +588,8 @@ export function StaffProfileView({ member: init, currentRole }: {
           <p className="text-body-sm text-sc-gray whitespace-pre-wrap">{member.compliance_notes}</p>
         </div>
       )}
+
+      </> /* end overview */}
 
       {showEdit && (
         <EditForm member={member} onClose={() => setShowEdit(false)}
