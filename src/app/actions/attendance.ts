@@ -24,24 +24,37 @@ function todayDate(): string {
   return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 }
 
-/** Returns the org's arrival cutoff as a local time string "HH:MM" */
-async function getArrivalCutoff(orgId: string): Promise<string> {
+/** Returns the org's arrival cutoff and IANA timezone from org_settings */
+async function getArrivalCutoff(orgId: string): Promise<{ cutoff: string; timezone: string }> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("org_settings")
-    .select("arrival_cutoff")
+    .select("arrival_cutoff, timezone")
     .eq("organization_id", orgId)
     .single();
-  // arrival_cutoff comes back as "HH:MM:SS" — take first 5 chars
-  return (data?.arrival_cutoff as string | null)?.slice(0, 5) ?? "08:30";
+  return {
+    cutoff:   (data?.arrival_cutoff as string | null)?.slice(0, 5) ?? "09:00",
+    timezone: (data?.timezone as string | null) ?? "America/New_York",
+  };
 }
 
-function isLate(cutoffTime: string): boolean {
+/**
+ * Returns true if the current moment is strictly after the cutoff wall-clock
+ * time in the org's timezone. AT the cutoff (e.g. exactly 09:00:00) = on time.
+ */
+function isLate(cutoffHHMM: string, timezone: string): boolean {
   const now = new Date();
-  const [hh, mm] = cutoffTime.split(":").map(Number);
-  const cutoff = new Date();
-  cutoff.setHours(hh, mm, 0, 0);
-  return now > cutoff;
+  // Format UTC-now as HH:MM:SS in the org's timezone (e.g. "09:05:23")
+  const nowInTz = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour:   "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(now);
+  const [ch, cm] = cutoffHHMM.split(":").map(Number);
+  const cutoffStr = `${String(ch).padStart(2, "0")}:${String(cm).padStart(2, "0")}:00`;
+  return nowInTz > cutoffStr; // "09:00:01" > "09:00:00" → late; "09:00:00" → on time
 }
 
 // ── Check In ──────────────────────────────────────────────────────────────
@@ -81,8 +94,8 @@ export async function checkInStudent(
     };
   }
 
-  const cutoff = await getArrivalCutoff(orgId);
-  const late = isLate(cutoff);
+  const { cutoff, timezone } = await getArrivalCutoff(orgId);
+  const late = isLate(cutoff, timezone);
 
   if (existing) {
     // Update existing row (e.g. was marked absent earlier)

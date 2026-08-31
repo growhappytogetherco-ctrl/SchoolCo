@@ -379,17 +379,25 @@ function computeActionItems(
   const items: ActionItem[] = [];
   const nowStr = now.toISOString();
 
+  // Format current time in the org's timezone for wall-clock comparisons
+  const timezone = settings.timezone || "America/New_York";
+  const nowInTz = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour:   "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(now); // "HH:MM:SS"
+
   // Parse dismissal time for "still on campus after dismissal" check
   const [dh, dm] = settings.dismissal_time.split(":").map(Number);
-  const dismissal = new Date(now);
-  dismissal.setHours(dh, dm, 0, 0);
-  const pastDismissal = now > dismissal;
+  const dismissalStr = `${String(dh).padStart(2, "0")}:${String(dm).padStart(2, "0")}:00`;
+  const pastDismissal = nowInTz > dismissalStr;
 
   // Parse arrival cutoff for "not arrived after cutoff"
   const [ah, am] = settings.arrival_cutoff.split(":").map(Number);
-  const arrival = new Date(now);
-  arrival.setHours(ah, am, 0, 0);
-  const pastArrival = now > arrival;
+  const arrivalStr = `${String(ah).padStart(2, "0")}:${String(am).padStart(2, "0")}:00`;
+  const pastArrival = nowInTz > arrivalStr;
 
   for (const s of students) {
     const name = s.preferred_name ?? `${s.first_name} ${s.last_name}`;
