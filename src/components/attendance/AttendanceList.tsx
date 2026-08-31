@@ -13,23 +13,30 @@ import { formatAttendanceTime } from "@/lib/format-attendance-time";
 // ── Status helpers ─────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  present:         { label: "Present",        className: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200" },
   checked_in:      { label: "Checked In",     className: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200" },
+  checked_out:     { label: "Checked Out",    className: "bg-sc-navy-50 text-sc-navy-600 border-sc-navy-200" },
+  present:         { label: "Present",        className: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200" },
   absent:          { label: "Absent",          className: "bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200" },
   tardy:           { label: "Tardy",           className: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200" },
   excused:         { label: "Excused",         className: "bg-sc-navy-50 text-sc-navy-600 border-sc-navy-200" },
   early_dismissal: { label: "Early Dismissal", className: "bg-sc-gray-50 text-sc-gray-600 border-sc-gray-200" },
 };
 
-function StatusChip({ status }: { status: string | undefined }) {
-  if (!status) {
+function StatusChip({ record }: {
+  record: { status?: string; check_in_at?: string | null; check_out_at?: string | null } | null;
+}) {
+  if (!record) {
     return (
       <span className="rounded-full border bg-sc-gray-50 text-sc-gray-400 border-sc-gray-200 px-2.5 py-0.5 text-label-sm">
         Not Recorded
       </span>
     );
   }
-  const s = STATUS_LABELS[status] ?? { label: status, className: "bg-sc-gray-50 text-sc-gray border-sc-gray-200" };
+  // Derive display key from timestamps first — authoritative signal
+  const key = record.check_out_at ? "checked_out"
+    : record.check_in_at ? "checked_in"
+    : record.status;
+  const s = STATUS_LABELS[key ?? ""] ?? { label: key ?? record.status, className: "bg-sc-gray-50 text-sc-gray border-sc-gray-200" };
   return (
     <span className={cn("rounded-full border px-2.5 py-0.5 text-label-sm font-medium", s.className)}>
       {s.label}
@@ -98,7 +105,7 @@ function AttendanceRow({ row, onUpdate }: { row: StudentAttendanceRow; onUpdate:
         </div>
 
         {/* Status chip */}
-        <StatusChip status={row.record?.status} />
+        <StatusChip record={row.record} />
 
         {/* Times */}
         <div className="hidden sm:flex flex-col items-end gap-0.5 text-label-sm text-sc-gray min-w-[90px]">

@@ -89,7 +89,7 @@ export async function checkInStudent(
     const { error } = await supabase
       .from("attendance_records")
       .update({
-        status: "present",
+        status: "checked_in",
         check_in_at: now,
         check_in_by: profileId,
         check_in_method: method,
@@ -103,7 +103,7 @@ export async function checkInStudent(
       organization_id: orgId,
       student_id: studentId,
       date,
-      status: "present",
+      status: "checked_in",
       check_in_at: now,
       check_in_by: profileId,
       check_in_method: method,
@@ -168,6 +168,7 @@ export async function checkOutStudent(
   const { error } = await supabase
     .from("attendance_records")
     .update({
+      status: "present",
       check_out_at: now,
       check_out_by: profileId,
       check_out_method: method,
