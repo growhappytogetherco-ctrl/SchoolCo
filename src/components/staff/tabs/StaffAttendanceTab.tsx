@@ -292,7 +292,7 @@ export function StaffAttendanceTab({ staffRosterId, isFullAdmin }: Props) {
                   <th className="px-5 py-3 text-label-sm font-semibold text-sc-gray">Check In</th>
                   <th className="px-5 py-3 text-label-sm font-semibold text-sc-gray">Check Out</th>
                   <th className="px-5 py-3 text-label-sm font-semibold text-sc-gray">Total</th>
-                  <th className="px-5 py-3 text-label-sm font-semibold text-sc-gray">Method</th>
+                  <th className="px-5 py-3 text-label-sm font-semibold text-sc-gray">Status</th>
                   {isFullAdmin && <th className="px-5 py-3 text-label-sm font-semibold text-sc-gray" />}
                 </tr>
               </thead>
@@ -300,7 +300,6 @@ export function StaffAttendanceTab({ staffRosterId, isFullAdmin }: Props) {
                 {history.map((record) => {
                   const isEditing  = editing?.id === record.id;
                   const isDeleting = deleting?.id === record.id;
-                  const method = record.check_in_method ?? "qr";
                   return (
                     <tr key={record.id}>
                       <td colSpan={isEditing || isDeleting ? 6 : 1}
@@ -326,14 +325,17 @@ export function StaffAttendanceTab({ staffRosterId, isFullAdmin }: Props) {
                             {fmtMinutes(record.minutes_present)}
                           </td>
                           <td className="px-5 py-3">
-                            <span className={cn(
-                              "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                              method === "qr"
-                                ? "bg-sc-teal-50 text-sc-teal-700"
-                                : "bg-sc-gray-100 text-sc-gray"
-                            )}>
-                              {method === "qr" ? "QR Badge" : "Manual"}
-                            </span>
+                            {record.check_out_at ? (
+                              <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold bg-sc-navy text-white">
+                                Present
+                              </span>
+                            ) : record.check_in_at ? (
+                              <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold bg-sc-teal text-white">
+                                Checked In
+                              </span>
+                            ) : (
+                              <span className="text-sc-gray-400 text-[11px]">—</span>
+                            )}
                           </td>
                           {isFullAdmin && (
                             <td className="px-5 py-3">
