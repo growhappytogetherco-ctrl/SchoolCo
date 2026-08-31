@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createClient, getUser, getActiveOrgId, resolveProfileId } from "@/lib/supabase/server";
 
 // ── In-process rate limiter (per-user, per-minute sliding window) ──────────
 // Each serverless instance has its own counter. This is per-instance, not
@@ -66,12 +66,13 @@ export async function GET(
     );
   }
 
-  // Verify role
+  // Verify role — resolve canonical profile ID so stub accounts (auth.uid() ≠ profiles.id) work
+  const profileId = await resolveProfileId(user.id);
   const supabase = await createClient();
   const { data: membership } = await supabase
     .from("organization_members")
     .select("role")
-    .eq("profile_id", user.id)
+    .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();

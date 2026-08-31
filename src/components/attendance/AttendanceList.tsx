@@ -44,6 +44,7 @@ const fmtTime = formatAttendanceTime;
 function AttendanceRow({ row, onUpdate }: { row: StudentAttendanceRow; onUpdate: () => void }) {
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const displayName = row.preferred_name
     ? `${row.preferred_name} ${row.last_name}`
@@ -54,9 +55,14 @@ function AttendanceRow({ row, onUpdate }: { row: StudentAttendanceRow; onUpdate:
   const hasMedical        = !!(row.medical_notes || (row.allergies ?? []).length > 0);
   const hasEmergencyMed   = !!row.has_emergency_medical;
 
-  function act(fn: () => Promise<void>) {
+  function act(fn: () => Promise<{ success: boolean; error?: string }>) {
+    setActionError(null);
     startTransition(async () => {
-      await fn();
+      const result = await fn();
+      if (!result.success) {
+        setActionError(result.error ?? "Action failed. Please try again.");
+        return;
+      }
       onUpdate();
       setOpen(false);
     });
@@ -112,39 +118,46 @@ function AttendanceRow({ row, onUpdate }: { row: StudentAttendanceRow; onUpdate:
 
       {/* Expanded action panel */}
       {open && (
-        <div className="border-t border-sc-gray-100 px-4 py-3 flex flex-wrap gap-2">
-          <ActionBtn
-            label="Check In"
-            icon={<UserCheck className="size-4" />}
-            color="teal"
-            disabled={isCheckedIn}
-            onClick={() => act(() => checkInStudent(row.student_id, "manual").then(() => {}))}
-          />
-          <ActionBtn
-            label="Check Out"
-            icon={<LogOut className="size-4" />}
-            color="navy"
-            disabled={!isCheckedIn || isCheckedOut}
-            onClick={() => act(() => checkOutStudent(row.student_id, "manual").then(() => {}))}
-          />
-          <ActionBtn
-            label="Absent"
-            icon={<UserX className="size-4" />}
-            color="rose"
-            onClick={() => act(() => markAttendance(row.student_id, "absent").then(() => {}))}
-          />
-          <ActionBtn
-            label="Excused"
-            icon={<CheckCircle className="size-4" />}
-            color="gray"
-            onClick={() => act(() => markAttendance(row.student_id, "excused").then(() => {}))}
-          />
-          <ActionBtn
-            label="Tardy"
-            icon={<Clock className="size-4" />}
-            color="gold"
-            onClick={() => act(() => markAttendance(row.student_id, "tardy").then(() => {}))}
-          />
+        <div className="border-t border-sc-gray-100 px-4 py-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <ActionBtn
+              label="Check In"
+              icon={<UserCheck className="size-4" />}
+              color="teal"
+              disabled={isCheckedIn}
+              onClick={() => act(() => checkInStudent(row.student_id, "manual"))}
+            />
+            <ActionBtn
+              label="Check Out"
+              icon={<LogOut className="size-4" />}
+              color="navy"
+              disabled={!isCheckedIn || isCheckedOut}
+              onClick={() => act(() => checkOutStudent(row.student_id, "manual"))}
+            />
+            <ActionBtn
+              label="Absent"
+              icon={<UserX className="size-4" />}
+              color="rose"
+              onClick={() => act(() => markAttendance(row.student_id, "absent"))}
+            />
+            <ActionBtn
+              label="Excused"
+              icon={<CheckCircle className="size-4" />}
+              color="gray"
+              onClick={() => act(() => markAttendance(row.student_id, "excused"))}
+            />
+            <ActionBtn
+              label="Tardy"
+              icon={<Clock className="size-4" />}
+              color="gold"
+              onClick={() => act(() => markAttendance(row.student_id, "tardy"))}
+            />
+          </div>
+          {actionError && (
+            <p className="text-label-sm text-sc-rose-700 bg-sc-rose-50 border border-sc-rose-200 rounded-lg px-3 py-1.5">
+              {actionError}
+            </p>
+          )}
         </div>
       )}
     </li>

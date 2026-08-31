@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createClient, getUser, getActiveOrgId, resolveProfileId } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActiveRole } from "@/lib/supabase/org-context";
 import { writeAuditLog } from "@/lib/audit";
@@ -56,6 +56,10 @@ export async function checkInStudent(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  // Resolve canonical profiles.id — for stub accounts auth.uid() ≠ profiles.id
+  // (e.g. Mel). check_in_by has FK to profiles(id) so we must use profiles.id.
+  const profileId = await resolveProfileId(user.id);
+
   const supabase = await createClient();
   const date = todayDate();
   const now = new Date().toISOString();
@@ -87,7 +91,7 @@ export async function checkInStudent(
       .update({
         status: "present",
         check_in_at: now,
-        check_in_by: user.id,
+        check_in_by: profileId,
         check_in_method: method,
         is_late: late,
       })
@@ -101,7 +105,7 @@ export async function checkInStudent(
       date,
       status: "present",
       check_in_at: now,
-      check_in_by: user.id,
+      check_in_by: profileId,
       check_in_method: method,
       is_late: late,
     });
@@ -124,6 +128,8 @@ export async function checkOutStudent(
 
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
+
+  const profileId = await resolveProfileId(user.id);
 
   const supabase = await createClient();
   const date = todayDate();
@@ -163,7 +169,7 @@ export async function checkOutStudent(
     .from("attendance_records")
     .update({
       check_out_at: now,
-      check_out_by: user.id,
+      check_out_by: profileId,
       check_out_method: method,
       is_early_pickup: earlyPickup,
     })
