@@ -16,6 +16,7 @@ import {
 import { StudentStatusTable } from "@/components/operations/StudentStatusTable";
 import { ActionsPanel } from "@/components/operations/ActionsPanel";
 import { DismissalView } from "@/components/operations/DismissalView";
+import { StaffOnDutyPanel } from "@/components/operations/StaffOnDutyPanel";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -322,6 +323,9 @@ export function OperationsDashboard({ initialData }: Props) {
               )}
             </div>
           )}
+
+          {/* ── Staff on Duty ────────────────────────────────────────── */}
+          <StaffOnDutyPanel date={data.date} isToday={isToday} />
 
           {/* ── Student Status Table ──────────────────────────────────── */}
           <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">

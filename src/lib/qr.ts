@@ -85,6 +85,28 @@ export async function generateProfileQrDataUrl(
   });
 }
 
+/** Build the URL that goes inside a staff attendance QR code (STF- token). */
+export function staffAttendanceQrUrl(token: string): string {
+  return `${APP_ORIGIN}/staff/scan/${token}`;
+}
+
+/** Generate a Data URL (PNG) for the staff attendance QR (STF- token). */
+export async function generateStaffQrDataUrl(
+  token: string,
+  opts: QrOptions = {}
+): Promise<string> {
+  const url = staffAttendanceQrUrl(token);
+  return QRCode.toDataURL(url, {
+    width: opts.size ?? 300,
+    margin: opts.margin ?? 2,
+    color: {
+      dark: opts.darkColor ?? "#0B1E38",
+      light: opts.lightColor ?? "#FFFFFF",
+    },
+    errorCorrectionLevel: "M",
+  });
+}
+
 /**
  * Generate a high-resolution print-quality PNG for any URL.
  * Used for the Canva-ready QR download — 800px, H error correction, max contrast.

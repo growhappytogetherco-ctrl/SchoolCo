@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   ArrowLeft, Mail, Phone, Shield, ShieldCheck, ShieldAlert, ShieldX,
   Clock, Calendar, AlertTriangle, Edit2, UserX, UserCheck,
-  BookOpen, Heart, Briefcase, User,
+  BookOpen, Heart, Briefcase, User, QrCode,
 } from "lucide-react";
 import {
   updateStaffMember, setStaffStatus,
@@ -435,11 +435,17 @@ export function StaffProfileView({ member: init, currentRole }: {
           </div>
 
           {canManage && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <button onClick={() => setShowEdit(true)}
                 className="flex items-center gap-1.5 rounded-xl border border-sc-gray-200 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-cream transition-colors">
                 <Edit2 className="size-4" /> Edit
               </button>
+              <Link
+                href={`/dashboard/staff/${member.id}/badge`}
+                className="flex items-center gap-1.5 rounded-xl border border-sc-gray-200 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-cream transition-colors"
+              >
+                <QrCode className="size-4" /> Badge / QR
+              </Link>
               <button onClick={handleStatusToggle} disabled={isPending}
                 className={cn("flex items-center gap-1.5 rounded-xl px-3 py-2 text-label-sm transition-colors disabled:opacity-60",
                   member.status === "active"
