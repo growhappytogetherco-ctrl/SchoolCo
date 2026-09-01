@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { DollarSign, TrendingDown, AlertCircle, BarChart2, Loader2, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  getSchoolYears, getARSummary, getPaymentSourceReport, getPastDueReport,
+  getARSummary, getPaymentSourceReport, getPastDueReport,
   PAYMENT_SOURCE_LABELS,
   type SchoolYear, type ARSummary, type PaymentSourceRow, type ARStudentRow,
 } from "@/app/actions/finance";
@@ -189,12 +189,16 @@ function PastDueTable({ rows }: { rows: ARStudentRow[] }) {
 type ReportTab = "ar" | "source" | "past_due";
 
 interface FinanceReportsProps {
+  orgId: string;
   canManage: boolean;
+  initialSchoolYears?: SchoolYear[];
 }
 
-export function FinanceReports({ canManage: _canManage }: FinanceReportsProps) {
-  const [years, setYears] = useState<SchoolYear[]>([]);
-  const [selectedYearId, setSelectedYearId] = useState<string | null>(null);
+export function FinanceReports({ orgId, canManage: _canManage, initialSchoolYears = [] }: FinanceReportsProps) {
+  const [years] = useState<SchoolYear[]>(initialSchoolYears);
+  const [selectedYearId, setSelectedYearId] = useState<string | null>(
+    initialSchoolYears.find((y) => y.is_current)?.id ?? initialSchoolYears[0]?.id ?? null
+  );
   const [activeTab, setActiveTab] = useState<ReportTab>("ar");
   const [loading, setLoading] = useState(false);
 
@@ -203,28 +207,19 @@ export function FinanceReports({ canManage: _canManage }: FinanceReportsProps) {
   const [pastDueRows,    setPastDueRows]    = useState<ARStudentRow[]>([]);
 
   useEffect(() => {
-    getSchoolYears().then((y) => {
-      setYears(y);
-      if (y.length > 0) {
-        setSelectedYearId(y.find((yr) => yr.is_current)?.id ?? y[0].id);
-      }
-    });
-  }, []);
-
-  useEffect(() => {
     if (!selectedYearId) return;
     setLoading(true);
     Promise.all([
-      getARSummary(selectedYearId),
-      getPaymentSourceReport(selectedYearId),
-      getPastDueReport(selectedYearId),
+      getARSummary(selectedYearId, orgId),
+      getPaymentSourceReport(selectedYearId, orgId),
+      getPastDueReport(selectedYearId, orgId),
     ]).then(([ar, src, pd]) => {
       setArSummary(ar);
       setSourceRows(src);
       setPastDueRows(pd);
       setLoading(false);
     });
-  }, [selectedYearId]);
+  }, [selectedYearId, orgId]);
 
   const tabs: { id: ReportTab; label: string; Icon: React.ElementType }[] = [
     { id: "ar",       label: "AR Summary",    Icon: BarChart2      },

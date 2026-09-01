@@ -31,5 +31,13 @@ export default async function ReportsPage() {
 
   if (!canView) redirect("/dashboard/home");
 
-  return <FinanceReports canManage={canManage} />;
+  const supabase2 = await createClient();
+  const { data: syData } = await supabase2
+    .from("school_years")
+    .select("id, label, start_date, end_date, is_current")
+    .eq("organization_id", orgId)
+    .order("start_date", { ascending: false });
+  const schoolYears = (syData ?? []) as unknown as { id: string; label: string; start_date: string; end_date: string; is_current: boolean }[];
+
+  return <FinanceReports orgId={orgId} canManage={canManage} initialSchoolYears={schoolYears} />;
 }

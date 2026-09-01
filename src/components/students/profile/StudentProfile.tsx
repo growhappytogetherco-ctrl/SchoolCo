@@ -312,7 +312,7 @@ export function StudentProfile({
         {activeTab === "entrepreneurship" && <EntrepreneurshipTab studentId={data.id} />}
         {activeTab === "family"           && <FamilyTab           studentId={data.id} role={role} isAdmin={isAdmin} />}
         {activeTab === "finance"          && canViewFinance && (
-          <FinanceTab studentId={data.id} canManage={canManageFinance} initialSchoolYears={schoolYears} />
+          <FinanceTab orgId={orgId} studentId={data.id} canManage={canManageFinance} initialSchoolYears={schoolYears} />
         )}
       </div>
     </div>

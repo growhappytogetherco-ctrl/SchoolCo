@@ -137,88 +137,85 @@ export interface StudentFinanceSummary {
 }
 
 // ── Auth guards ───────────────────────────────────────────────────────────
+//
+// These accept orgId as an explicit parameter because sc_active_org cookies
+// are not reliably readable when server actions are called from client
+// components. getUser() works (reads Supabase auth tokens); our custom
+// cookies do not. The caller passes orgId from their server-component context.
 
 const FINANCE_MANAGE_ROLES = new Set(["full_admin", "platform_admin"]);
 
-async function assertFinanceView() {
-  const [user, orgId, role] = await Promise.all([getUser(), getActiveOrgId(), getActiveRole()]);
+async function assertFinanceView(orgId: string) {
+  const user = await getUser();
   if (!user || !orgId) return { ok: false as const, error: "Not authenticated." };
 
-  if (FINANCE_MANAGE_ROLES.has(role ?? "")) {
-    return { ok: true as const, user, orgId, role: role! };
-  }
-  // Check explicit permission
   const supabase = await createClient();
   const profileId = await resolveProfileId(user.id);
   const { data: mem } = await supabase
     .from("organization_members")
-    .select("can_view_finances, can_manage_finances, role")
+    .select("role, can_view_finances, can_manage_finances")
     .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();
 
-  const memData = mem as unknown as { can_view_finances: boolean; can_manage_finances: boolean } | null;
-  if (!memData || (!memData.can_view_finances && !memData.can_manage_finances)) {
-    return { ok: false as const, error: "Finance access required." };
-  }
-  return { ok: true as const, user, orgId, role: role! };
+  const memData = mem as unknown as { role: string; can_view_finances: boolean; can_manage_finances: boolean } | null;
+  if (!memData) return { ok: false as const, error: "Not a member of this organization." };
+
+  const hasAccess = FINANCE_MANAGE_ROLES.has(memData.role) || memData.can_view_finances || memData.can_manage_finances;
+  if (!hasAccess) return { ok: false as const, error: "Finance access required." };
+
+  return { ok: true as const, user, orgId, role: memData.role };
 }
 
-async function assertFinanceManage() {
-  const [user, orgId, role] = await Promise.all([getUser(), getActiveOrgId(), getActiveRole()]);
+async function assertFinanceManage(orgId: string) {
+  const user = await getUser();
   if (!user || !orgId) return { ok: false as const, error: "Not authenticated." };
 
-  if (FINANCE_MANAGE_ROLES.has(role ?? "")) {
-    return { ok: true as const, user, orgId, role: role! };
-  }
   const supabase = await createClient();
   const profileId = await resolveProfileId(user.id);
   const { data: mem } = await supabase
     .from("organization_members")
-    .select("can_manage_finances")
+    .select("role, can_manage_finances")
     .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();
 
-  const memData2 = mem as unknown as { can_manage_finances: boolean } | null;
-  if (!memData2?.can_manage_finances) {
-    return { ok: false as const, error: "Finance management access required." };
-  }
-  return { ok: true as const, user, orgId, role: role! };
+  const memData = mem as unknown as { role: string; can_manage_finances: boolean } | null;
+  if (!memData) return { ok: false as const, error: "Not a member of this organization." };
+
+  const hasAccess = FINANCE_MANAGE_ROLES.has(memData.role) || memData.can_manage_finances;
+  if (!hasAccess) return { ok: false as const, error: "Finance management access required." };
+
+  return { ok: true as const, user, orgId, role: memData.role };
 }
 
 // ── School years ──────────────────────────────────────────────────────────
 
-export async function getSchoolYears(): Promise<SchoolYear[]> {
-  const auth = await assertFinanceView();
-  if (!auth.ok) {
-    console.error("[finance.getSchoolYears] assertFinanceView failed:", auth.error);
-    return [];
-  }
+export async function getSchoolYears(orgId: string): Promise<SchoolYear[]> {
+  const auth = await assertFinanceView(orgId);
+  if (!auth.ok) return [];
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("school_years")
     .select("id, label, start_date, end_date, is_current")
-    .eq("organization_id", auth.orgId)
+    .eq("organization_id", orgId)
     .order("start_date", { ascending: false });
-
-  if (error) console.error("[finance.getSchoolYears] query error:", error.message, "orgId:", auth.orgId);
-  if (!error && (!data || data.length === 0)) console.error("[finance.getSchoolYears] 0 rows for orgId:", auth.orgId);
 
   return ((data ?? []) as unknown as SchoolYear[]);
 }
 
-export async function getCurrentSchoolYear(): Promise<SchoolYear | null> {
-  const years = await getSchoolYears();
+export async function getCurrentSchoolYear(orgId: string): Promise<SchoolYear | null> {
+  const years = await getSchoolYears(orgId);
   return years.find((y) => y.is_current) ?? years[0] ?? null;
 }
 
 // ── Charges ───────────────────────────────────────────────────────────────
 
 export async function addCharge(payload: {
+  orgId:              string;
   studentId:          string;
   schoolYearId:       string;
   chargeType:         ChargeType;
@@ -229,7 +226,7 @@ export async function addCharge(payload: {
   installmentNumber:  number | null;
   notes:              string | null;
 }): Promise<{ success: true; id: string } | { success: false; error: string }> {
-  const auth = await assertFinanceManage();
+  const auth = await assertFinanceManage(payload.orgId);
   if (!auth.ok) return { success: false, error: auth.error };
 
   const supabase = await createClient();
@@ -267,8 +264,8 @@ export async function addCharge(payload: {
   return { success: true, id: (data as unknown as { id: string }).id };
 }
 
-export async function voidCharge(chargeId: string, reason: string): Promise<{ success: true } | { success: false; error: string }> {
-  const auth = await assertFinanceManage();
+export async function voidCharge(chargeId: string, reason: string, orgId: string): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await assertFinanceManage(orgId);
   if (!auth.ok) return { success: false, error: auth.error };
 
   const supabase = await createClient();
@@ -297,12 +294,13 @@ export async function voidCharge(chargeId: string, reason: string): Promise<{ su
 }
 
 export async function updateCharge(chargeId: string, payload: {
+  orgId:        string;
   description?: string;
   amount?:      number;
   dueDate?:     string | null;
   notes?:       string | null;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const auth = await assertFinanceManage();
+  const auth = await assertFinanceManage(payload.orgId);
   if (!auth.ok) return { success: false, error: auth.error };
 
   const supabase = await createClient();
@@ -331,13 +329,14 @@ export async function updateCharge(chargeId: string, payload: {
 // ── Adjustments ───────────────────────────────────────────────────────────
 
 export async function addAdjustment(payload: {
+  orgId:          string;
   chargeId:       string;
   adjustmentType: AdjustmentType;
   amount:         number;     // negative = reduction
   description:    string;
   notes:          string | null;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const auth = await assertFinanceManage();
+  const auth = await assertFinanceManage(payload.orgId);
   if (!auth.ok) return { success: false, error: auth.error };
 
   const supabase = await createClient();
@@ -370,8 +369,8 @@ export async function addAdjustment(payload: {
   return { success: true };
 }
 
-export async function voidAdjustment(adjustmentId: string, reason: string): Promise<{ success: true } | { success: false; error: string }> {
-  const auth = await assertFinanceManage();
+export async function voidAdjustment(adjustmentId: string, reason: string, orgId: string): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await assertFinanceManage(orgId);
   if (!auth.ok) return { success: false, error: auth.error };
 
   const supabase = await createClient();
@@ -390,6 +389,7 @@ export async function voidAdjustment(adjustmentId: string, reason: string): Prom
 // ── Payments ──────────────────────────────────────────────────────────────
 
 export interface PaymentWithAllocations {
+  orgId:          string;
   studentId:      string;
   schoolYearId:   string;
   paymentDate:    string;
@@ -401,7 +401,7 @@ export interface PaymentWithAllocations {
 }
 
 export async function recordPayment(payload: PaymentWithAllocations): Promise<{ success: true; id: string } | { success: false; error: string }> {
-  const auth = await assertFinanceManage();
+  const auth = await assertFinanceManage(payload.orgId);
   if (!auth.ok) return { success: false, error: auth.error };
 
   const supabase = await createClient();
@@ -450,8 +450,8 @@ export async function recordPayment(payload: PaymentWithAllocations): Promise<{ 
   return { success: true, id: paymentId };
 }
 
-export async function voidPayment(paymentId: string, reason: string): Promise<{ success: true } | { success: false; error: string }> {
-  const auth = await assertFinanceManage();
+export async function voidPayment(paymentId: string, reason: string, orgId: string): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await assertFinanceManage(orgId);
   if (!auth.ok) return { success: false, error: auth.error };
 
   const supabase = await createClient();
@@ -487,8 +487,9 @@ function fmt(n: number): number {
 export async function getStudentFinanceSummary(
   studentId: string,
   schoolYearId: string,
+  orgId: string,
 ): Promise<StudentFinanceSummary | null> {
-  const auth = await assertFinanceView();
+  const auth = await assertFinanceView(orgId);
   if (!auth.ok) return null;
 
   const supabase = await createClient();
@@ -747,8 +748,8 @@ export interface PaymentSourceRow {
   payment_count:  number;
 }
 
-export async function getARSummary(schoolYearId: string): Promise<ARSummary | null> {
-  const auth = await assertFinanceView();
+export async function getARSummary(schoolYearId: string, orgId: string): Promise<ARSummary | null> {
+  const auth = await assertFinanceView(orgId);
   if (!auth.ok) return null;
 
   const supabase = await createClient();
@@ -874,8 +875,8 @@ export async function getARSummary(schoolYearId: string): Promise<ARSummary | nu
   };
 }
 
-export async function getPaymentSourceReport(schoolYearId: string): Promise<PaymentSourceRow[]> {
-  const auth = await assertFinanceView();
+export async function getPaymentSourceReport(schoolYearId: string, orgId: string): Promise<PaymentSourceRow[]> {
+  const auth = await assertFinanceView(orgId);
   if (!auth.ok) return [];
 
   const supabase = await createClient();
@@ -903,8 +904,8 @@ export async function getPaymentSourceReport(schoolYearId: string): Promise<Paym
     .sort((a, b) => b.total_amount - a.total_amount);
 }
 
-export async function getPastDueReport(schoolYearId: string): Promise<ARStudentRow[]> {
-  const summary = await getARSummary(schoolYearId);
+export async function getPastDueReport(schoolYearId: string, orgId: string): Promise<ARStudentRow[]> {
+  const summary = await getARSummary(schoolYearId, orgId);
   if (!summary) return [];
   return summary.students.filter((s) => s.past_due > 0).sort((a, b) => b.past_due - a.past_due);
 }

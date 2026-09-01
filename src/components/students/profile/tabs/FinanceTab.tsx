@@ -39,13 +39,14 @@ function StatusBadge({ status }: { status: string }) {
 // ── Add Charge Modal ──────────────────────────────────────────────────────
 
 interface AddChargeModalProps {
+  orgId: string;
   schoolYearId: string;
   studentId: string;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-function AddChargeModal({ schoolYearId, studentId, onClose, onSuccess }: AddChargeModalProps) {
+function AddChargeModal({ orgId, schoolYearId, studentId, onClose, onSuccess }: AddChargeModalProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -70,6 +71,7 @@ function AddChargeModal({ schoolYearId, studentId, onClose, onSuccess }: AddChar
 
     startTransition(async () => {
       const res = await addCharge({
+        orgId,
         studentId,
         schoolYearId,
         chargeType:         form.chargeType,
@@ -206,6 +208,7 @@ function AddChargeModal({ schoolYearId, studentId, onClose, onSuccess }: AddChar
 // ── Record Payment Modal ──────────────────────────────────────────────────
 
 interface RecordPaymentModalProps {
+  orgId: string;
   schoolYearId: string;
   studentId: string;
   charges: StudentCharge[];
@@ -213,7 +216,7 @@ interface RecordPaymentModalProps {
   onSuccess: () => void;
 }
 
-function RecordPaymentModal({ schoolYearId, studentId, charges, onClose, onSuccess }: RecordPaymentModalProps) {
+function RecordPaymentModal({ orgId, schoolYearId, studentId, charges, onClose, onSuccess }: RecordPaymentModalProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const activeCharges = charges.filter((c) => c.status === "active" && c.balance > 0);
@@ -241,6 +244,7 @@ function RecordPaymentModal({ schoolYearId, studentId, charges, onClose, onSucce
 
     startTransition(async () => {
       const res = await recordPayment({
+        orgId,
         studentId,
         schoolYearId,
         paymentDate:     form.paymentDate,
@@ -378,12 +382,13 @@ function RecordPaymentModal({ schoolYearId, studentId, charges, onClose, onSucce
 // ── Adjustment Modal ──────────────────────────────────────────────────────
 
 interface AdjustmentModalProps {
+  orgId: string;
   charge: StudentCharge;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-function AdjustmentModal({ charge, onClose, onSuccess }: AdjustmentModalProps) {
+function AdjustmentModal({ orgId, charge, onClose, onSuccess }: AdjustmentModalProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -403,6 +408,7 @@ function AdjustmentModal({ charge, onClose, onSuccess }: AdjustmentModalProps) {
     if (isNaN(amount) || amount === 0) { setError("Enter a valid adjustment amount."); return; }
     startTransition(async () => {
       const res = await addAdjustment({
+        orgId,
         chargeId:       charge.id,
         adjustmentType: form.adjustmentType,
         amount:         -Math.abs(amount), // adjustments reduce balance
@@ -521,12 +527,13 @@ function VoidConfirmModal({ label, onConfirm, onClose, isPending }: VoidModalPro
 // ── Charge Row ────────────────────────────────────────────────────────────
 
 interface ChargeRowProps {
+  orgId: string;
   charge: StudentCharge;
   canManage: boolean;
   onRefresh: () => void;
 }
 
-function ChargeRow({ charge, canManage, onRefresh }: ChargeRowProps) {
+function ChargeRow({ orgId, charge, canManage, onRefresh }: ChargeRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [adjModal, setAdjModal] = useState(false);
   const [voidModal, setVoidModal] = useState(false);
@@ -536,7 +543,7 @@ function ChargeRow({ charge, canManage, onRefresh }: ChargeRowProps) {
 
   function handleVoid(reason: string) {
     startTransition(async () => {
-      await voidCharge(charge.id, reason);
+      await voidCharge(charge.id, reason, orgId);
       onRefresh();
       setVoidModal(false);
     });
@@ -608,7 +615,7 @@ function ChargeRow({ charge, canManage, onRefresh }: ChargeRowProps) {
         </div>
       )}
 
-      {adjModal  && <AdjustmentModal  charge={charge} onClose={() => setAdjModal(false)}  onSuccess={onRefresh} />}
+      {adjModal  && <AdjustmentModal  orgId={orgId} charge={charge} onClose={() => setAdjModal(false)}  onSuccess={onRefresh} />}
       {voidModal && <VoidConfirmModal label="Charge" onConfirm={handleVoid} onClose={() => setVoidModal(false)} isPending={isPending} />}
     </div>
   );
@@ -617,12 +624,13 @@ function ChargeRow({ charge, canManage, onRefresh }: ChargeRowProps) {
 // ── Payment Row ───────────────────────────────────────────────────────────
 
 interface PaymentRowProps {
+  orgId: string;
   payment: PaymentRecord;
   canManage: boolean;
   onRefresh: () => void;
 }
 
-function PaymentRow({ payment, canManage, onRefresh }: PaymentRowProps) {
+function PaymentRow({ orgId, payment, canManage, onRefresh }: PaymentRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [voidModal, setVoidModal] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -630,7 +638,7 @@ function PaymentRow({ payment, canManage, onRefresh }: PaymentRowProps) {
 
   function handleVoid(reason: string) {
     startTransition(async () => {
-      await voidPayment(payment.id, reason);
+      await voidPayment(payment.id, reason, orgId);
       onRefresh();
       setVoidModal(false);
     });
@@ -708,12 +716,13 @@ function SummaryCard({ label, value, sub, warn }: { label: string; value: string
 // ── Main Finance Tab ──────────────────────────────────────────────────────
 
 interface FinanceTabProps {
+  orgId: string;
   studentId: string;
   canManage: boolean;
   initialSchoolYears?: SchoolYear[];
 }
 
-export function FinanceTab({ studentId, canManage, initialSchoolYears = [] }: FinanceTabProps) {
+export function FinanceTab({ orgId, studentId, canManage, initialSchoolYears = [] }: FinanceTabProps) {
   const [years] = useState<SchoolYear[]>(initialSchoolYears);
   const [selectedYearId, setSelectedYearId] = useState<string | null>(
     initialSchoolYears.find((y) => y.is_current)?.id ?? initialSchoolYears[0]?.id ?? null
@@ -729,7 +738,7 @@ export function FinanceTab({ studentId, canManage, initialSchoolYears = [] }: Fi
   useEffect(() => {
     if (!selectedYearId) return;
     setLoading(true);
-    getStudentFinanceSummary(studentId, selectedYearId)
+    getStudentFinanceSummary(studentId, selectedYearId, orgId)
       .then((s) => { setSummary(s); })
       .catch((err) => { console.error("[FinanceTab]", err); setSummary(null); })
       .finally(() => setLoading(false));
@@ -846,7 +855,7 @@ export function FinanceTab({ studentId, canManage, initialSchoolYears = [] }: Fi
         ) : (
           <div className="space-y-2">
             {summary.charges.map((c) => (
-              <ChargeRow key={c.id} charge={c} canManage={canManage} onRefresh={refresh} />
+              <ChargeRow key={c.id} orgId={orgId} charge={c} canManage={canManage} onRefresh={refresh} />
             ))}
           </div>
         )}
@@ -862,7 +871,7 @@ export function FinanceTab({ studentId, canManage, initialSchoolYears = [] }: Fi
         ) : (
           <div className="space-y-2">
             {summary.payments.map((p) => (
-              <PaymentRow key={p.id} payment={p} canManage={canManage} onRefresh={refresh} />
+              <PaymentRow key={p.id} orgId={orgId} payment={p} canManage={canManage} onRefresh={refresh} />
             ))}
           </div>
         )}
@@ -871,6 +880,7 @@ export function FinanceTab({ studentId, canManage, initialSchoolYears = [] }: Fi
       {/* Modals */}
       {addChargeOpen && selectedYearId && (
         <AddChargeModal
+          orgId={orgId}
           schoolYearId={selectedYearId}
           studentId={studentId}
           onClose={() => setAddChargeOpen(false)}
@@ -879,6 +889,7 @@ export function FinanceTab({ studentId, canManage, initialSchoolYears = [] }: Fi
       )}
       {recordPaymentOpen && selectedYearId && (
         <RecordPaymentModal
+          orgId={orgId}
           schoolYearId={selectedYearId}
           studentId={studentId}
           charges={summary.charges}
