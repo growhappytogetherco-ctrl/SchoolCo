@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { createClient, getUser, getActiveOrgId, getActiveRole } from "@/lib/supabase/server";
+import { createClient, getUser, getActiveOrgId, getActiveRole, resolveProfileId } from "@/lib/supabase/server";
 import { StudentProfile } from "@/components/students/profile/StudentProfile";
 import { getStudentSafetyAlerts, getStaffFollowUpSummary } from "@/app/actions/studentAlerts";
 
@@ -71,6 +71,27 @@ export default async function StudentProfilePage({
     .eq("student_id", params.id)
     .eq("organization_id", orgId)
     .in("status", ["active", "pitching"]);
+
+  // Finance permissions — check before rendering
+  const FINANCE_FULL_ROLES = new Set(["full_admin", "platform_admin"]);
+  let canViewFinance = false;
+  let canManageFinance = false;
+  if (FINANCE_FULL_ROLES.has(role)) {
+    canViewFinance = true;
+    canManageFinance = true;
+  } else {
+    const profileId = await resolveProfileId(user.id);
+    const { data: mem } = await supabase
+      .from("organization_members")
+      .select("can_view_finances, can_manage_finances")
+      .eq("profile_id", profileId)
+      .eq("organization_id", orgId)
+      .eq("status", "active")
+      .single();
+    const memData = mem as unknown as { can_view_finances: boolean; can_manage_finances: boolean } | null;
+    canViewFinance   = !!(memData?.can_view_finances || memData?.can_manage_finances);
+    canManageFinance = !!memData?.can_manage_finances;
+  }
 
   // Consolidated student safety alerts + separate staff follow-up summary
   const [studentAlerts, followUpSummary] = await Promise.all([
@@ -161,6 +182,8 @@ export default async function StudentProfilePage({
       followUpSummary={followUpSummary}
       studentAlerts={studentAlerts}
       viaRecordQr={viaRecordQr}
+      canViewFinance={canViewFinance}
+      canManageFinance={canManageFinance}
     />
   );
 }

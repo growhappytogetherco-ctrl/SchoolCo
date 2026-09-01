@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, UserCheck, ClipboardCheck, BookOpen,
   MessageSquare, Briefcase, FolderOpen, Settings, Home, Heart,
-  Star, Gift, Compass, Award, Zap, Building2, X,
+  Star, Gift, Compass, Award, Zap, Building2, X, DollarSign,
   GraduationCap, AlertTriangle, BarChart2, Calendar,
   ClipboardList, ShieldCheck, User, Activity, Upload,
 } from "lucide-react";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutDashboard, Users, UserCheck, ClipboardCheck, BookOpen,
   MessageSquare, Briefcase, FolderOpen, Settings, Home, Heart,
-  Star, Gift, Compass, Award, Zap, Building2,
+  Star, Gift, Compass, Award, Zap, Building2, DollarSign,
   GraduationCap, AlertTriangle, BarChart2, Calendar,
   ClipboardList, ShieldCheck, User, Activity, Upload,
 };

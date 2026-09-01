@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, HeartPulse, CalendarCheck, StickyNote,
   AlertOctagon, FolderOpen, Award, Briefcase, Users,
-  ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList, BarChart2, TrendingUp,
+  ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList, BarChart2, TrendingUp, DollarSign,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudentAlert } from "@/lib/student-alert-constants";
@@ -28,6 +28,7 @@ import { AcademicsTab }             from "./tabs/AcademicsTab";
 import { AssessmentsTab }           from "./tabs/AssessmentsTab";
 import { StudentSuccessPlanTab }    from "./tabs/StudentSuccessPlanTab";
 import { ProgressTab }              from "./tabs/ProgressTab";
+import { FinanceTab }              from "./tabs/FinanceTab";
 
 // ── Role visibility ────────────────────────────────────────────
 // Tabs hidden from volunteers — they can only see safety-relevant info.
@@ -70,6 +71,7 @@ const ROW2_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
   { id: "leadership",       label: "Leadership",       Icon: Award         },
   { id: "entrepreneurship", label: "Entrepreneurship", Icon: Briefcase     },
   { id: "family",           label: "Family",           Icon: Users         },
+  { id: "finance",          label: "Finance",          Icon: DollarSign    },
 ];
 
 const ALL_TABS = [...ROW1_TABS, ...ROW2_TABS];
@@ -105,6 +107,8 @@ interface Props {
   followUpSummary?: StaffFollowUpSummary | null;
   studentAlerts?: StudentAlert[];
   viaRecordQr?: boolean;
+  canViewFinance?: boolean;
+  canManageFinance?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────
@@ -117,9 +121,14 @@ export function StudentProfile({
   followUpSummary = null,
   studentAlerts = [],
   viaRecordQr = false,
+  canViewFinance = false,
+  canManageFinance = false,
 }: Props) {
   const router = useRouter();
-  const hiddenTabs = getHiddenTabs(role);
+  const hiddenTabs = [
+    ...getHiddenTabs(role),
+    ...(!canViewFinance && !canManageFinance ? ["finance" as TabId] : []),
+  ];
 
   const firstVisible = ALL_TABS.find((t) => !hiddenTabs.includes(t.id));
   const [activeTab, setActiveTab] = useState<TabId>(
@@ -300,6 +309,9 @@ export function StudentProfile({
         {activeTab === "leadership"       && <LeadershipTab       studentId={data.id} />}
         {activeTab === "entrepreneurship" && <EntrepreneurshipTab studentId={data.id} />}
         {activeTab === "family"           && <FamilyTab           studentId={data.id} role={role} isAdmin={isAdmin} />}
+        {activeTab === "finance"          && canViewFinance && (
+          <FinanceTab studentId={data.id} canManage={canManageFinance} />
+        )}
       </div>
     </div>
   );
