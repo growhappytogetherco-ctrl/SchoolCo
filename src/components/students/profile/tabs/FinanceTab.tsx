@@ -6,11 +6,13 @@ import { cn } from "@/lib/utils";
 import {
   getStudentFinanceSummary, addCharge, recordPayment,
   voidCharge, voidPayment, addAdjustment,
+} from "@/app/actions/finance";
+import {
   CHARGE_TYPE_LABELS, PAYMENT_SOURCE_LABELS, ADJUSTMENT_TYPE_LABELS,
   type StudentFinanceSummary, type SchoolYear, type StudentCharge,
   type PaymentRecord, type ChargeType, type PaymentSource, type AdjustmentType,
   type PlanType,
-} from "@/app/actions/finance";
+} from "@/app/actions/finance-constants";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 

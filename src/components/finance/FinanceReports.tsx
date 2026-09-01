@@ -5,9 +5,11 @@ import { DollarSign, TrendingDown, AlertCircle, BarChart2, Loader2, Download } f
 import { cn } from "@/lib/utils";
 import {
   getARSummary, getPaymentSourceReport, getPastDueReport,
+} from "@/app/actions/finance";
+import {
   PAYMENT_SOURCE_LABELS,
   type SchoolYear, type ARSummary, type PaymentSourceRow, type ARStudentRow,
-} from "@/app/actions/finance";
+} from "@/app/actions/finance-constants";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -217,6 +219,9 @@ export function FinanceReports({ orgId, canManage: _canManage, initialSchoolYear
       setArSummary(ar);
       setSourceRows(src);
       setPastDueRows(pd);
+    }).catch((err) => {
+      console.error("[FinanceReports] load error:", err);
+    }).finally(() => {
       setLoading(false);
     });
   }, [selectedYearId, orgId]);
