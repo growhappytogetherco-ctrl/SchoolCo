@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useTransition } from "react";
 import { DollarSign, Plus, Receipt, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  getStudentFinanceSummary, getSchoolYears, addCharge, recordPayment,
+  getStudentFinanceSummary, addCharge, recordPayment,
   voidCharge, voidPayment, addAdjustment,
   CHARGE_TYPE_LABELS, PAYMENT_SOURCE_LABELS, ADJUSTMENT_TYPE_LABELS,
   type StudentFinanceSummary, type SchoolYear, type StudentCharge,
@@ -710,32 +710,21 @@ function SummaryCard({ label, value, sub, warn }: { label: string; value: string
 interface FinanceTabProps {
   studentId: string;
   canManage: boolean;
+  initialSchoolYears?: SchoolYear[];
 }
 
-export function FinanceTab({ studentId, canManage }: FinanceTabProps) {
-  const [years, setYears] = useState<SchoolYear[]>([]);
-  const [selectedYearId, setSelectedYearId] = useState<string | null>(null);
+export function FinanceTab({ studentId, canManage, initialSchoolYears = [] }: FinanceTabProps) {
+  const [years] = useState<SchoolYear[]>(initialSchoolYears);
+  const [selectedYearId, setSelectedYearId] = useState<string | null>(
+    initialSchoolYears.find((y) => y.is_current)?.id ?? initialSchoolYears[0]?.id ?? null
+  );
   const [summary, setSummary] = useState<StudentFinanceSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(selectedYearId !== null);
   const [addChargeOpen, setAddChargeOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   function refresh() { setRefreshKey((k) => k + 1); }
-
-  useEffect(() => {
-    getSchoolYears()
-      .then((y) => {
-        setYears(y);
-        if (y.length > 0) {
-          setSelectedYearId(y.find((yr) => yr.is_current)?.id ?? y[0].id);
-        } else {
-          setLoading(false);
-        }
-      })
-      .catch((err) => { console.error("[FinanceTab] getSchoolYears", err); setLoading(false); });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     if (!selectedYearId) return;

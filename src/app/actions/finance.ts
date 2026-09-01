@@ -193,14 +193,20 @@ async function assertFinanceManage() {
 
 export async function getSchoolYears(): Promise<SchoolYear[]> {
   const auth = await assertFinanceView();
-  if (!auth.ok) return [];
+  if (!auth.ok) {
+    console.error("[finance.getSchoolYears] assertFinanceView failed:", auth.error);
+    return [];
+  }
 
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("school_years")
     .select("id, label, start_date, end_date, is_current")
     .eq("organization_id", auth.orgId)
     .order("start_date", { ascending: false });
+
+  if (error) console.error("[finance.getSchoolYears] query error:", error.message, "orgId:", auth.orgId);
+  if (!error && (!data || data.length === 0)) console.error("[finance.getSchoolYears] 0 rows for orgId:", auth.orgId);
 
   return ((data ?? []) as unknown as SchoolYear[]);
 }

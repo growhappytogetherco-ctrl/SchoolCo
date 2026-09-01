@@ -93,6 +93,17 @@ export default async function StudentProfilePage({
     canManageFinance = !!memData?.can_manage_finances;
   }
 
+  // Fetch school years server-side (avoids RLS/cookie issues in client-side server actions)
+  let schoolYears: { id: string; label: string; start_date: string; end_date: string; is_current: boolean }[] = [];
+  if (canViewFinance) {
+    const { data: syData } = await supabase
+      .from("school_years")
+      .select("id, label, start_date, end_date, is_current")
+      .eq("organization_id", orgId)
+      .order("start_date", { ascending: false });
+    schoolYears = (syData ?? []) as unknown as typeof schoolYears;
+  }
+
   // Consolidated student safety alerts + separate staff follow-up summary
   const [studentAlerts, followUpSummary] = await Promise.all([
     getStudentSafetyAlerts(params.id, role),
@@ -184,6 +195,7 @@ export default async function StudentProfilePage({
       viaRecordQr={viaRecordQr}
       canViewFinance={canViewFinance}
       canManageFinance={canManageFinance}
+      schoolYears={schoolYears}
     />
   );
 }

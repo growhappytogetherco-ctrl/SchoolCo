@@ -109,6 +109,7 @@ interface Props {
   viaRecordQr?: boolean;
   canViewFinance?: boolean;
   canManageFinance?: boolean;
+  schoolYears?: { id: string; label: string; start_date: string; end_date: string; is_current: boolean }[];
 }
 
 // ── Component ─────────────────────────────────────────────────
@@ -123,6 +124,7 @@ export function StudentProfile({
   viaRecordQr = false,
   canViewFinance = false,
   canManageFinance = false,
+  schoolYears = [],
 }: Props) {
   const router = useRouter();
   const hiddenTabs = [
@@ -310,7 +312,7 @@ export function StudentProfile({
         {activeTab === "entrepreneurship" && <EntrepreneurshipTab studentId={data.id} />}
         {activeTab === "family"           && <FamilyTab           studentId={data.id} role={role} isAdmin={isAdmin} />}
         {activeTab === "finance"          && canViewFinance && (
-          <FinanceTab studentId={data.id} canManage={canManageFinance} />
+          <FinanceTab studentId={data.id} canManage={canManageFinance} initialSchoolYears={schoolYears} />
         )}
       </div>
     </div>
