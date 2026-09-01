@@ -499,11 +499,7 @@ export async function getStudentFinanceSummary(
   // Fetch charges
   const { data: rawCharges } = await supabase
     .from("student_charges")
-    .select(`
-      id, charge_type, description, original_amount, due_date,
-      plan_type, installment_number, status, notes, created_at,
-      created_by_profile:created_by ( full_name )
-    `)
+    .select("id, charge_type, description, original_amount, due_date, plan_type, installment_number, status, notes, created_at, created_by")
     .eq("student_id", studentId)
     .eq("school_year_id", schoolYearId)
     .eq("organization_id", auth.orgId)
@@ -515,7 +511,7 @@ export async function getStudentFinanceSummary(
   if (chargeIds.length > 0) {
     const { data } = await supabase
       .from("charge_adjustments")
-      .select("id, charge_id, adjustment_type, amount, description, notes, status, created_at, created_by_profile:created_by(full_name)")
+      .select("id, charge_id, adjustment_type, amount, description, notes, status, created_at, created_by")
       .in("charge_id", chargeIds)
       .eq("organization_id", auth.orgId);
     rawAdjustments = (data ?? []) as unknown[];
@@ -534,10 +530,7 @@ export async function getStudentFinanceSummary(
   // Fetch payments (to check status and for UI display)
   const { data: rawPayments } = await supabase
     .from("student_payments")
-    .select(`
-      id, payment_date, amount, payment_source, reference_number, notes, status, created_at,
-      created_by_profile:created_by ( full_name )
-    `)
+    .select("id, payment_date, amount, payment_source, reference_number, notes, status, created_at, created_by")
     .eq("student_id", studentId)
     .eq("school_year_id", schoolYearId)
     .eq("organization_id", auth.orgId)
@@ -551,7 +544,7 @@ export async function getStudentFinanceSummary(
   );
 
   // Map adjustments by charge_id
-  type RawAdj = { id: string; charge_id: string; adjustment_type: string; amount: number; description: string; notes: string | null; status: string; created_at: string; created_by_profile: { full_name: string } | null };
+  type RawAdj = { id: string; charge_id: string; adjustment_type: string; amount: number; description: string; notes: string | null; status: string; created_at: string; created_by: string | null };
   const adjByCharge = new Map<string, RawAdj[]>();
   for (const adj of rawAdjustments as RawAdj[]) {
     if (!adjByCharge.has(adj.charge_id)) adjByCharge.set(adj.charge_id, []);
@@ -567,7 +560,7 @@ export async function getStudentFinanceSummary(
     }
   }
 
-  type RawCharge = { id: string; charge_type: string; description: string; original_amount: number; due_date: string | null; plan_type: string | null; installment_number: number | null; status: string; notes: string | null; created_at: string; created_by_profile: { full_name: string } | null };
+  type RawCharge = { id: string; charge_type: string; description: string; original_amount: number; due_date: string | null; plan_type: string | null; installment_number: number | null; status: string; notes: string | null; created_at: string; created_by: string | null };
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -602,10 +595,10 @@ export async function getStudentFinanceSummary(
         description:     a.description,
         notes:           a.notes,
         status:          a.status as ChargeStatus,
-        created_by_name: a.created_by_profile?.full_name ?? null,
+        created_by_name: null,
         created_at:      a.created_at,
       })),
-      created_by_name: c.created_by_profile?.full_name ?? null,
+      created_by_name: null,
       created_at:      c.created_at,
     };
   });
@@ -631,7 +624,7 @@ export async function getStudentFinanceSummary(
     }
   }
 
-  type RawPayment = { id: string; payment_date: string; amount: number; payment_source: string; reference_number: string | null; notes: string | null; status: string; created_at: string; created_by_profile: { full_name: string } | null };
+  type RawPayment = { id: string; payment_date: string; amount: number; payment_source: string; reference_number: string | null; notes: string | null; status: string; created_at: string; created_by: string | null };
 
   const payments: PaymentRecord[] = ((rawPayments ?? []) as unknown as RawPayment[]).map((p) => ({
     id:               p.id,
@@ -644,7 +637,7 @@ export async function getStudentFinanceSummary(
     notes:            p.notes,
     status:           p.status as ChargeStatus,
     allocations:      paymentAllocMap.get(p.id) ?? [],
-    created_by_name:  p.created_by_profile?.full_name ?? null,
+    created_by_name:  null,
     created_at:       p.created_at,
   }));
 

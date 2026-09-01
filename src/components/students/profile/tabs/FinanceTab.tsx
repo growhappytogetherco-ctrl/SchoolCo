@@ -724,22 +724,26 @@ export function FinanceTab({ studentId, canManage }: FinanceTabProps) {
   function refresh() { setRefreshKey((k) => k + 1); }
 
   useEffect(() => {
-    getSchoolYears().then((y) => {
-      setYears(y);
-      if (y.length > 0 && !selectedYearId) {
-        setSelectedYearId(y.find((yr) => yr.is_current)?.id ?? y[0].id);
-      }
-    });
+    getSchoolYears()
+      .then((y) => {
+        setYears(y);
+        if (y.length > 0) {
+          setSelectedYearId(y.find((yr) => yr.is_current)?.id ?? y[0].id);
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch((err) => { console.error("[FinanceTab] getSchoolYears", err); setLoading(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!selectedYearId) return;
     setLoading(true);
-    getStudentFinanceSummary(studentId, selectedYearId).then((s) => {
-      setSummary(s);
-      setLoading(false);
-    });
+    getStudentFinanceSummary(studentId, selectedYearId)
+      .then((s) => { setSummary(s); })
+      .catch((err) => { console.error("[FinanceTab]", err); setSummary(null); })
+      .finally(() => setLoading(false));
   }, [studentId, selectedYearId, refreshKey]);
 
   if (loading && !summary) {
