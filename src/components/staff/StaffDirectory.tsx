@@ -14,6 +14,9 @@ import {
   getComplianceCountsForDirectory,
   type StaffComplianceSummary,
 } from "@/app/actions/staffComplianceActions";
+import type { StaffPortalStatus } from "@/app/actions/staff-invitations";
+import { InviteStaffModal } from "@/components/staff/InviteStaffModal";
+import { ManageAccessModal } from "@/components/staff/ManageAccessModal";
 import { ROLE_LABELS, ADMIN_ROLES, type UserRole } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
@@ -464,11 +467,30 @@ function ComplianceBadge({ summary }: { summary?: StaffComplianceSummary }) {
   return null;
 }
 
-function StaffRow({ member, canManage, complianceSummary, onStatusChange }: {
+function PortalStatusBadge({ status }: { status: StaffPortalStatus["portal_status"] | null }) {
+  if (!status || status === "no_login") return (
+    <span className="rounded-full bg-sc-gray-100 border border-sc-gray-200 text-sc-gray px-2 py-0.5 text-[10px] font-medium">No Login</span>
+  );
+  if (status === "invite_pending") return (
+    <span className="rounded-full bg-sc-gold-50 border border-sc-gold-300 text-sc-gold-800 px-2 py-0.5 text-[10px] font-medium">Invite Pending</span>
+  );
+  if (status === "active") return (
+    <span className="rounded-full bg-sc-teal/10 border border-sc-teal/30 text-sc-teal px-2 py-0.5 text-[10px] font-medium">Active Account</span>
+  );
+  if (status === "disabled") return (
+    <span className="rounded-full bg-sc-rose-50 border border-sc-rose-200 text-sc-rose-700 px-2 py-0.5 text-[10px] font-medium">Disabled</span>
+  );
+  return null;
+}
+
+function StaffRow({ member, canManage, complianceSummary, onStatusChange, portalStatus, onInvite, onManage }: {
   member: StaffRosterRow;
   canManage: boolean;
   complianceSummary?: StaffComplianceSummary;
   onStatusChange: (id: string, s: "active" | "inactive" | "suspended") => void;
+  portalStatus?: StaffPortalStatus;
+  onInvite?: (member: StaffRosterRow) => void;
+  onManage?: (member: StaffRosterRow) => void;
 }) {
   const bgCfg  = BG_STATUS_CONFIG[member.background_check_status];
   const BgIcon = bgCfg.icon;
@@ -508,6 +530,7 @@ function StaffRow({ member, canManage, complianceSummary, onStatusChange }: {
               {member.status}
             </span>
           )}
+          <PortalStatusBadge status={portalStatus?.portal_status ?? null} />
         </div>
       </div>
 
@@ -526,6 +549,18 @@ function StaffRow({ member, canManage, complianceSummary, onStatusChange }: {
       </div>
 
       <div className="flex items-center gap-1 shrink-0">
+        {canManage && portalStatus?.portal_status === "active" && onManage && (
+          <button onClick={() => onManage(member)} title="Manage portal access"
+            className="px-2 py-1 rounded-lg text-[11px] font-medium text-sc-teal border border-sc-teal/30 hover:bg-sc-teal/5 transition-colors">
+            Manage
+          </button>
+        )}
+        {canManage && (portalStatus?.portal_status === "no_login" || portalStatus?.portal_status === "invite_pending" || !portalStatus) && onInvite && (
+          <button onClick={() => onInvite(member)} title="Invite to SchoolCo portal"
+            className="px-2 py-1 rounded-lg text-[11px] font-medium text-sc-teal border border-sc-teal/30 hover:bg-sc-teal/5 transition-colors">
+            {portalStatus?.portal_status === "invite_pending" ? "Resend" : "Invite"}
+          </button>
+        )}
         {canManage && (
           member.status === "active" ? (
             <button onClick={() => onStatusChange(member.id, "inactive")} title="Deactivate"
@@ -550,15 +585,19 @@ function StaffRow({ member, canManage, complianceSummary, onStatusChange }: {
 
 // ── Main Component ─────────────────────────────────────────────────────────
 
-export function StaffDirectory({ initialMembers, currentRole }: {
-  initialMembers: StaffRosterRow[];
-  currentRole:    string;
+export function StaffDirectory({ initialMembers, currentRole, portalStatuses: initialPortalStatuses = [] }: {
+  initialMembers:   StaffRosterRow[];
+  currentRole:      string;
+  portalStatuses?:  StaffPortalStatus[];
 }) {
   const [members, setMembers]         = useState<StaffRosterRow[]>(initialMembers);
+  const [portalStatuses, setPortalStatuses] = useState<StaffPortalStatus[]>(initialPortalStatuses);
   const [isPending, startTransition]  = useTransition();
   const [toast, setToast]             = useState<{ msg: string; ok: boolean } | null>(null);
   const [showAdd, setShowAdd]         = useState(false);
   const [showImport, setShowImport]   = useState(false);
+  const [inviteTarget, setInviteTarget] = useState<StaffRosterRow | null>(null);
+  const [manageTarget, setManageTarget] = useState<StaffRosterRow | null>(null);
   const [search, setSearch]           = useState("");
   const [filterRole, setFilterRole]   = useState("all");
   const [filterStatus, setFilterStatus] = useState("active");
@@ -704,7 +743,11 @@ export function StaffDirectory({ initialMembers, currentRole }: {
             {filtered.map((m) => (
               <StaffRow key={m.id} member={m} canManage={canManage}
                 complianceSummary={complianceCounts.get(m.id)}
-                onStatusChange={handleStatusChange} />
+                onStatusChange={handleStatusChange}
+                portalStatus={portalStatuses.find(ps => ps.staff_roster_id === m.id)}
+                onInvite={canManage ? setInviteTarget : undefined}
+                onManage={canManage ? setManageTarget : undefined}
+              />
             ))}
           </div>
         )}
@@ -722,6 +765,34 @@ export function StaffDirectory({ initialMembers, currentRole }: {
           onDone={(n) => { setShowImport(false); flash(`${n} staff members imported`); window.location.reload(); }}
         />
       )}
+      {inviteTarget && (
+        <InviteStaffModal
+          member={inviteTarget}
+          portalStatus={portalStatuses.find(ps => ps.staff_roster_id === inviteTarget.id) ?? null}
+          onClose={() => setInviteTarget(null)}
+          onDone={(msg) => {
+            setInviteTarget(null);
+            flash(msg);
+            // Reload portal statuses from server
+            window.location.reload();
+          }}
+        />
+      )}
+      {manageTarget && (() => {
+        const ps = portalStatuses.find(p => p.staff_roster_id === manageTarget.id);
+        return ps ? (
+          <ManageAccessModal
+            member={manageTarget}
+            portalStatus={ps}
+            onClose={() => setManageTarget(null)}
+            onDone={(msg) => {
+              setManageTarget(null);
+              flash(msg);
+              window.location.reload();
+            }}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }

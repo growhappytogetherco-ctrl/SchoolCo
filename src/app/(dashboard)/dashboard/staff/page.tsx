@@ -1,11 +1,17 @@
 import { requireStaff } from "@/lib/roleGuard";
 import { getStaffDirectory } from "@/app/actions/staffActions";
+import { getStaffPortalStatuses } from "@/app/actions/staff-invitations";
 import { StaffDirectory } from "@/components/staff/StaffDirectory";
 import { StaffImportGuide } from "@/components/staff/StaffImportGuide";
 
 export default async function StaffPage() {
   const role    = await requireStaff();
-  const members = await getStaffDirectory();
+  const [members, portalResult] = await Promise.all([
+    getStaffDirectory(),
+    getStaffPortalStatuses(),
+  ]);
+
+  const portalStatuses = portalResult.success ? portalResult.data : [];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -15,7 +21,11 @@ export default async function StaffPage() {
           {members.length} member{members.length !== 1 ? "s" : ""} · Manage staff, volunteers, and compliance.
         </p>
       </div>
-      <StaffDirectory initialMembers={members} currentRole={role} />
+      <StaffDirectory
+        initialMembers={members}
+        currentRole={role}
+        portalStatuses={portalStatuses}
+      />
       <StaffImportGuide />
     </div>
   );

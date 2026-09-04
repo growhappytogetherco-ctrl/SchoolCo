@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, getUser } from "@/lib/supabase/server";
+import { createClient, getUser, resolveProfileId } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/types/actions";
 import {
@@ -23,16 +23,17 @@ async function assertStaff(orgId: string) {
   const user = await getUser();
   if (!user) throw new Error("Unauthenticated");
 
+  const profileId = await resolveProfileId(user.id);
   const { data: member } = await supabase
     .from("organization_members")
     .select("role")
     .eq("organization_id", orgId)
-    .eq("profile_id", user.id)
+    .eq("profile_id", profileId)
     .eq("status", "active")
     .single();
 
   const staffRoles = ["teacher","staff","registrar","admin","full_admin","platform_admin"];
-  if (!member || !staffRoles.includes(member.role)) {
+  if (!member || !staffRoles.includes((member as any).role)) {
     throw new Error("Insufficient permissions");
   }
   return { supabase, userId: user.id };

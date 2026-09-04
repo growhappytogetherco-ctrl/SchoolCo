@@ -35,6 +35,7 @@ export async function middleware(request: NextRequest) {
     "/privacy",
     "/terms",
     "/auth/callback",
+    "/auth/set-password",
     "/attendance/scan", // native-camera QR landing — handles its own auth redirect
   ];
 
