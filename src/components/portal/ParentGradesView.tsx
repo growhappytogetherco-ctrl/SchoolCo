@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BookOpen, AlertTriangle, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { BookOpen, AlertTriangle, ChevronDown, ChevronUp, Loader2, FileText, ExternalLink } from "lucide-react";
 import {
   getStudentGradeProfile,
   getStudentCourseGradeDetail,
@@ -9,6 +9,8 @@ import {
   type CourseGradeDetail,
   type AssignmentGradeRow,
 } from "@/app/actions/studentGrades";
+import { getMyChildReportList, type ReportListItem } from "@/app/actions/reports";
+import { getMyChildAcademicDocuments, type AcademicHistoryItem } from "@/app/actions/documents";
 import type { ParentChild } from "@/lib/supabase/server";
 import type { WeightedGradeResult, QuarterGradeResult } from "@/lib/grading/types";
 
@@ -215,6 +217,8 @@ function ChildGradesSection({ child }: { child: ParentChild }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activePeriodId, setActivePeriodId] = useState<string | null>(null);
+  const [reports, setReports] = useState<ReportListItem[]>([]);
+  const [academicDocs, setAcademicDocs] = useState<AcademicHistoryItem[]>([]);
 
   useEffect(() => {
     getStudentGradeProfile(child.id)
@@ -227,6 +231,8 @@ function ChildGradesSection({ child }: { child: ParentChild }) {
         }
       })
       .finally(() => setLoading(false));
+    getMyChildReportList(child.id).then((r) => { if (r.success) setReports(r.data); });
+    getMyChildAcademicDocuments(child.id).then((r) => { if (r.success) setAcademicDocs(r.data); });
   }, [child.id]);
 
   function selectPeriod(pid: string) {
@@ -316,6 +322,57 @@ function ChildGradesSection({ child }: { child: ParentChild }) {
               periodId={activePeriodId ?? ""}
             />
           ))}
+        </div>
+      )}
+
+      {/* Academic Records — reports + uploaded historical documents */}
+      {(reports.length > 0 || academicDocs.length > 0) && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <FileText className="size-4 text-sc-teal" />
+            <p className="font-medium text-sc-navy text-label-md">Academic Records</p>
+          </div>
+          <div className="rounded-xl border border-sc-gray-100 bg-white divide-y divide-sc-gray-100 overflow-hidden">
+            {reports.map((r) => (
+              <div key={`report-${r.id}`} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-label-sm font-medium text-sc-navy">{r.reportTypeLabel}</p>
+                  <p className="text-label-sm text-sc-gray mt-0.5">
+                    {r.periodName} · {r.schoolYearLabel}
+                    {r.issuedAt && ` · ${new Date(r.issuedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                  </p>
+                </div>
+                <a
+                  href={`/portal/reports/${r.id}`}
+                  className="flex items-center gap-1 text-label-sm text-sc-teal hover:underline"
+                >
+                  View <ExternalLink className="size-3" />
+                </a>
+              </div>
+            ))}
+            {academicDocs.map((doc) => (
+              <div key={`doc-${doc.id}`} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-label-sm font-medium text-sc-navy">{doc.title}</p>
+                  <p className="text-label-sm text-sc-gray mt-0.5">
+                    {doc.periodLabel ? `${doc.periodLabel} · ` : ""}
+                    {doc.schoolYear}
+                    {doc.recordDate && ` · ${new Date(doc.recordDate).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`}
+                  </p>
+                </div>
+                {(doc.googleDriveUrl || doc.externalUrl) && (
+                  <a
+                    href={(doc.googleDriveUrl ?? doc.externalUrl)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-label-sm text-sc-teal hover:underline"
+                  >
+                    View <ExternalLink className="size-3" />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>

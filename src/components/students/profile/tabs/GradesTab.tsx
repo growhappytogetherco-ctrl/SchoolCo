@@ -12,6 +12,8 @@ import {
   type AssignmentGradeRow,
 } from "@/app/actions/studentGrades";
 import type { QuarterGradeResult, WeightedGradeResult } from "@/lib/grading/types";
+import { ReportBuilder } from "@/components/reports/ReportBuilder";
+import { AcademicHistory } from "@/components/grades/AcademicHistory";
 
 // ── Status display labels ────────────────────────────────────────────────────
 
@@ -389,6 +391,21 @@ export function GradesTab({ studentId, isAdmin = false, isStaff = false }: Props
               ))}
           </div>
         </div>
+      )}
+
+      {/* Reports — staff only */}
+      {(isStaff || isAdmin) && (
+        <ReportBuilder
+          studentId={studentId}
+          periods={profile.periods}
+          allPeriods={profile.allPeriods}
+          isAdmin={isAdmin}
+        />
+      )}
+
+      {/* Academic History — legacy docs + issued reports */}
+      {(isStaff || isAdmin) && (
+        <AcademicHistory studentId={studentId} isAdmin={isAdmin} />
       )}
     </div>
   );

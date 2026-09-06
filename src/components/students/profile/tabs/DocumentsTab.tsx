@@ -9,6 +9,7 @@ import { getStudentDocumentsData } from "@/app/actions/profileData";
 import { getWorkSamples, deleteWorkSample, getDriveStatus } from "@/app/actions/drive";
 import { DriveFolderCard } from "@/components/students/profile/drive/DriveFolderCard";
 import { UploadWorkSampleModal } from "@/components/students/profile/drive/UploadWorkSampleModal";
+import { UploadAcademicDocumentModal } from "@/components/documents/UploadAcademicDocumentModal";
 import type { WorkSample } from "@/lib/drive/types";
 import { FILE_TYPE_ICONS } from "@/lib/drive/types";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
   const [folderUrl, setFolderUrl]   = useState(driveFolderUrl ?? "");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [visFilter, setVisFilter]   = useState<"all" | "parent" | "yearbook">("all");
+  const [showAcademicUpload, setShowAcademicUpload] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -131,6 +133,12 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
           <button onClick={() => setShowUpload(true)}
             className="flex items-center gap-2 rounded-xl bg-sc-teal px-4 py-2 text-label-sm text-white font-medium hover:bg-sc-teal-700 transition-colors">
             <Plus className="size-4" /> Add Work Sample
+          </button>
+        )}
+        {activeSection === "docs" && (
+          <button onClick={() => setShowAcademicUpload(true)}
+            className="flex items-center gap-2 rounded-xl border border-sc-teal/30 bg-white px-4 py-2 text-label-sm text-sc-teal font-medium hover:bg-sc-teal/5 transition-colors">
+            <Plus className="size-4" /> Upload Academic Record
           </button>
         )}
       </div>
@@ -300,13 +308,24 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
         </div>
       )}
 
-      {/* Upload modal */}
+      {/* Upload modals */}
       {showUpload && (
         <UploadWorkSampleModal
           studentId={studentId}
           driveReady={driveReady && (folderStatus === "active")}
           onClose={() => setShowUpload(false)}
           onSuccess={handleUploadSuccess}
+        />
+      )}
+      {showAcademicUpload && (
+        <UploadAcademicDocumentModal
+          studentId={studentId}
+          onClose={() => setShowAcademicUpload(false)}
+          onSuccess={(keepOpen) => {
+            if (!keepOpen) setShowAcademicUpload(false);
+            // Refresh document list
+            getStudentDocumentsData(studentId).then((d) => setDocs(d));
+          }}
         />
       )}
     </div>
