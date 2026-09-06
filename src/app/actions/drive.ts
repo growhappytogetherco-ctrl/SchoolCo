@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   createStudentFolderTree, isDriveConfigured, ensureOrgDriveStructure,
   getDriveFileMetadata, uploadFileToDrive, deleteDriveFile,
@@ -178,7 +179,20 @@ export async function createStudentDriveFolders(studentId: string): Promise<
   const orgId = await getActiveOrgId();
   if (!user || !orgId) return { success: false, error: "Not authenticated" };
 
+  // Session client for reads (RLS-scoped) + role check
   const supabase = await createClient();
+
+  const { data: member } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("profile_id", user.id)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+
+  if (!member || !["registrar","admin","full_admin","platform_admin"].includes(member.role as string)) {
+    return { success: false, error: "Registrar or administrator access required to provision Drive folders." };
+  }
 
   const { data: student } = await supabase
     .from("students")
@@ -193,9 +207,11 @@ export async function createStudentDriveFolders(studentId: string): Promise<
   }
 
   if (!isDriveConfigured()) {
-    await supabase.from("students").update({ drive_folder_status: "error" } as never).eq("id", studentId);
     return { success: false, error: "Google Drive is not configured. Add GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_DRIVE_ROOT_FOLDER_ID to your environment." };
   }
+
+  // Admin client for all DB writes — bypasses RLS so student_drive_folders upsert always succeeds
+  const adminDb = createAdminClient();
 
   // Get or auto-provision the Students/ org folder
   const { data: orgFolderRow } = await supabase
@@ -209,10 +225,9 @@ export async function createStudentDriveFolders(studentId: string): Promise<
   if (orgFolderRow?.google_drive_folder_id) {
     studentsFolderId = orgFolderRow.google_drive_folder_id as string;
   } else {
-    // Org structure not yet provisioned — do it now
     const prov = await _ensureOrgDriveInDB(orgId, user.id, supabase);
     if (!prov.success) {
-      await supabase.from("students").update({ drive_folder_status: "error", drive_error_message: prov.error } as never).eq("id", studentId);
+      await adminDb.from("students").update({ drive_folder_status: "error", drive_error_message: prov.error } as never).eq("id", studentId);
       return { success: false, error: `Could not provision Drive folder structure: ${prov.error}` };
     }
     studentsFolderId = prov.folderMap["students"] ?? process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
@@ -221,19 +236,19 @@ export async function createStudentDriveFolders(studentId: string): Promise<
   const studentDisplayId = (student.student_display_id as string | null) ?? studentId;
   const studentName      = `${student.first_name as string} ${student.last_name as string}`;
 
-  await supabase.from("students").update({ drive_folder_status: "creating" } as never).eq("id", studentId);
+  await adminDb.from("students").update({ drive_folder_status: "creating" } as never).eq("id", studentId);
 
   const result = await createStudentFolderTree(studentDisplayId, studentName, orgId, studentsFolderId);
 
   if (!result.success) {
-    await supabase.from("students").update({ drive_folder_status: "error", drive_error_message: result.error } as never).eq("id", studentId);
+    await adminDb.from("students").update({ drive_folder_status: "error", drive_error_message: result.error } as never).eq("id", studentId);
     return { success: false, error: result.error };
   }
 
   const { rootFolder, subfolders } = result.data;
   const folderName = `${studentDisplayId} — ${studentName}`;
 
-  await supabase.from("students").update({
+  const { error: studentUpdateError } = await adminDb.from("students").update({
     google_drive_folder_id:  rootFolder.folderId,
     google_drive_folder_url: rootFolder.folderUrl,
     drive_folder_status:     "active",
@@ -242,6 +257,10 @@ export async function createStudentDriveFolders(studentId: string): Promise<
     drive_provisioned_by:    user.id,
     drive_error_message:     null,
   } as never).eq("id", studentId);
+
+  if (studentUpdateError) {
+    return { success: false, error: `Drive folders created in Google but could not save to database: ${studentUpdateError.message}` };
+  }
 
   const subfoldersToInsert = subfolders.map((sf) => {
     const def = getSubfolder(sf.key)!;
@@ -260,7 +279,13 @@ export async function createStudentDriveFolders(studentId: string): Promise<
     };
   });
 
-  await supabase.from("student_drive_folders").upsert(subfoldersToInsert as never, { onConflict: "student_id,folder_key" });
+  const { error: subfoldersError } = await adminDb
+    .from("student_drive_folders")
+    .upsert(subfoldersToInsert as never, { onConflict: "student_id,folder_key" });
+
+  if (subfoldersError) {
+    return { success: false, error: `Drive folders created but subfolder mappings could not be saved: ${subfoldersError.message}` };
+  }
 
   return { success: true, folderUrl: rootFolder.folderUrl };
 }

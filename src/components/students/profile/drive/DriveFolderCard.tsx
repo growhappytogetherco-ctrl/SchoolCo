@@ -11,9 +11,10 @@ interface Props {
   driveFolderStatus: string | null;
   driveFolderUrl: string | null;
   driveConfigured: boolean;
+  onProvisioningSuccess?: (folderUrl: string) => void;
 }
 
-export function DriveFolderCard({ studentId, driveFolderStatus, driveFolderUrl, driveConfigured }: Props) {
+export function DriveFolderCard({ studentId, driveFolderStatus, driveFolderUrl, driveConfigured, onProvisioningSuccess }: Props) {
   const [status, setStatus]         = useState(driveFolderStatus ?? "none");
   const [folderUrl, setFolderUrl]   = useState(driveFolderUrl ?? "");
   const [isPending, startTransition] = useTransition();
@@ -30,6 +31,7 @@ export function DriveFolderCard({ studentId, driveFolderStatus, driveFolderUrl, 
       if (res.success) {
         setStatus("active");
         setFolderUrl(res.folderUrl);
+        onProvisioningSuccess?.(res.folderUrl);
       } else {
         setError(res.error);
         setStatus("error");

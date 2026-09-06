@@ -112,6 +112,10 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
         driveFolderStatus={folderStatus}
         driveFolderUrl={folderUrl}
         driveConfigured={driveReady}
+        onProvisioningSuccess={(url) => {
+          setFolderStatus("active");
+          setFolderUrl(url);
+        }}
       />
 
       {/* Section tabs */}

@@ -190,9 +190,18 @@ export function UploadWorkSampleModal({ studentId, driveReady, onClose, onSucces
                 className={cn("flex-1 flex items-center justify-center gap-2 py-2.5 text-label-sm font-medium transition-colors disabled:opacity-40",
                   method === "file" ? "bg-sc-navy text-white" : "text-sc-gray hover:bg-sc-gray-50")}>
                 <Upload className="size-4" /> Upload File
-                {!driveReady && <span className="text-xs opacity-60">(Drive needed)</span>}
+                {!driveReady && <span className="text-xs opacity-60">(Drive setup required)</span>}
               </button>
             </div>
+
+            {!driveReady && (
+              <div className="flex items-start gap-2 rounded-xl bg-sc-gold-50 border border-sc-gold-200 px-3 py-2.5 text-label-sm text-sc-gold-800">
+                <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                <span>
+                  Direct file upload requires Drive setup. Go to the <span className="font-medium">Documents tab</span>, click <span className="font-medium">Create Folders</span>, then return here.
+                </span>
+              </div>
+            )}
 
             {method === "link" && (
               <div className="space-y-3">
