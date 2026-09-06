@@ -14,7 +14,7 @@ interface Props {
   sectionId: string;
   subject: string;
   courseName: string;
-  teacherId: string | null;
+  staffRosterId: string | null;
   teacherName: string | null;
   roster: CourseStudent[];
   staff: StaffOption[];
@@ -24,14 +24,14 @@ export function CourseRoster({
   sectionId,
   subject,
   courseName,
-  teacherId: initialTeacherId,
+  staffRosterId: initialStaffRosterId,
   teacherName: initialTeacherName,
   roster: initialRoster,
   staff,
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [roster, setRoster] = useState(initialRoster);
-  const [teacherId, setTeacherId] = useState<string | null>(initialTeacherId);
+  const [staffRosterId, setStaffRosterId] = useState<string | null>(initialStaffRosterId);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -91,11 +91,11 @@ export function CourseRoster({
     });
   }
 
-  function handleTeacherChange(newTeacherId: string | null) {
-    const teacherName = staff.find(s => s.id === newTeacherId)?.name ?? null;
-    setTeacherId(newTeacherId);
+  function handleTeacherChange(newStaffRosterId: string | null) {
+    const teacherName = staff.find(s => s.id === newStaffRosterId)?.name ?? null;
+    setStaffRosterId(newStaffRosterId);
     startTransition(async () => {
-      await updateCourseSection(sectionId, { teacherId: newTeacherId, teacherName });
+      await updateCourseSection(sectionId, { staffRosterId: newStaffRosterId, teacherName });
       flash("Teacher updated.");
     });
   }
@@ -129,7 +129,7 @@ export function CourseRoster({
       <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
         <h2 className="font-medium text-sc-navy mb-4">Teacher</h2>
         <select
-          value={teacherId ?? ""}
+          value={staffRosterId ?? ""}
           onChange={e => handleTeacherChange(e.target.value || null)}
           disabled={isPending}
           className="w-full sm:max-w-xs rounded-lg border border-sc-gray-200 px-3 py-2.5 text-body-md text-sc-navy bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal disabled:opacity-60"

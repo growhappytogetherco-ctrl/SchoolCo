@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, BookOpen } from "lucide-react";
+import { ChevronLeft, BookOpen, Settings } from "lucide-react";
 import { getUser, getActiveOrgId } from "@/lib/supabase/server";
 import { requireStaff } from "@/lib/roleGuard";
 import { getCourseDetail, getStaffForTeacherSelect } from "@/app/actions/courses";
@@ -74,16 +74,15 @@ export default async function CourseDetailPage({
           </p>
         </div>
 
-        {/* Open Gradebook — placeholder for Stage 3B */}
+        {/* Open Gradebook */}
         <div className="sm:text-right">
-          <div
-            title="Gradebook coming in a future update"
-            className="inline-flex items-center gap-2 rounded-lg bg-sc-gray-100 px-4 py-2.5 text-sc-gray text-label-md font-medium cursor-not-allowed opacity-60 select-none"
+          <Link
+            href={`/dashboard/courses/${id}/gradebook`}
+            className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-4 py-2.5 text-white text-label-md font-medium hover:bg-sc-teal-700 transition-colors shadow-sm"
           >
             <BookOpen className="h-4 w-4" />
             Open Gradebook
-          </div>
-          <p className="text-label-sm text-sc-gray-400 mt-1">Coming soon</p>
+          </Link>
         </div>
       </div>
 
@@ -92,7 +91,7 @@ export default async function CourseDetailPage({
         sectionId={section.id}
         subject={section.subject}
         courseName={section.course_name}
-        teacherId={section.teacher_id}
+        staffRosterId={(section as any).staff_roster_id ?? null}
         teacherName={section.teacher_name}
         roster={roster}
         staff={staff}

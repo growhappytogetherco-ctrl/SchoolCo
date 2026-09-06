@@ -321,7 +321,7 @@ export async function getActiveSchoolYear(): Promise<ActionResult<{ id: string; 
 export async function createCourseSection(payload: {
   subject: string;
   courseName: string;
-  teacherId: string | null;
+  staffRosterId: string | null;   // staff_roster.id — instructional teacher
   teacherName: string | null;
   schoolYearId: string;
   enrollmentIds: string[];   // curriculum_enrollment ids to link
@@ -331,15 +331,27 @@ export async function createCourseSection(payload: {
     if (!orgId) return { success: false, error: "No active org" };
     const { supabase } = await assertStaff(orgId);
 
+    // Resolve profiles.id (for RLS) from staff_roster.profile_id
+    let resolvedTeacherId: string | null = null;
+    if (payload.staffRosterId) {
+      const { data: sr } = await supabase
+        .from("staff_roster")
+        .select("profile_id")
+        .eq("id", payload.staffRosterId)
+        .single();
+      resolvedTeacherId = (sr as any)?.profile_id ?? null;
+    }
+
     const { data: section, error: cErr } = await supabase
       .from("course_sections")
       .insert({
         organization_id: orgId,
-        school_year_id: payload.schoolYearId,
-        subject: payload.subject.trim().toLowerCase(),
-        course_name: payload.courseName.trim(),
-        teacher_id: payload.teacherId,
-        teacher_name: payload.teacherName,
+        school_year_id:  payload.schoolYearId,
+        subject:         payload.subject.trim().toLowerCase(),
+        course_name:     payload.courseName.trim(),
+        staff_roster_id: payload.staffRosterId,
+        teacher_id:      resolvedTeacherId,
+        teacher_name:    payload.teacherName,
         status: "active",
       })
       .select("id")
@@ -366,7 +378,7 @@ export async function updateCourseSection(
   sectionId: string,
   payload: {
     courseName?: string;
-    teacherId?: string | null;
+    staffRosterId?: string | null;   // staff_roster.id
     teacherName?: string | null;
   }
 ): Promise<ActionResult<void>> {
@@ -377,7 +389,20 @@ export async function updateCourseSection(
 
     const updates: Record<string, unknown> = {};
     if (payload.courseName !== undefined) updates.course_name = payload.courseName.trim();
-    if (payload.teacherId !== undefined) updates.teacher_id = payload.teacherId;
+    if (payload.staffRosterId !== undefined) {
+      updates.staff_roster_id = payload.staffRosterId;
+      // Resolve profiles.id for teacher_id RLS
+      let resolvedTeacherId: string | null = null;
+      if (payload.staffRosterId) {
+        const { data: sr } = await supabase
+          .from("staff_roster")
+          .select("profile_id")
+          .eq("id", payload.staffRosterId)
+          .single();
+        resolvedTeacherId = (sr as any)?.profile_id ?? null;
+      }
+      updates.teacher_id = resolvedTeacherId;
+    }
     if (payload.teacherName !== undefined) updates.teacher_name = payload.teacherName;
 
     const { error } = await supabase

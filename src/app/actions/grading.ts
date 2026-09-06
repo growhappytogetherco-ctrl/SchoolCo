@@ -14,7 +14,6 @@ export type {
   CourseSection, Assignment, StudentGrade, CreateAssignmentPayload,
   UpsertGradePayload, GradebookData, GradebookStudentRow,
 } from "./grading-constants";
-export { ASSIGNMENT_CATEGORY_LABELS, GRADE_STATUS_LABELS } from "./grading-constants";
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 
@@ -496,6 +495,161 @@ export async function getGradebookData(
       success: true,
       data: { courseSectionId, periodId, assignments: assignmentList, studentRows },
     };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+// ── Stage 3B additions ────────────────────────────────────────────────────────
+
+export interface GradingPeriodInfo {
+  id: string;
+  name: string;
+  period_type: string;
+  is_assignment_period: boolean;
+  sequence: number;
+  start_date: string;
+  end_date: string;
+}
+
+export interface SectionGradingContext {
+  periods: GradingPeriodInfo[];
+  currentPeriodId: string | null;
+  schoolYearLabel: string;
+  gradeScaleLevels: GradeScaleLevel[];
+  canEdit: boolean;
+}
+
+export async function getSectionGradingContext(
+  courseSectionId: string,
+  orgId: string,
+  today?: string
+): Promise<ActionResult<SectionGradingContext>> {
+  try {
+    const { supabase } = await assertStaff(orgId);
+    const user = await getUser();
+    if (!user) throw new Error("Unauthenticated");
+    const profileId = await resolveProfileId(user.id);
+
+    // Get section's school_year_id + teacher_id for canEdit check
+    const { data: section, error: sErr } = await supabase
+      .from("course_sections")
+      .select("school_year_id, teacher_id")
+      .eq("id", courseSectionId)
+      .eq("organization_id", orgId)
+      .single();
+    if (sErr || !section) throw new Error("Section not found");
+
+    // Get school year label
+    const { data: sy } = await supabase
+      .from("school_years")
+      .select("label")
+      .eq("id", (section as any).school_year_id)
+      .single();
+
+    // Get quarters for this school year
+    const { data: periods, error: pErr } = await supabase
+      .from("grading_periods")
+      .select("id, name, period_type, is_assignment_period, sequence, start_date, end_date")
+      .eq("organization_id", orgId)
+      .eq("school_year_id", (section as any).school_year_id)
+      .eq("is_assignment_period", true)
+      .order("sequence");
+    if (pErr) throw pErr;
+
+    const todayStr = today ?? new Date().toISOString().split("T")[0];
+    const current = (periods ?? []).find(
+      p => todayStr >= p.start_date && todayStr <= p.end_date
+    );
+
+    // Grade scale
+    const scale = await getOrgGradeScale(supabase, orgId);
+
+    // canEdit: admin always; otherwise teacher must have teacher_id = profileId
+    const { data: member } = await supabase
+      .from("organization_members")
+      .select("role")
+      .eq("organization_id", orgId)
+      .eq("profile_id", profileId)
+      .eq("status", "active")
+      .single();
+    const role = (member as any)?.role ?? "";
+    const adminRoles = ["admin", "full_admin", "platform_admin"];
+    const isAdmin = adminRoles.includes(role);
+    const isTeacher = (section as any).teacher_id === profileId;
+    const canEdit = isAdmin || isTeacher || ["staff", "registrar"].includes(role);
+
+    return {
+      success: true,
+      data: {
+        periods: (periods ?? []) as GradingPeriodInfo[],
+        currentPeriodId: current?.id ?? (periods?.[0]?.id ?? null),
+        schoolYearLabel: (sy as any)?.label ?? "",
+        gradeScaleLevels: scale,
+        canEdit,
+      },
+    };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+export async function bulkSetGradeStatus(
+  assignmentId: string,
+  studentIds: string[],
+  status: string,
+  orgId: string
+): Promise<ActionResult<{ count: number }>> {
+  try {
+    const { supabase, userId } = await assertStaff(orgId);
+
+    // Get assignment for org validation + points_possible
+    const { data: assignment, error: aErr } = await supabase
+      .from("assignments")
+      .select("id, organization_id, points_possible")
+      .eq("id", assignmentId)
+      .eq("organization_id", orgId)
+      .single();
+    if (aErr || !assignment) return { success: false, error: "Assignment not found" };
+
+    const records = studentIds.map(sid => ({
+      organization_id: orgId,
+      assignment_id:   assignmentId,
+      student_id:      sid,
+      points_earned:   null,
+      grade_status:    status,
+      entered_by:      userId,
+      updated_by:      userId,
+    }));
+
+    const { error } = await supabase
+      .from("student_assignment_grades")
+      .upsert(records, { onConflict: "assignment_id,student_id" });
+
+    if (error) throw error;
+    revalidatePath("/dashboard/courses");
+    return { success: true, data: { count: records.length } };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+export async function deleteStudentGrade(
+  assignmentId: string,
+  studentId: string,
+  orgId: string
+): Promise<ActionResult<void>> {
+  try {
+    const { supabase } = await assertStaff(orgId);
+    const { error } = await supabase
+      .from("student_assignment_grades")
+      .delete()
+      .eq("assignment_id", assignmentId)
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId);
+    if (error) throw error;
+    revalidatePath("/dashboard/courses");
+    return { success: true, data: undefined };
   } catch (e) {
     return { success: false, error: String(e) };
   }

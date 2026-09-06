@@ -32,7 +32,7 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
   // Step 1 fields
   const [subject, setSubject] = useState("");
   const [courseName, setCourseName]     = useState("");
-  const [teacherId, setTeacherId]       = useState<string | null>(null);
+  const [staffRosterId, setStaffRosterId] = useState<string | null>(null);
 
   // Step 2 — student selection
   const [step, setStep] = useState<1 | 2>(1);
@@ -44,7 +44,7 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
 
   const [error, setError] = useState("");
 
-  const teacherName = staff.find(s => s.id === teacherId)?.name ?? null;
+  const teacherName = staff.find(s => s.id === staffRosterId)?.name ?? null;
 
   async function goToStep2() {
     if (!subject || !courseName.trim()) {
@@ -121,7 +121,7 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
       const result = await createCourseSection({
         subject,
         courseName,
-        teacherId,
+        staffRosterId,
         teacherName,
         schoolYearId,
         enrollmentIds,
@@ -214,8 +214,8 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
           <div>
             <label className="block text-label-sm font-medium text-sc-navy mb-1.5">Teacher</label>
             <select
-              value={teacherId ?? ""}
-              onChange={e => setTeacherId(e.target.value || null)}
+              value={staffRosterId ?? ""}
+              onChange={e => setStaffRosterId(e.target.value || null)}
               className="w-full rounded-lg border border-sc-gray-200 px-3 py-2.5 text-body-md text-sc-navy bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal"
             >
               <option value="">No teacher assigned</option>
