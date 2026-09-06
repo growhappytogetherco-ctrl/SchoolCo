@@ -416,7 +416,14 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
           {error && (
             <div className="rounded-xl border border-sc-rose-200 bg-sc-rose-50 p-3 flex items-start gap-2">
               <AlertTriangle className="size-4 text-sc-rose mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-sc-rose">{error}</p>
+              <div className="flex-1">
+                <p className="text-xs text-sc-rose">{error}</p>
+                {(error.includes("Drive folder") || error.includes("Drive setup") || error.includes("not been set up")) && (
+                  <p className="text-xs text-sc-rose-700 mt-1">
+                    Go to the <span className="font-medium">Documents tab</span> and click <span className="font-medium">Create Folders</span> to set up this student&apos;s Google Drive, then return here to upload.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

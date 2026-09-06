@@ -291,6 +291,89 @@ export async function linkStudentDriveFolder(studentId: string, folderId: string
 }
 
 /**
+ * Admin-only: return Drive provisioning status for all enrolled students.
+ * Read-only — no Drive calls made. Safe to call repeatedly.
+ */
+export async function getRosterDriveStatus(): Promise<
+  | {
+      success: true;
+      students: Array<{
+        id: string;
+        displayId: string;
+        name: string;
+        driveStatus: string;
+        hasRootFolder: boolean;
+        subfoldersCount: number;
+      }>;
+      summary: { total: number; connected: number; setupRequired: number; partial: number; error: number };
+    }
+  | { success: false; error: string }
+> {
+  const user  = await getUser();
+  const orgId = await getActiveOrgId();
+  if (!user || !orgId) return { success: false, error: "Not authenticated" };
+
+  const supabase = await createClient();
+
+  const { data: member } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("profile_id", user.id)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+
+  if (!member || !["admin", "full_admin", "platform_admin"].includes(member.role as string)) {
+    return { success: false, error: "Administrator access required" };
+  }
+
+  const { data: students } = await supabase
+    .from("students")
+    .select("id, first_name, last_name, student_display_id, google_drive_folder_id, drive_folder_status, enrollment_status")
+    .eq("organization_id", orgId)
+    .is("archived_at", null)
+    .order("student_display_id");
+
+  const { data: allSubfolders } = await supabase
+    .from("student_drive_folders")
+    .select("student_id, folder_key")
+    .eq("organization_id", orgId);
+
+  const subfoldersPerStudent: Record<string, number> = {};
+  for (const row of allSubfolders ?? []) {
+    const sid = row.student_id as string;
+    subfoldersPerStudent[sid] = (subfoldersPerStudent[sid] ?? 0) + 1;
+  }
+
+  const totalExpected = STUDENT_SUBFOLDERS.length;
+
+  const mapped = (students ?? []).map((s) => {
+    const subCount = subfoldersPerStudent[s.id as string] ?? 0;
+    const status   = s.drive_folder_status as string;
+    const hasRoot  = !!(s.google_drive_folder_id as string | null);
+    return {
+      id:              s.id as string,
+      displayId:       (s.student_display_id as string | null) ?? "",
+      name:            `${s.first_name as string} ${s.last_name as string}`,
+      driveStatus:     status,
+      hasRootFolder:   hasRoot,
+      subfoldersCount: subCount,
+    };
+  });
+
+  const connected      = mapped.filter((s) => s.driveStatus === "active" && s.hasRootFolder && s.subfoldersCount === totalExpected).length;
+  const partial        = mapped.filter((s) => s.driveStatus === "active" && s.hasRootFolder && s.subfoldersCount < totalExpected).length;
+  const error          = mapped.filter((s) => s.driveStatus === "error").length;
+  const setupRequired  = mapped.filter((s) => !["active", "error"].includes(s.driveStatus)).length;
+
+  return {
+    success: true,
+    students: mapped,
+    summary: { total: mapped.length, connected, setupRequired, partial, error },
+  };
+}
+
+/**
  * Get a student's subfolder records.
  */
 export async function getStudentDriveFolders(studentId: string) {

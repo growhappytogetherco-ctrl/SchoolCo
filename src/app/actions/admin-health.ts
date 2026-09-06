@@ -193,6 +193,7 @@ export async function getAdminHealthData(): Promise<AdminHealthData> {
     { count: guardMissingStudent },
     { count: guardMissingGuardian },
     { count: dupQrAtt },
+    { count: studentsMissingDrive },
   ] = await Promise.all([
     // Students without family_id
     supabase.from("students").select("id", { count: "exact", head: true })
@@ -240,6 +241,12 @@ export async function getAdminHealthData(): Promise<AdminHealthData> {
     supabase.from("students").select("id", { count: "exact", head: true })
       .eq("organization_id", orgId)
       .is("attendance_qr_token", null).is("archived_at", null),
+    // Enrolled students without Drive provisioning
+    supabase.from("students").select("id", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+      .eq("enrollment_status", "enrolled")
+      .is("archived_at", null)
+      .not("drive_folder_status", "eq", "active"),
   ]);
 
   const latencyMs = Date.now() - startMs;
@@ -380,6 +387,12 @@ export async function getAdminHealthData(): Promise<AdminHealthData> {
       count:     guardMissingGuardian ?? 0,
       warnAt:    1, errorAt: 1,
       linkHref:  "/dashboard/families",
+    },
+    {
+      label:     "Enrolled students without Drive setup",
+      count:     studentsMissingDrive ?? 0,
+      warnAt:    1, errorAt: 3,
+      linkHref:  "/dashboard/drive-bulk-provision",
     },
     {
       label:     "Broken student document references",

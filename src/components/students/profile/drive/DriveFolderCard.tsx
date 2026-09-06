@@ -78,7 +78,7 @@ export function DriveFolderCard({ studentId, driveFolderStatus, driveFolderUrl, 
           <p className="text-label-sm text-sc-gray">
             {status === "none"     && "Not created yet"}
             {status === "creating" && "Creating…"}
-            {status === "active"   && "Active — 11 subfolders"}
+            {status === "active"   && `Active — ${STUDENT_SUBFOLDERS.length} subfolders`}
             {status === "manually_linked" && "Manually linked"}
             {status === "error"    && "Setup failed"}
           </p>
