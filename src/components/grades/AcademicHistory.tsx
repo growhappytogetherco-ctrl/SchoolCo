@@ -5,11 +5,12 @@
 //   2. SchoolCo issued reports (student_reports, from Stage 5)
 // Grouped by school year, then by period.
 
-import { useEffect, useState } from "react";
-import { FileText, ExternalLink, Loader2, History, Eye, EyeOff, GraduationCap } from "lucide-react";
-import { getStudentAcademicDocuments, type AcademicHistoryItem } from "@/app/actions/documents";
+import { useEffect, useRef, useState } from "react";
+import { FileText, ExternalLink, Loader2, History, Eye, EyeOff, GraduationCap, MoreHorizontal, Pencil, Trash2, AlertTriangle } from "lucide-react";
+import { getStudentAcademicDocuments, deleteAcademicDocument, type AcademicHistoryItem } from "@/app/actions/documents";
 import { getStudentReportList, type ReportListItem } from "@/app/actions/reports";
 import { UploadAcademicDocumentModal } from "@/components/documents/UploadAcademicDocumentModal";
+import { EditAcademicDocumentModal } from "@/components/documents/EditAcademicDocumentModal";
 
 interface Props {
   studentId: string;
@@ -102,12 +103,147 @@ function periodSortKey(period: string | null, reportType?: string): number {
   return 99;
 }
 
+// ── Action menu per document row ─────────────────────────────────────────────
+
+function DocActionMenu({
+  doc,
+  onEdit,
+  onDelete,
+}: {
+  doc:      AcademicHistoryItem;
+  onEdit:   (doc: AcademicHistoryItem) => void;
+  onDelete: (doc: AcademicHistoryItem) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div className="relative flex-shrink-0" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-7 w-7 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-gray-100 hover:text-sc-navy transition-colors"
+        aria-label="More actions"
+      >
+        <MoreHorizontal className="size-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-8 z-30 w-40 rounded-xl border border-sc-gray-100 bg-white shadow-lg overflow-hidden">
+          {(doc.googleDriveUrl || doc.externalUrl) && (
+            <a
+              href={(doc.googleDriveUrl ?? doc.externalUrl)!}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-label-sm text-sc-gray hover:bg-sc-gray-50 hover:text-sc-navy transition-colors"
+            >
+              <ExternalLink className="size-3.5" /> View File
+            </a>
+          )}
+          <button
+            onClick={() => { setOpen(false); onEdit(doc); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-label-sm text-sc-gray hover:bg-sc-gray-50 hover:text-sc-navy transition-colors"
+          >
+            <Pencil className="size-3.5" /> Edit
+          </button>
+          <button
+            onClick={() => { setOpen(false); onDelete(doc); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-label-sm text-sc-rose hover:bg-sc-rose-50 transition-colors"
+          >
+            <Trash2 className="size-3.5" /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Delete confirm modal ──────────────────────────────────────────────────────
+
+function DeleteConfirmModal({
+  doc,
+  onCancel,
+  onConfirm,
+  isPending,
+  error,
+}: {
+  doc:       AcademicHistoryItem;
+  onCancel:  () => void;
+  onConfirm: () => void;
+  isPending: boolean;
+  error:     string | null;
+}) {
+  const hasDriveFile = !!doc.googleDriveId;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sc-rose-50 border border-sc-rose-200">
+            <Trash2 className="size-5 text-sc-rose" />
+          </div>
+          <div>
+            <p className="font-serif text-heading-2 text-sc-navy">Delete Academic Record?</p>
+            <p className="text-label-sm text-sc-gray mt-1">
+              &ldquo;{doc.title}&rdquo;
+            </p>
+          </div>
+        </div>
+
+        <p className="text-label-sm text-sc-gray">
+          {hasDriveFile
+            ? "This will permanently remove this academic record from SchoolCo and delete its uploaded file from the student's Academic Records Drive folder."
+            : "This will permanently remove this academic record from SchoolCo."}
+        </p>
+
+        {error && (
+          <div className="rounded-xl border border-sc-rose-200 bg-sc-rose-50 p-3 flex items-start gap-2">
+            <AlertTriangle className="size-4 text-sc-rose mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-sc-rose">{error}</p>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            onClick={onCancel}
+            disabled={isPending}
+            className="rounded-lg border border-sc-gray-200 px-4 py-2 text-label-sm text-sc-gray hover:bg-sc-gray-50 disabled:opacity-40 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="rounded-lg bg-sc-rose px-4 py-2 text-label-sm text-white hover:bg-sc-rose-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+          >
+            {isPending ? <><Loader2 className="size-3.5 animate-spin" /> Deleting…</> : "Delete Record"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function AcademicHistory({ studentId, isAdmin }: Props) {
   const [docs, setDocs]         = useState<AcademicHistoryItem[]>([]);
   const [reports, setReports]   = useState<ReportListItem[]>([]);
   const [loading, setLoading]   = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [uploadCount, setUploadCount] = useState(0);  // triggers re-fetch
+
+  // Edit/delete state
+  const [editingDoc, setEditingDoc]     = useState<AcademicHistoryItem | null>(null);
+  const [deletingDoc, setDeletingDoc]   = useState<AcademicHistoryItem | null>(null);
+  const [deleteError, setDeleteError]   = useState<string | null>(null);
+  const [deleteIsPending, setDeleteIsPending] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -124,6 +260,25 @@ export function AcademicHistory({ studentId, isAdmin }: Props) {
   function handleUploadSuccess(keepOpen: boolean) {
     setUploadCount((c) => c + 1);
     if (!keepOpen) setShowUpload(false);
+  }
+
+  function handleEditSuccess(updated: AcademicHistoryItem) {
+    setDocs((prev) => prev.map((d) => d.id === updated.id ? updated : d));
+    setEditingDoc(null);
+  }
+
+  async function handleDeleteConfirm() {
+    if (!deletingDoc) return;
+    setDeleteError(null);
+    setDeleteIsPending(true);
+    const result = await deleteAcademicDocument(deletingDoc.id);
+    setDeleteIsPending(false);
+    if (!result.success) {
+      setDeleteError(result.error ?? "Delete failed.");
+      return;
+    }
+    setDocs((prev) => prev.filter((d) => d.id !== deletingDoc.id));
+    setDeletingDoc(null);
   }
 
   // ── Build unified entries ──────────────────────────────────────────────────
@@ -280,18 +435,24 @@ export function AcademicHistory({ studentId, isAdmin }: Props) {
                       </div>
                     </div>
 
-                    {/* View link */}
+                    {/* Document actions */}
                     {entry.type === "document" && entry.docItem && (
-                      entry.docItem.googleDriveUrl || entry.docItem.externalUrl
-                    ) && (
-                      <a
-                        href={(entry.docItem.googleDriveUrl ?? entry.docItem.externalUrl)!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-shrink-0 flex items-center gap-1 text-label-sm text-sc-teal hover:underline"
-                      >
-                        View <ExternalLink className="size-3" />
-                      </a>
+                      isAdmin ? (
+                        <DocActionMenu
+                          doc={entry.docItem}
+                          onEdit={setEditingDoc}
+                          onDelete={(d) => { setDeleteError(null); setDeletingDoc(d); }}
+                        />
+                      ) : (entry.docItem.googleDriveUrl || entry.docItem.externalUrl) ? (
+                        <a
+                          href={(entry.docItem.googleDriveUrl ?? entry.docItem.externalUrl)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-shrink-0 flex items-center gap-1 text-label-sm text-sc-teal hover:underline"
+                        >
+                          View <ExternalLink className="size-3" />
+                        </a>
+                      ) : null
                     )}
 
                     {entry.type === "report" && entry.reportItem && (
@@ -318,6 +479,26 @@ export function AcademicHistory({ studentId, isAdmin }: Props) {
           studentId={studentId}
           onClose={() => setShowUpload(false)}
           onSuccess={handleUploadSuccess}
+        />
+      )}
+
+      {/* Edit modal */}
+      {editingDoc && (
+        <EditAcademicDocumentModal
+          doc={editingDoc}
+          onClose={() => setEditingDoc(null)}
+          onSuccess={handleEditSuccess}
+        />
+      )}
+
+      {/* Delete confirm */}
+      {deletingDoc && (
+        <DeleteConfirmModal
+          doc={deletingDoc}
+          onCancel={() => { setDeletingDoc(null); setDeleteError(null); }}
+          onConfirm={handleDeleteConfirm}
+          isPending={deleteIsPending}
+          error={deleteError}
         />
       )}
     </div>

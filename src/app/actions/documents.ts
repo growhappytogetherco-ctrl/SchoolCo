@@ -442,3 +442,158 @@ function mapToHistoryItems(rows: any[]): AcademicHistoryItem[] {
     createdAt:       d.created_at,
   }));
 }
+
+// ── Update academic document metadata ─────────────────────────────────────────
+// Edits metadata only — does NOT touch the associated Drive file.
+
+export interface UpdateAcademicDocumentPayload {
+  title:           string;
+  recordType:      AcademicRecordType;
+  schoolYear:      string;
+  reportingPeriod: AcademicReportingPeriod | null;
+  recordDate:      string | null;
+  recordSource:    AcademicRecordSource;
+  parentVisible:   boolean;
+}
+
+export async function updateAcademicDocument(
+  documentId: string,
+  payload: UpdateAcademicDocumentPayload,
+): Promise<ActionResult<void>> {
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization" };
+
+  const authResult = await assertStaff(orgId);
+  if ("error" in authResult) return { success: false, error: authResult.error };
+
+  if (!payload.title.trim())     return { success: false, error: "Title is required" };
+  if (!payload.schoolYear.trim()) return { success: false, error: "School year is required" };
+
+  const supabase = await createClient();
+
+  // Verify the document belongs to this org and is an academic_record
+  const { data: existing } = await supabase
+    .from("student_documents")
+    .select("id, student_id, academic_record_source, title, academic_record_type, academic_school_year, academic_reporting_period, academic_record_date, visibility")
+    .eq("id", documentId)
+    .eq("organization_id", orgId)
+    .eq("document_type", "academic_record")
+    .single();
+
+  if (!existing) return { success: false, error: "Document not found or access denied" };
+
+  const visibility = payload.parentVisible ? "parent_visible" : "internal";
+
+  const { error } = await supabase
+    .from("student_documents")
+    .update({
+      title:                     payload.title.trim(),
+      academic_record_type:      payload.recordType,
+      academic_school_year:      payload.schoolYear.trim(),
+      academic_reporting_period: payload.reportingPeriod ?? null,
+      academic_record_date:      payload.recordDate ?? null,
+      academic_record_source:    payload.recordSource,
+      visibility,
+      staff_only:                !payload.parentVisible,
+      shared_with_family:        payload.parentVisible,
+    } as never)
+    .eq("id", documentId)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  // Audit
+  const { logAudit, AUDIT_ACTIONS } = await import("@/lib/audit");
+  await logAudit({
+    organization_id: orgId,
+    actor_id:        authResult.userId,
+    action:          AUDIT_ACTIONS.RECORD_UPDATED,
+    resource_type:   "student_document",
+    resource_id:     documentId,
+    previous_values: {
+      title:             (existing as any).title,
+      academic_record_type:     (existing as any).academic_record_type,
+      academic_school_year:     (existing as any).academic_school_year,
+      academic_reporting_period:(existing as any).academic_reporting_period,
+      academic_record_date:     (existing as any).academic_record_date,
+      visibility:               (existing as any).visibility,
+    },
+    new_values: {
+      title:             payload.title.trim(),
+      academic_record_type:      payload.recordType,
+      academic_school_year:      payload.schoolYear.trim(),
+      academic_reporting_period: payload.reportingPeriod,
+      academic_record_date:      payload.recordDate,
+      visibility,
+    },
+  });
+
+  revalidatePath(`/dashboard/students/${(existing as any).student_id}`);
+  return { success: true, data: undefined };
+}
+
+// ── Delete academic document ───────────────────────────────────────────────────
+// Removes the DB row and the associated Drive file (if any).
+// If Drive deletion fails, the DB row is NOT removed — caller sees the error.
+
+export async function deleteAcademicDocument(
+  documentId: string,
+): Promise<ActionResult<void>> {
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization" };
+
+  const authResult = await assertStaff(orgId);
+  if ("error" in authResult) return { success: false, error: authResult.error };
+
+  const supabase = await createClient();
+
+  // Fetch document to get Drive file ID and verify ownership
+  const { data: doc } = await supabase
+    .from("student_documents")
+    .select("id, student_id, google_drive_id, title, academic_record_type")
+    .eq("id", documentId)
+    .eq("organization_id", orgId)
+    .eq("document_type", "academic_record")
+    .single();
+
+  if (!doc) return { success: false, error: "Document not found or access denied" };
+
+  // Audit BEFORE deletion so the record exists if the audit write coincides with delete
+  const { logAudit, AUDIT_ACTIONS } = await import("@/lib/audit");
+  await logAudit({
+    organization_id: orgId,
+    actor_id:        authResult.userId,
+    action:          AUDIT_ACTIONS.RECORD_ARCHIVED,
+    resource_type:   "student_document",
+    resource_id:     documentId,
+    metadata: {
+      title:               (doc as any).title,
+      academic_record_type:(doc as any).academic_record_type,
+      google_drive_id:     (doc as any).google_drive_id ?? null,
+    },
+  });
+
+  // Delete Drive file first (if present)
+  const driveId = (doc as any).google_drive_id as string | null;
+  if (driveId) {
+    const driveResult = await deleteDriveFile(driveId);
+    if (!driveResult.success) {
+      return {
+        success: false,
+        error: `Could not delete the file from Google Drive: ${driveResult.error}. The SchoolCo record was NOT removed. Resolve the Drive issue or contact support.`,
+      };
+    }
+  }
+
+  // Delete the DB row
+  const { error } = await supabase
+    .from("student_documents")
+    .delete()
+    .eq("id", documentId)
+    .eq("organization_id", orgId);
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath(`/dashboard/students/${(doc as any).student_id}`);
+  return { success: true, data: undefined };
+}
