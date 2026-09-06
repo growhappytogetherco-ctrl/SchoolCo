@@ -5,6 +5,7 @@ export type TabId =
   | "goals"
   | "support"
   | "academics"
+  | "grades"
   | "medical"
   | "attendance"
   | "notes"

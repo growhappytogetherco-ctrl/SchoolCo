@@ -6,6 +6,7 @@ import { getUser, getActiveOrgId } from "@/lib/supabase/server";
 import { requireStaff } from "@/lib/roleGuard";
 import { getCourseDetail, getStaffForTeacherSelect } from "@/app/actions/courses";
 import { CourseRoster } from "@/components/courses/CourseRoster";
+import { GradingSettingsEditor } from "@/components/gradebook/GradingSettingsEditor";
 
 export const metadata: Metadata = { title: "Course" };
 
@@ -103,15 +104,15 @@ export default async function CourseDetailPage({
         staff={staff}
       />
 
-      {/* Grading settings summary */}
-      {gradeSettings && (
-        <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
-          <h2 className="font-medium text-sc-navy mb-2">Grading Settings</h2>
-          <p className="text-label-sm text-sc-gray capitalize">
-            Method: {gradeSettings.grading_method.replace("_", " ")}
-          </p>
-        </div>
-      )}
+      {/* Grading settings */}
+      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
+        <h2 className="font-medium text-sc-navy mb-4">Grading Settings</h2>
+        <GradingSettingsEditor
+          courseSectionId={section.id}
+          initialMethod={(gradeSettings?.grading_method as "points" | "weighted") ?? "points"}
+          initialCategoryWeights={(gradeSettings?.weight_config as Record<string, number> | null) ?? null}
+        />
+      </div>
     </div>
   );
 }

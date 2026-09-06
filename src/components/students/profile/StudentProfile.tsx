@@ -25,6 +25,7 @@ import { FamilyTab }          from "./tabs/FamilyTab";
 import { GoalsTab }                 from "./tabs/GoalsTab";
 import { SupportTab }               from "./tabs/SupportTab";
 import { AcademicsTab }             from "./tabs/AcademicsTab";
+import { GradesTab }                from "./tabs/GradesTab";
 import { AssessmentsTab }           from "./tabs/AssessmentsTab";
 import { StudentSuccessPlanTab }    from "./tabs/StudentSuccessPlanTab";
 import { ProgressTab }              from "./tabs/ProgressTab";
@@ -33,7 +34,7 @@ import { FinanceTab }              from "./tabs/FinanceTab";
 // ── Role visibility ────────────────────────────────────────────
 // Tabs hidden from volunteers — they can only see safety-relevant info.
 const VOLUNTEER_HIDDEN_TABS: TabId[] = [
-  "notes", "incidents", "documents", "support", "academics",
+  "notes", "incidents", "documents", "support", "academics", "grades",
   "assessments", "progress", "leadership", "entrepreneurship", "family", "plan",
 ];
 
@@ -56,7 +57,8 @@ const ROW1_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
   { id: "overview",     label: "Snapshot",    Icon: LayoutDashboard },
   { id: "goals",        label: "Goals",       Icon: Target          },
   { id: "support",      label: "Support",     Icon: ShieldAlert     },
-  { id: "academics",    label: "Academics",   Icon: BookOpen        },
+  { id: "grades",       label: "Grades",      Icon: BarChart2       },
+  { id: "academics",   label: "Academics",   Icon: BookOpen        },
   { id: "assessments",  label: "Assessments", Icon: BarChart2       },
   { id: "medical",      label: "Medical",     Icon: HeartPulse      },
   { id: "attendance",   label: "Attendance",  Icon: CalendarCheck   },
@@ -299,6 +301,7 @@ export function StudentProfile({
         {activeTab === "overview"         && <OverviewTab         studentId={data.id} data={data} />}
         {activeTab === "goals"            && <GoalsTab            studentId={data.id} />}
         {activeTab === "support"          && <SupportTab          studentId={data.id} />}
+        {activeTab === "grades"           && <GradesTab           studentId={data.id} isAdmin={isAdmin} isStaff={true} />}
         {activeTab === "academics"        && <AcademicsTab        studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "assessments"      && <AssessmentsTab      studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} isAdmin={isAdmin} role={role} />}

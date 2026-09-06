@@ -6,7 +6,7 @@ import { setPortalView } from "@/app/actions/org";
 import { signOutAction } from "@/app/actions/auth";
 import { PortalMessagesLink } from "@/components/messages/PortalMessagesLink";
 import { getParentUnreadForWidget } from "@/app/actions/messages";
-import { Home, User, GraduationCap, Calendar, BookOpen, LayoutDashboard, LogOut } from "lucide-react";
+import { Home, User, GraduationCap, Calendar, BookOpen, LayoutDashboard, LogOut, BarChart2 } from "lucide-react";
 import { cookies } from "next/headers";
 
 /**
@@ -84,6 +84,14 @@ export default async function PortalLayout({ children }: { children: React.React
             >
               <Calendar className="size-4" />
               <span className="hidden sm:block">Attendance</span>
+            </Link>
+            <Link
+              href="/portal/grades"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              title="Grades"
+            >
+              <BarChart2 className="size-4" />
+              <span className="hidden sm:block">Grades</span>
             </Link>
             <Link
               href="/portal/academics"

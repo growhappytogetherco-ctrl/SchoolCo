@@ -40,6 +40,7 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
   const [subject, setSubject] = useState("");
   const [courseName, setCourseName]     = useState("");
   const [staffRosterId, setStaffRosterId] = useState<string | null>(null);
+  const [gradingMethod, setGradingMethod] = useState<"points" | "weighted">("points");
 
   // Step 2 — student selection
   const [step, setStep] = useState<1 | 2>(1);
@@ -132,6 +133,7 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
         teacherName,
         schoolYearId,
         enrollmentIds,
+        gradingMethod,
       });
 
       if (!result.success) {
@@ -230,6 +232,36 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-label-sm font-medium text-sc-navy mb-1.5">Grading Method</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setGradingMethod("points")}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  gradingMethod === "points"
+                    ? "border-sc-teal bg-sc-teal/5 text-sc-navy"
+                    : "border-sc-gray-200 text-sc-gray hover:border-sc-gray-300"
+                }`}
+              >
+                <p className="font-medium text-label-md">Points-Based</p>
+                <p className="text-label-sm text-sc-gray mt-0.5">Total earned ÷ total possible</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setGradingMethod("weighted")}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  gradingMethod === "weighted"
+                    ? "border-sc-teal bg-sc-teal/5 text-sc-navy"
+                    : "border-sc-gray-200 text-sc-gray hover:border-sc-gray-300"
+                }`}
+              >
+                <p className="font-medium text-label-md">Weighted</p>
+                <p className="text-label-sm text-sc-gray mt-0.5">Category percentages</p>
+              </button>
+            </div>
           </div>
 
           <p className="text-label-sm text-sc-gray-400">

@@ -178,18 +178,19 @@ export async function getCourseDetail(sectionId: string): Promise<ActionResult<{
 
     roster.sort((a, b) => a.student_name.localeCompare(b.student_name));
 
-    const { data: gs } = await supabase
-      .from("course_grade_settings")
-      .select("grading_method, grade_scale_id, weight_config")
-      .eq("course_section_id", sectionId)
-      .single();
+    // Grading settings live on course_sections directly (added in migration 00066)
+    const gradeSettings: CourseGradeSettingsData = {
+      grading_method: (section as any).grading_method ?? "points",
+      grade_scale_id: null,
+      weight_config: (section as any).category_weights ?? null,
+    };
 
     return {
       success: true,
       data: {
         section,
         roster,
-        gradeSettings: gs ?? null,
+        gradeSettings,
       },
     };
   } catch (err) {
@@ -325,6 +326,7 @@ export async function createCourseSection(payload: {
   teacherName: string | null;
   schoolYearId: string;
   enrollmentIds: string[];   // curriculum_enrollment ids to link
+  gradingMethod?: "points" | "weighted";
 }): Promise<ActionResult<{ sectionId: string }>> {
   try {
     const orgId = await getActiveOrgId();
@@ -352,6 +354,7 @@ export async function createCourseSection(payload: {
         staff_roster_id: payload.staffRosterId,
         teacher_id:      resolvedTeacherId,
         teacher_name:    payload.teacherName,
+        grading_method:  payload.gradingMethod ?? "points",
         status: "active",
       })
       .select("id")
