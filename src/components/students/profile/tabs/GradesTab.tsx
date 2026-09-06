@@ -54,6 +54,9 @@ function fmtDate(iso: string | null): string {
 }
 
 function GradeChip({ grade }: { grade: QuarterGradeResult | WeightedGradeResult }) {
+  if (grade.state === "setup_required") {
+    return <span className="text-label-sm text-sc-rose italic">Grading setup in progress</span>;
+  }
   if (grade.state === "no_grade") {
     return <span className="text-label-sm text-sc-gray italic">No grades yet</span>;
   }

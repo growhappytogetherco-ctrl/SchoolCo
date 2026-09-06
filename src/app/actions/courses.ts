@@ -327,6 +327,7 @@ export async function createCourseSection(payload: {
   schoolYearId: string;
   enrollmentIds: string[];   // curriculum_enrollment ids to link
   gradingMethod?: "points" | "weighted";
+  categoryWeights?: Record<string, number> | null;
 }): Promise<ActionResult<{ sectionId: string }>> {
   try {
     const orgId = await getActiveOrgId();
@@ -344,6 +345,16 @@ export async function createCourseSection(payload: {
       resolvedTeacherId = (sr as any)?.profile_id ?? null;
     }
 
+    const method = payload.gradingMethod ?? "points";
+    if (method === "weighted") {
+      const weights = payload.categoryWeights;
+      const values = weights ? Object.values(weights).filter((v) => typeof v === "number" && v >= 0) : [];
+      const total = values.reduce((s, v) => s + (v as number), 0);
+      if (values.length === 0 || Math.abs(total - 100) >= 0.001) {
+        return { success: false, error: `Category weights must total 100%. Current total: ${total}%.` };
+      }
+    }
+
     const { data: section, error: cErr } = await supabase
       .from("course_sections")
       .insert({
@@ -354,7 +365,8 @@ export async function createCourseSection(payload: {
         staff_roster_id: payload.staffRosterId,
         teacher_id:      resolvedTeacherId,
         teacher_name:    payload.teacherName,
-        grading_method:  payload.gradingMethod ?? "points",
+        grading_method:  method,
+        category_weights: method === "weighted" ? (payload.categoryWeights ?? null) : null,
         status: "active",
       })
       .select("id")

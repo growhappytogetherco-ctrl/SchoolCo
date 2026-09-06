@@ -2,9 +2,29 @@
 
 import { useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Check, Search, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Search, Users, Plus, Trash2 } from "lucide-react";
 import type { StaffOption, StudentForSetup } from "@/app/actions/courses";
 import { createCourseSection, getStudentsForCourseSetup } from "@/app/actions/courses";
+import type { AssignmentCategory } from "@/lib/grading/types";
+
+const CATEGORY_OPTIONS: { value: AssignmentCategory; label: string }[] = [
+  { value: "homework",      label: "Homework" },
+  { value: "classwork",     label: "Classwork" },
+  { value: "quiz",          label: "Quiz" },
+  { value: "test",          label: "Test" },
+  { value: "project",       label: "Project" },
+  { value: "participation", label: "Participation" },
+  { value: "lab",           label: "Lab" },
+  { value: "other",         label: "Other" },
+];
+
+const DEFAULT_WEIGHTED_ROWS: Array<{ category: AssignmentCategory; weight: number }> = [
+  { category: "homework",  weight: 20 },
+  { category: "classwork", weight: 20 },
+  { category: "quiz",      weight: 20 },
+  { category: "test",      weight: 30 },
+  { category: "project",   weight: 10 },
+];
 
 // Application-level subject list — the source of truth for valid subjects.
 // No DB constraint enforces this enum, so new subjects can be added here without migrations.
@@ -41,6 +61,9 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
   const [courseName, setCourseName]     = useState("");
   const [staffRosterId, setStaffRosterId] = useState<string | null>(null);
   const [gradingMethod, setGradingMethod] = useState<"points" | "weighted">("points");
+  const [weightedRows, setWeightedRows] = useState<Array<{ category: AssignmentCategory; weight: number }>>(
+    DEFAULT_WEIGHTED_ROWS
+  );
 
   // Step 2 — student selection
   const [step, setStep] = useState<1 | 2>(1);
@@ -54,9 +77,37 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
 
   const teacherName = staff.find(s => s.id === staffRosterId)?.name ?? null;
 
+  const weightTotal = weightedRows.reduce((s, r) => s + (r.weight || 0), 0);
+  const weightError = gradingMethod === "weighted" && Math.abs(weightTotal - 100) >= 0.001
+    ? `Category weights must total 100%. Current total: ${weightTotal}%.`
+    : "";
+
+  function addWeightedRow() {
+    const used = new Set(weightedRows.map((r) => r.category));
+    const next = CATEGORY_OPTIONS.find((o) => !used.has(o.value));
+    if (!next) return;
+    setWeightedRows((prev) => [...prev, { category: next.value, weight: 0 }]);
+  }
+
+  function updateWeightedRow(idx: number, field: "category" | "weight", value: string | number) {
+    setWeightedRows((prev) =>
+      prev.map((r, i) =>
+        i === idx ? { ...r, [field]: field === "weight" ? Number(value) : value } : r
+      )
+    );
+  }
+
+  function removeWeightedRow(idx: number) {
+    setWeightedRows((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   async function goToStep2() {
     if (!subject || !courseName.trim()) {
       setError("Subject and course name are required.");
+      return;
+    }
+    if (weightError) {
+      setError(weightError);
       return;
     }
     setError("");
@@ -126,6 +177,11 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
         s => selectedIds.has(s.student_id) && !s.enrollment_id
       );
 
+      const categoryWeights =
+        gradingMethod === "weighted"
+          ? Object.fromEntries(weightedRows.map((r) => [r.category, r.weight]))
+          : null;
+
       const result = await createCourseSection({
         subject,
         courseName,
@@ -134,6 +190,7 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
         schoolYearId,
         enrollmentIds,
         gradingMethod,
+        categoryWeights,
       });
 
       if (!result.success) {
@@ -264,6 +321,66 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
             </div>
           </div>
 
+          {/* Weighted category editor — shown inline when Weighted is selected */}
+          {gradingMethod === "weighted" && (
+            <div className="rounded-xl border border-sc-teal/30 bg-sc-teal/5 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-label-sm font-medium text-sc-navy">Category Weights</p>
+                <span className={`text-label-sm font-medium ${Math.abs(weightTotal - 100) < 0.001 ? "text-sc-teal-700" : "text-sc-rose"}`}>
+                  Total: {weightTotal}%
+                </span>
+              </div>
+              <div className="space-y-2">
+                {weightedRows.map((row, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <select
+                      value={row.category}
+                      onChange={(e) => updateWeightedRow(idx, "category", e.target.value)}
+                      className="flex-1 rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
+                    >
+                      {CATEGORY_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={row.weight}
+                        onChange={(e) => updateWeightedRow(idx, "weight", e.target.value)}
+                        className="w-16 rounded-lg border border-sc-gray-200 px-2 py-1.5 text-label-sm text-right focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
+                      />
+                      <span className="text-label-sm text-sc-gray">%</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeWeightedRow(idx)}
+                      className="text-sc-gray hover:text-sc-rose transition-colors"
+                      title="Remove"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {weightedRows.length < CATEGORY_OPTIONS.length && (
+                <button
+                  type="button"
+                  onClick={addWeightedRow}
+                  className="flex items-center gap-1.5 text-label-sm text-sc-teal hover:underline"
+                >
+                  <Plus className="size-3.5" /> Add category
+                </button>
+              )}
+              {weightError && (
+                <p className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">
+                  {weightError}
+                </p>
+              )}
+            </div>
+          )}
+
           <p className="text-label-sm text-sc-gray-400">
             School year: <span className="text-sc-navy">{schoolYearLabel}</span>
           </p>
@@ -271,7 +388,7 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
           <div className="flex justify-end pt-2">
             <button
               onClick={goToStep2}
-              disabled={loadingStudents}
+              disabled={loadingStudents || !!weightError}
               className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-5 py-2.5 text-white text-label-md font-medium hover:bg-sc-teal-700 disabled:opacity-50 transition-colors"
             >
               {loadingStudents ? "Loading…" : "Next: Add Students"}

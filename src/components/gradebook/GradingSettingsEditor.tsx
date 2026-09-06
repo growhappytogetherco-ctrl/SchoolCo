@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Settings, Plus, Trash2, X } from "lucide-react";
 import { updateCourseGradingSettings } from "@/app/actions/studentGrades";
 import type { CategoryWeights, AssignmentCategory } from "@/lib/grading/types";
+import { isWeightedConfigured } from "@/lib/grading/weightedConfig";
 
 const CATEGORY_OPTIONS: { value: AssignmentCategory; label: string }[] = [
   { value: "homework",      label: "Homework" },
@@ -114,7 +115,10 @@ export function GradingSettingsEditor({
     });
   }
 
-  const methodLabel = currentMethod === "weighted" ? "Weighted Categories" : "Points-Based";
+  const isSetupRequired = currentMethod === "weighted" && !isWeightedConfigured(currentMethod, currentWeights);
+  const methodLabel = currentMethod === "weighted"
+    ? (isSetupRequired ? "Weighted — Setup Required" : "Weighted Categories")
+    : "Points-Based";
 
   return (
     <>
@@ -122,7 +126,12 @@ export function GradingSettingsEditor({
       <div className="flex items-center justify-between">
         <div>
           <p className="text-label-sm text-sc-gray">Grading Method</p>
-          <p className="font-medium text-sc-navy">{methodLabel}</p>
+          <p className={`font-medium ${isSetupRequired ? "text-sc-rose" : "text-sc-navy"}`}>{methodLabel}</p>
+          {isSetupRequired && (
+            <p className="text-label-sm text-sc-rose-700 mt-0.5">
+              Configure category weights before grades can be calculated.
+            </p>
+          )}
           {currentMethod === "weighted" && currentWeights && (
             <div className="mt-1 flex flex-wrap gap-1.5">
               {Object.entries(currentWeights).map(([cat, w]) => (
@@ -135,10 +144,14 @@ export function GradingSettingsEditor({
         </div>
         <button
           onClick={openEditor}
-          className="flex items-center gap-1.5 rounded-lg border border-sc-gray-200 px-3 py-1.5 text-label-sm text-sc-gray hover:bg-sc-gray-50 transition-colors"
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-label-sm transition-colors ${
+            isSetupRequired
+              ? "border-sc-rose-200 bg-sc-rose-50 text-sc-rose-700 hover:bg-sc-rose-100"
+              : "border-sc-gray-200 text-sc-gray hover:bg-sc-gray-50"
+          }`}
         >
           <Settings className="size-3.5" />
-          Edit Settings
+          {isSetupRequired ? "Configure Grading" : "Edit Settings"}
         </button>
       </div>
 

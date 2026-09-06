@@ -42,7 +42,7 @@ export interface GradeInput {
 }
 
 // Result of a single-period (quarter) grade calculation
-export type GradeState = 'graded' | 'no_grade' | 'partial';
+export type GradeState = 'graded' | 'no_grade' | 'partial' | 'setup_required';
 
 export interface QuarterGradeResult {
   state:              GradeState;

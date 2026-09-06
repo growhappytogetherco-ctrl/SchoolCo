@@ -51,6 +51,14 @@ function fmtDate(iso: string | null): string {
 }
 
 function GradeDisplay({ grade }: { grade: QuarterGradeResult | WeightedGradeResult }) {
+  if (grade.state === "setup_required") {
+    return (
+      <span className="text-label-sm text-sc-gray italic">
+        Current grade not available yet
+        <span className="block text-sc-gray-400 text-xs mt-0.5">Grading setup is being finalized.</span>
+      </span>
+    );
+  }
   if (grade.state === "no_grade") {
     return <span className="text-label-sm text-sc-gray italic">No grades yet</span>;
   }

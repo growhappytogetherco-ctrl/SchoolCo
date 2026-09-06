@@ -13,6 +13,7 @@ import {
   calculateWeightedGrade,
   calculateSemesterGrade,
 } from "@/lib/grading/calculator";
+import { isWeightedConfigured } from "@/lib/grading/weightedConfig";
 import type {
   GradeInput,
   GradeScaleLevel,
@@ -163,6 +164,18 @@ function buildGradeInputs(
   });
 }
 
+// A sentinel QuarterGradeResult for weighted courses awaiting configuration.
+// state='setup_required' signals callers to display a non-grade UI.
+function setupRequiredResult(): QuarterGradeResult {
+  return {
+    state: "setup_required",
+    earned: 0, possible: 0,
+    percentage: null, display_percentage: null, letter_grade: null,
+    count_graded: 0, count_missing: 0, count_excused: 0,
+    count_absent: 0, count_incomplete: 0, count_not_graded: 0,
+  };
+}
+
 // ── Compute quarter grade respecting grading method ───────────────────────────
 
 function computeQuarterGrade(
@@ -171,7 +184,10 @@ function computeQuarterGrade(
   categoryWeights: CategoryWeights | null,
   scale: GradeScaleLevel[]
 ): QuarterGradeResult | WeightedGradeResult {
-  if (gradingMethod === "weighted" && categoryWeights) {
+  if (gradingMethod === "weighted") {
+    if (!isWeightedConfigured(gradingMethod, categoryWeights)) {
+      return setupRequiredResult();
+    }
     return calculateWeightedGrade(inputs, categoryWeights, scale);
   }
   return calculatePointsGrade(inputs, scale);
@@ -539,6 +555,12 @@ export async function updateCourseGradingSettings(
     const staffRoles = ["teacher", "staff", "registrar", "admin", "full_admin", "platform_admin"];
     if (!member || !staffRoles.includes((member as any).role)) {
       return { success: false, error: "Insufficient permissions" };
+    }
+
+    if (method === "weighted") {
+      if (!isWeightedConfigured(method, categoryWeights)) {
+        return { success: false, error: "Category weights must total 100% with at least one category." };
+      }
     }
 
     const { error } = await supabase
