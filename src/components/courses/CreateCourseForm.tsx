@@ -6,17 +6,24 @@ import { ChevronLeft, ChevronRight, Check, Search, Users } from "lucide-react";
 import type { StaffOption, StudentForSetup } from "@/app/actions/courses";
 import { createCourseSection, getStudentsForCourseSetup } from "@/app/actions/courses";
 
+// Application-level subject list — the source of truth for valid subjects.
+// No DB constraint enforces this enum, so new subjects can be added here without migrations.
 const SUBJECTS = [
-  { value: "bible",            label: "Bible" },
-  { value: "ela",              label: "ELA (English Language Arts)" },
-  { value: "entrepreneurship", label: "Entrepreneurship" },
-  { value: "geography",        label: "Geography" },
-  { value: "history",          label: "History" },
-  { value: "leadership",       label: "Leadership" },
-  { value: "math",             label: "Math" },
-  { value: "pe",               label: "PE (Physical Education)" },
-  { value: "science",          label: "Science" },
-  { value: "other",            label: "Other" },
+  { value: "art",               label: "Art" },
+  { value: "bible",             label: "Bible" },
+  { value: "ela",               label: "ELA (English Language Arts)" },
+  { value: "elective",          label: "Elective" },
+  { value: "entrepreneurship",  label: "Entrepreneurship" },
+  { value: "geography",         label: "Geography" },
+  { value: "history",           label: "History" },
+  { value: "leadership",        label: "Leadership" },
+  { value: "math",              label: "Math" },
+  { value: "music",             label: "Music" },
+  { value: "pe",                label: "PE (Physical Education)" },
+  { value: "science",           label: "Science" },
+  { value: "spanish",           label: "Spanish" },
+  { value: "stem",              label: "STEM" },
+  { value: "other",             label: "Other" },
 ];
 
 interface Props {

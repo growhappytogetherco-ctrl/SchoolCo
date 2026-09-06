@@ -9,15 +9,21 @@ import { getCourseSectionsWithEnrollmentCounts } from "@/app/actions/courses";
 export const metadata: Metadata = { title: "Courses" };
 
 const SUBJECT_LABELS: Record<string, string> = {
+  art:              "Art",
   bible:            "Bible",
   ela:              "ELA",
+  elective:         "Elective",
   entrepreneurship: "Entrepreneurship",
   geography:        "Geography",
   history:          "History",
   leadership:       "Leadership",
   math:             "Math",
+  music:            "Music",
   pe:               "PE",
   science:          "Science",
+  spanish:          "Spanish",
+  stem:             "STEM",
+  other:            "Other",
 };
 
 function subjectLabel(subject: string) {

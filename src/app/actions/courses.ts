@@ -357,20 +357,38 @@ export async function createCourseSection(payload: {
       .select("id")
       .single();
 
-    if (cErr || !section) return { success: false, error: cErr?.message ?? "Failed to create course" };
+    if (cErr || !section) {
+      // Friendly message — never expose raw Supabase constraint errors to the UI
+      const msg = cErr?.message ?? "";
+      if (msg.includes("unique") || msg.includes("duplicate")) {
+        return { success: false, error: "A course with this name and subject already exists for this school year." };
+      }
+      console.error("[createCourseSection] insert error:", msg);
+      return { success: false, error: "We couldn't create this course. Please check the course details and try again." };
+    }
 
+    // Link existing curriculum_enrollments to this section.
+    // If linking fails, clean up the newly created section to avoid orphaned data.
     if (payload.enrollmentIds.length > 0) {
-      await supabase
+      const { error: linkErr } = await supabase
         .from("curriculum_enrollments")
         .update({ course_section_id: section.id })
         .in("id", payload.enrollmentIds)
         .eq("organization_id", orgId);
+
+      if (linkErr) {
+        // Roll back: delete the section we just created
+        await supabase.from("course_sections").delete().eq("id", section.id);
+        console.error("[createCourseSection] enrollment link error:", linkErr.message);
+        return { success: false, error: "Course was created but student enrollment failed. Please try again." };
+      }
     }
 
     revalidatePath("/dashboard/courses");
     return { success: true, data: { sectionId: section.id } };
   } catch (err) {
-    return { success: false, error: String(err) };
+    console.error("[createCourseSection] unexpected error:", String(err));
+    return { success: false, error: "We couldn't create this course. Please try again." };
   }
 }
 
@@ -451,7 +469,10 @@ export async function addStudentToCourse(payload: {
         })
         .select("id")
         .single();
-      if (eErr || !newE) return { success: false, error: eErr?.message ?? "Failed to create enrollment" };
+      if (eErr || !newE) {
+        console.error("[addStudentToCourse] insert error:", eErr?.message);
+        return { success: false, error: "Failed to add student to course. Please try again from the course roster." };
+      }
       enrollmentId = newE.id;
     } else {
       const { error } = await supabase

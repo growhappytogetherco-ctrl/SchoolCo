@@ -10,15 +10,21 @@ import { CourseRoster } from "@/components/courses/CourseRoster";
 export const metadata: Metadata = { title: "Course" };
 
 const SUBJECT_LABELS: Record<string, string> = {
+  art:              "Art",
   bible:            "Bible",
   ela:              "ELA",
+  elective:         "Elective",
   entrepreneurship: "Entrepreneurship",
   geography:        "Geography",
   history:          "History",
   leadership:       "Leadership",
   math:             "Math",
+  music:            "Music",
   pe:               "PE",
   science:          "Science",
+  spanish:          "Spanish",
+  stem:             "STEM",
+  other:            "Other",
 };
 
 export default async function CourseDetailPage({
