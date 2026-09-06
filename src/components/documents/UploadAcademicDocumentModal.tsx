@@ -6,30 +6,23 @@ import {
   uploadAcademicDocumentFile,
   uploadAcademicDocumentLink,
   checkAcademicDocumentDuplicate,
+} from "@/app/actions/documents";
+import {
   ACADEMIC_RECORD_TYPE_LABELS,
   ACADEMIC_REPORTING_PERIOD_LABELS,
+  ACADEMIC_RECORD_TYPES,
+  ACADEMIC_REPORTING_PERIODS,
+  ACADEMIC_SOURCE_OPTIONS,
   type AcademicRecordType,
   type AcademicReportingPeriod,
   type AcademicRecordSource,
-} from "@/app/actions/documents";
+} from "@/lib/documents/types";
 
 interface Props {
-  studentId:   string;
-  onClose:     () => void;
-  onSuccess:   (keepOpen: boolean) => void;
+  studentId: string;
+  onClose:   () => void;
+  onSuccess: (keepOpen: boolean) => void;
 }
-
-const RECORD_TYPES: AcademicRecordType[] = [
-  "progress_report", "report_card", "transcript",
-  "academic_summary", "assessment_report", "other_academic",
-];
-
-const REPORTING_PERIODS: AcademicReportingPeriod[] = [
-  "q1", "q2", "q3", "q4",
-  "semester_1", "semester_2",
-  "full_year", "mid_year", "beginning_of_year", "end_of_year",
-  "other",
-];
 
 const ACCEPTED_MIME_TYPES = [
   "application/pdf",
@@ -38,25 +31,22 @@ const ACCEPTED_MIME_TYPES = [
   "image/jpeg", "image/png", "image/heic", "image/heif",
 ].join(",");
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB — matches work sample limit
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
-const SOURCE_OPTIONS: { value: AcademicRecordSource; label: string }[] = [
-  { value: "legacy_upload",      label: "Legacy Uploaded Record" },
-  { value: "external_school",    label: "External School Record" },
-  { value: "schoolco_generated", label: "SchoolCo Generated Report" },
-];
+const CUSTOM_YEAR = "__custom__";
 
 function schoolYearOptions(): string[] {
   const now = new Date().getFullYear();
   const years: string[] = [];
-  for (let y = now + 2; y >= now - 6; y--) {
+  // +2 future years down to 50 years back
+  for (let y = now + 2; y >= now - 50; y--) {
     years.push(`${y - 1}–${y}`);
   }
   return years;
 }
 
 const SCHOOL_YEARS = schoolYearOptions();
-// Default: one year ago (likely the most common for historical uploads)
+// Default to current school year (index 2 = one year back is "most recently completed")
 const DEFAULT_YEAR = SCHOOL_YEARS[2] ?? "";
 
 export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: Props) {
@@ -69,27 +59,65 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
   const fileRef                     = useRef<HTMLInputElement>(null);
 
   // Form state
-  const [recordType, setRecordType] = useState<AcademicRecordType>("progress_report");
-  const [schoolYear, setSchoolYear] = useState(DEFAULT_YEAR);
-  const [period, setPeriod]         = useState<AcademicReportingPeriod | "">("");
-  const [title, setTitle]           = useState("");
-  const [recordDate, setRecordDate] = useState("");
-  const [source, setSource]         = useState<AcademicRecordSource>("legacy_upload");
+  const [recordType, setRecordType]   = useState<AcademicRecordType>("progress_report");
+  const [schoolYear, setSchoolYear]   = useState(DEFAULT_YEAR);
+  const [customYear, setCustomYear]   = useState("");
+  const [period, setPeriod]           = useState<AcademicReportingPeriod | "">("");
+  const [title, setTitle]             = useState("");
+  const [recordDate, setRecordDate]   = useState("");
+  // Default: external_school = "Previous School / Program" (most common for historical uploads)
+  const [source, setSource]           = useState<AcademicRecordSource>("external_school");
   const [parentVisible, setParentVisible] = useState(false);
   const [selectedFile, setSelectedFile]   = useState<File | null>(null);
-  const [driveUrl, setDriveUrl]     = useState("");
-  const [externalUrl, setExtUrl]    = useState("");
+  const [driveUrl, setDriveUrl]       = useState("");
+  const [externalUrl, setExtUrl]      = useState("");
 
+  const effectiveYear = schoolYear === CUSTOM_YEAR ? customYear.trim() : schoolYear;
   const reportingPeriod = period === "" ? null : (period as AcademicReportingPeriod);
 
-  function autoFillTitle() {
-    if (title) return;
+  function buildAutoTitle(
+    rt: AcademicRecordType,
+    p: AcademicReportingPeriod | "",
+    yr: string,
+  ): string {
     const parts = [
-      ACADEMIC_RECORD_TYPE_LABELS[recordType],
-      period ? ACADEMIC_REPORTING_PERIOD_LABELS[period as AcademicReportingPeriod] : "",
-      schoolYear,
+      ACADEMIC_RECORD_TYPE_LABELS[rt],
+      p ? ACADEMIC_REPORTING_PERIOD_LABELS[p as AcademicReportingPeriod] : "",
+      yr,
     ].filter(Boolean);
-    setTitle(parts.join(" — "));
+    return parts.join(" — ");
+  }
+
+  function maybeAutoFill(
+    rt: AcademicRecordType,
+    p: AcademicReportingPeriod | "",
+    yr: string,
+    currentTitle: string,
+  ) {
+    if (currentTitle) return; // user already typed something — don't overwrite
+    const generated = buildAutoTitle(rt, p, yr);
+    if (generated) setTitle(generated);
+  }
+
+  function handleRecordTypeChange(t: AcademicRecordType) {
+    setRecordType(t);
+    setDupChecked(false);
+    setTitle(""); // clear so maybeAutoFill can set it
+    // Immediately auto-fill with new type
+    const generated = buildAutoTitle(t, period, effectiveYear);
+    if (generated) setTitle(generated);
+  }
+
+  function handlePeriodChange(p: AcademicReportingPeriod | "") {
+    setPeriod(p);
+    setDupChecked(false);
+    maybeAutoFill(recordType, p, effectiveYear, "");
+  }
+
+  function handleYearChange(y: string) {
+    setSchoolYear(y);
+    const yr = y === CUSTOM_YEAR ? customYear.trim() : y;
+    maybeAutoFill(recordType, period, yr, title);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -97,18 +125,17 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
     setSelectedFile(f);
     setDupWarning(null);
     setDupChecked(false);
-    if (f && !title) {
-      // Don't auto-fill from filename — use metadata instead
-      autoFillTitle();
-    }
+    if (f) maybeAutoFill(recordType, period, effectiveYear, title);
   }
 
   async function runDupCheck() {
-    if (dupChecked || !reportingPeriod || !schoolYear) return;
+    if (dupChecked || !reportingPeriod || !effectiveYear) return;
     setDupChecked(true);
-    const result = await checkAcademicDocumentDuplicate(studentId, recordType, schoolYear, reportingPeriod);
+    const result = await checkAcademicDocumentDuplicate(studentId, recordType, effectiveYear, reportingPeriod);
     if (result.success && result.data.hasDuplicate) {
-      setDupWarning(`A similar ${ACADEMIC_RECORD_TYPE_LABELS[recordType]} already exists for this student: "${result.data.existingTitle}". You can still upload — both records will be kept.`);
+      setDupWarning(
+        `A similar ${ACADEMIC_RECORD_TYPE_LABELS[recordType]} already exists for this student: "${result.data.existingTitle}". You can still upload — both records will be kept.`,
+      );
     }
   }
 
@@ -130,8 +157,8 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
     setError(null);
     setSuccess(null);
 
-    if (!title.trim())      { setError("Title is required."); return; }
-    if (!schoolYear.trim()) { setError("School year is required."); return; }
+    if (!title.trim())          { setError("Title is required."); return; }
+    if (!effectiveYear.trim())  { setError("School year is required."); return; }
 
     if (mode === "file") {
       if (!selectedFile) { setError("Please choose a file to upload."); return; }
@@ -156,7 +183,7 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
             studentId,
             title:           title.trim(),
             recordType,
-            schoolYear:      schoolYear.trim(),
+            schoolYear:      effectiveYear,
             reportingPeriod,
             recordDate:      recordDate || null,
             recordSource:    source,
@@ -173,7 +200,7 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
             studentId,
             title:           title.trim(),
             recordType,
-            schoolYear:      schoolYear.trim(),
+            schoolYear:      effectiveYear,
             reportingPeriod,
             recordDate:      recordDate || null,
             recordSource:    source,
@@ -187,9 +214,7 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
         }
 
         onSuccess(uploadAnother);
-        if (uploadAnother) {
-          resetForNextUpload();
-        }
+        if (uploadAnother) resetForNextUpload();
       } catch (e) {
         setError(String(e));
       }
@@ -218,10 +243,10 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
             <label className="text-label-sm font-medium text-sc-navy">Record Type *</label>
             <select
               value={recordType}
-              onChange={(e) => { setRecordType(e.target.value as AcademicRecordType); setTitle(""); setDupChecked(false); }}
+              onChange={(e) => handleRecordTypeChange(e.target.value as AcademicRecordType)}
               className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
             >
-              {RECORD_TYPES.map((t) => (
+              {ACADEMIC_RECORD_TYPES.map((t) => (
                 <option key={t} value={t}>{ACADEMIC_RECORD_TYPE_LABELS[t]}</option>
               ))}
             </select>
@@ -233,13 +258,26 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
               <label className="text-label-sm font-medium text-sc-navy">School Year *</label>
               <select
                 value={schoolYear}
-                onChange={(e) => { setSchoolYear(e.target.value); setDupChecked(false); }}
+                onChange={(e) => handleYearChange(e.target.value)}
                 className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
               >
                 {SCHOOL_YEARS.map((y) => (
                   <option key={y} value={y}>{y}</option>
                 ))}
+                <option value={CUSTOM_YEAR}>Other / Custom…</option>
               </select>
+              {schoolYear === CUSTOM_YEAR && (
+                <input
+                  type="text"
+                  value={customYear}
+                  onChange={(e) => {
+                    setCustomYear(e.target.value);
+                    maybeAutoFill(recordType, period, e.target.value.trim(), title);
+                  }}
+                  placeholder="e.g. 1998–1999"
+                  className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
+                />
+              )}
             </div>
             <div className="space-y-1.5">
               <label className="text-label-sm font-medium text-sc-navy">
@@ -248,12 +286,12 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
               </label>
               <select
                 value={period}
-                onChange={(e) => { setPeriod(e.target.value as AcademicReportingPeriod | ""); setDupChecked(false); }}
+                onChange={(e) => handlePeriodChange(e.target.value as AcademicReportingPeriod | "")}
                 onBlur={runDupCheck}
                 className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
               >
                 <option value="">— None —</option>
-                {REPORTING_PERIODS.map((p) => (
+                {ACADEMIC_REPORTING_PERIODS.map((p) => (
                   <option key={p} value={p}>{ACADEMIC_REPORTING_PERIOD_LABELS[p]}</option>
                 ))}
               </select>
@@ -267,8 +305,8 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              onFocus={autoFillTitle}
-              placeholder="e.g. Progress Report — Q2 2025–2026"
+              onFocus={() => maybeAutoFill(recordType, period, effectiveYear, title)}
+              placeholder="e.g. Progress Report — Q2 — 2025–2026"
               className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
             />
           </div>
@@ -277,7 +315,7 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
           <div className="space-y-1.5">
             <label className="text-label-sm font-medium text-sc-navy">
               Record Date
-              <span className="ml-1 font-normal text-sc-gray text-xs">(optional)</span>
+              <span className="ml-1 font-normal text-sc-gray text-xs">(date on the document — optional)</span>
             </label>
             <input
               type="date"
@@ -285,6 +323,9 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
               onChange={(e) => setRecordDate(e.target.value)}
               className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
             />
+            <p className="text-xs text-sc-gray">
+              Leave blank if the document date is unknown. SchoolCo separately records when you uploaded it.
+            </p>
           </div>
 
           {/* ── Mode toggle ─────────────────────────────────────────── */}
@@ -376,7 +417,7 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
             </div>
           )}
 
-          {/* ── Source ───────────────────────────────────────────────── */}
+          {/* ── Record Source ─────────────────────────────────────────── */}
           <div className="space-y-1.5">
             <label className="text-label-sm font-medium text-sc-navy">Record Source</label>
             <select
@@ -384,7 +425,7 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
               onChange={(e) => setSource(e.target.value as AcademicRecordSource)}
               className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
             >
-              {SOURCE_OPTIONS.map((s) => (
+              {ACADEMIC_SOURCE_OPTIONS.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>

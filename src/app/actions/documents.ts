@@ -6,25 +6,22 @@ import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/types/actions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+// Types are imported from the shared module. Only type re-exports are allowed
+// here — "use server" files cannot re-export plain values.
 
-export type AcademicRecordType =
-  | "progress_report"
-  | "report_card"
-  | "transcript"
-  | "academic_summary"
-  | "assessment_report"
-  | "other_academic";
+import type {
+  AcademicRecordType,
+  AcademicReportingPeriod,
+  AcademicRecordSource,
+} from "@/lib/documents/types";
 
-export type AcademicReportingPeriod =
-  | "q1" | "q2" | "q3" | "q4"
-  | "semester_1" | "semester_2"
-  | "full_year" | "mid_year" | "beginning_of_year" | "end_of_year"
-  | "other";
+export type { AcademicRecordType, AcademicReportingPeriod, AcademicRecordSource };
 
-export type AcademicRecordSource =
-  | "legacy_upload"
-  | "schoolco_generated"
-  | "external_school";
+import {
+  ACADEMIC_RECORD_TYPE_LABELS,
+  ACADEMIC_REPORTING_PERIOD_LABELS,
+  ACADEMIC_RECORD_SOURCE_LABELS,
+} from "@/lib/documents/types";
 
 // Payload for link-only records (legacy external link path)
 export interface AcademicDocumentLinkPayload {
@@ -75,36 +72,7 @@ export interface AcademicHistoryItem {
   createdAt:       string;
 }
 
-// ── Label maps ────────────────────────────────────────────────────────────────
-
-export const ACADEMIC_RECORD_TYPE_LABELS: Record<AcademicRecordType, string> = {
-  progress_report:   "Progress Report",
-  report_card:       "Report Card",
-  transcript:        "Transcript",
-  academic_summary:  "Academic Summary",
-  assessment_report: "Assessment Report",
-  other_academic:    "Other Academic Record",
-};
-
-export const ACADEMIC_REPORTING_PERIOD_LABELS: Record<AcademicReportingPeriod, string> = {
-  q1:               "Q1",
-  q2:               "Q2",
-  q3:               "Q3",
-  q4:               "Q4",
-  semester_1:       "Semester 1",
-  semester_2:       "Semester 2",
-  full_year:        "Full Year",
-  mid_year:         "Mid-Year",
-  beginning_of_year:"Beginning of Year",
-  end_of_year:      "End of Year",
-  other:            "Other",
-};
-
-export const ACADEMIC_RECORD_SOURCE_LABELS: Record<AcademicRecordSource, string> = {
-  legacy_upload:      "Uploaded Historical Record",
-  schoolco_generated: "SchoolCo Report",
-  external_school:    "External School Record",
-};
+// Label maps are exported from @/lib/documents/types above.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
