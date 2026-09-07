@@ -14,6 +14,7 @@ import {
 import type { QuarterGradeResult, WeightedGradeResult } from "@/lib/grading/types";
 import { ReportBuilder } from "@/components/reports/ReportBuilder";
 import { AcademicHistory } from "@/components/grades/AcademicHistory";
+import { AcademicAchievementRecord } from "@/components/grades/AcademicAchievementRecord";
 
 // ── Status display labels ────────────────────────────────────────────────────
 
@@ -401,6 +402,11 @@ export function GradesTab({ studentId, isAdmin = false, isStaff = false }: Props
           allPeriods={profile.allPeriods}
           isAdmin={isAdmin}
         />
+      )}
+
+      {/* Academic Achievement Record — structured historical course records */}
+      {(isStaff || isAdmin) && (
+        <AcademicAchievementRecord studentId={studentId} canManage={isAdmin || isStaff} />
       )}
 
       {/* Academic History — legacy docs + issued reports */}
