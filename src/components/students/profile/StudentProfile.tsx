@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudentAlert } from "@/lib/student-alert-constants";
+import { isStaffRole } from "@/lib/constants";
 import type { StaffFollowUpSummary } from "@/app/actions/studentAlerts";
 import type { StudentProfileData, TabId } from "./types";
 import { StudentProfileHeader } from "./StudentProfileHeader";
@@ -152,8 +153,9 @@ export function StudentProfile({
   const hasCriticalFlags = alertBannerFlags.some((f) => f.priority === "critical");
   const hasHighFlags = alertBannerFlags.some((f) => f.priority === "high");
   const hasPickupAlerts = pickupAlerts.length > 0;
-  const isAdmin      = ["admin", "full_admin", "platform_admin", "registrar"].includes(role);
-  const isFullAdmin  = ["full_admin", "platform_admin"].includes(role);
+  const isAdmin                  = ["admin", "full_admin", "platform_admin", "registrar"].includes(role);
+  const isFullAdmin              = ["full_admin", "platform_admin"].includes(role);
+  const canManageAcademicRecords = isStaffRole(role);
 
   function TabRow({ tabs }: { tabs: typeof ROW1_TABS }) {
     const visible = tabs.filter((t) => !hiddenTabs.includes(t.id));
@@ -301,7 +303,7 @@ export function StudentProfile({
         {activeTab === "overview"         && <OverviewTab         studentId={data.id} data={data} />}
         {activeTab === "goals"            && <GoalsTab            studentId={data.id} />}
         {activeTab === "support"          && <SupportTab          studentId={data.id} />}
-        {activeTab === "grades"           && <GradesTab           studentId={data.id} isAdmin={isAdmin} isStaff={true} />}
+        {activeTab === "grades"           && <GradesTab           studentId={data.id} isAdmin={canManageAcademicRecords} isStaff={true} />}
         {activeTab === "academics"        && <AcademicsTab        studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "assessments"      && <AssessmentsTab      studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} isAdmin={isAdmin} role={role} />}
@@ -310,7 +312,7 @@ export function StudentProfile({
         {activeTab === "plan"             && <StudentSuccessPlanTab studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "progress"         && <ProgressTab           studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} studentName={data.preferred_name ? `${data.preferred_name} ${data.last_name}` : `${data.first_name} ${data.last_name}`} isAdmin={isAdmin} />}
-        {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} />}
+        {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} canManageAcademicRecords={canManageAcademicRecords} />}
         {activeTab === "leadership"       && <LeadershipTab       studentId={data.id} />}
         {activeTab === "entrepreneurship" && <EntrepreneurshipTab studentId={data.id} />}
         {activeTab === "family"           && <FamilyTab           studentId={data.id} role={role} isAdmin={isAdmin} />}

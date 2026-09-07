@@ -153,7 +153,7 @@ export async function getStudentDocumentsData(studentId: string) {
   const supabase = await createClient();
   const { data } = await supabase
     .from("student_documents")
-    .select("id, title, document_type, storage_path, google_drive_id, google_drive_url, external_url, staff_only, shared_with_family, version, expires_at, uploaded_by, created_at")
+    .select("id, title, document_type, storage_path, google_drive_id, google_drive_url, external_url, staff_only, shared_with_family, version, expires_at, uploaded_by, created_at, academic_record_type, academic_school_year, academic_reporting_period, academic_record_date, academic_record_source, visibility")
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
     .order("created_at", { ascending: false });

@@ -1,26 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   FileText, ExternalLink, Download, Lock, Plus,
-  Star, Eye, EyeOff, BookOpen, Image, Video, Music, Trash2, Loader2,
+  Star, Eye, EyeOff, BookOpen, Trash2, Loader2,
+  MoreHorizontal, Pencil, AlertTriangle,
 } from "lucide-react";
 import { getStudentDocumentsData } from "@/app/actions/profileData";
 import { getWorkSamples, deleteWorkSample, getDriveStatus } from "@/app/actions/drive";
+import { deleteAcademicDocument } from "@/app/actions/documents";
 import { DriveFolderCard } from "@/components/students/profile/drive/DriveFolderCard";
 import { UploadWorkSampleModal } from "@/components/students/profile/drive/UploadWorkSampleModal";
 import { UploadAcademicDocumentModal } from "@/components/documents/UploadAcademicDocumentModal";
+import { EditAcademicDocumentModal } from "@/components/documents/EditAcademicDocumentModal";
 import type { WorkSample } from "@/lib/drive/types";
 import { FILE_TYPE_ICONS } from "@/lib/drive/types";
+import {
+  ACADEMIC_RECORD_TYPE_LABELS,
+  ACADEMIC_REPORTING_PERIOD_LABELS,
+  ACADEMIC_SOURCE_OPTIONS,
+  type AcademicRecordType,
+  type AcademicReportingPeriod,
+  type AcademicRecordSource,
+} from "@/lib/documents/types";
+import type { AcademicHistoryItem } from "@/app/actions/documents";
 import { cn } from "@/lib/utils";
 
 interface Props {
   studentId: string;
   driveFolderStatus?: string | null;
   driveFolderUrl?: string | null;
+  canManageAcademicRecords?: boolean;
 }
 
-type DocData = Awaited<ReturnType<typeof getStudentDocumentsData>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DocData = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DocRow = any;
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   enrollment_form: "Enrollment", transcript: "Transcript", iep: "IEP",
@@ -52,7 +68,148 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: Props) {
+function docRowToHistoryItem(doc: DocRow): AcademicHistoryItem {
+  const recordType = (doc.academic_record_type as AcademicRecordType) ?? "other_academic";
+  const period     = (doc.academic_reporting_period as AcademicReportingPeriod) ?? null;
+  const source     = (doc.academic_record_source as AcademicRecordSource) ?? "external_school";
+  return {
+    id:              doc.id,
+    title:           doc.title,
+    recordType,
+    recordTypeLabel: ACADEMIC_RECORD_TYPE_LABELS[recordType] ?? recordType,
+    schoolYear:      doc.academic_school_year ?? "",
+    reportingPeriod: period,
+    periodLabel:     period ? (ACADEMIC_REPORTING_PERIOD_LABELS[period] ?? null) : null,
+    recordDate:      doc.academic_record_date ?? null,
+    recordSource:    source,
+    sourceLabel:     ACADEMIC_SOURCE_OPTIONS.find(o => o.value === source)?.label ?? source,
+    parentVisible:   doc.shared_with_family ?? false,
+    googleDriveUrl:  doc.google_drive_url ?? null,
+    googleDriveId:   doc.google_drive_id ?? null,
+    externalUrl:     doc.external_url ?? null,
+    createdAt:       doc.created_at,
+  };
+}
+
+// ── ⋯ action menu for academic record rows ────────────────────────────────────
+function AcademicDocMenu({
+  doc,
+  onEdit,
+  onDelete,
+}: {
+  doc: DocRow;
+  onEdit: (item: AcademicHistoryItem) => void;
+  onDelete: (doc: DocRow) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-gray-100 hover:text-sc-navy transition-colors"
+        aria-label="Actions"
+      >
+        <MoreHorizontal className="size-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 z-30 min-w-[140px] rounded-xl border border-sc-gray-100 bg-white shadow-lg py-1">
+          {(doc.google_drive_url || doc.external_url) && (
+            <a
+              href={doc.google_drive_url ?? doc.external_url ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50"
+            >
+              <ExternalLink className="size-3.5" /> View File
+            </a>
+          )}
+          <button
+            onClick={() => { setOpen(false); onEdit(docRowToHistoryItem(doc)); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50"
+          >
+            <Pencil className="size-3.5" /> Edit
+          </button>
+          <button
+            onClick={() => { setOpen(false); onDelete(doc); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-label-sm text-sc-rose hover:bg-sc-rose-50"
+          >
+            <Trash2 className="size-3.5" /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Delete confirmation modal ─────────────────────────────────────────────────
+function DeleteConfirmModal({
+  doc,
+  onCancel,
+  onConfirm,
+  isPending,
+  error,
+}: {
+  doc: DocRow;
+  onCancel: () => void;
+  onConfirm: () => void;
+  isPending: boolean;
+  error: string | null;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sc-rose-50">
+            <AlertTriangle className="size-5 text-sc-rose" />
+          </div>
+          <div>
+            <p className="font-serif text-heading-2 text-sc-navy">Delete Academic Record?</p>
+            <p className="text-label-sm text-sc-gray mt-1">
+              &ldquo;{doc.title}&rdquo; will be permanently deleted.
+              {doc.google_drive_id && " The file will also be removed from Google Drive."}
+            </p>
+          </div>
+        </div>
+        {error && (
+          <div className="rounded-xl border border-sc-rose-200 bg-sc-rose-50 px-3 py-2 text-label-sm text-sc-rose">
+            {error}
+          </div>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            onClick={onCancel}
+            disabled={isPending}
+            className="rounded-lg border border-sc-gray-200 px-4 py-2 text-label-sm text-sc-gray hover:bg-sc-gray-50 disabled:opacity-40 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="rounded-lg bg-sc-rose px-4 py-2 text-label-sm text-white hover:bg-sc-rose-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+          >
+            {isPending ? <><Loader2 className="size-3.5 animate-spin" /> Deleting…</> : "Delete Permanently"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl, canManageAcademicRecords }: Props) {
   const [docs, setDocs]         = useState<DocData>(null);
   const [samples, setSamples]   = useState<WorkSample[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -64,6 +221,12 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [visFilter, setVisFilter]   = useState<"all" | "parent" | "yearbook">("all");
   const [showAcademicUpload, setShowAcademicUpload] = useState(false);
+
+  // Academic record edit/delete state
+  const [editingDoc, setEditingDoc]     = useState<AcademicHistoryItem | null>(null);
+  const [deletingDoc, setDeletingDoc]   = useState<DocRow | null>(null);
+  const [deleteError, setDeleteError]   = useState<string | null>(null);
+  const [deleteIsPending, startDelete]  = useTransition();
 
   useEffect(() => {
     Promise.all([
@@ -87,8 +250,48 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
 
   function handleUploadSuccess() {
     setShowUpload(false);
-    // Reload work samples
     getWorkSamples(studentId).then(setSamples);
+  }
+
+  function handleEditSuccess(updated: AcademicHistoryItem) {
+    setDocs((prev: DocData) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        documents: prev.documents.map((d: DocRow) =>
+          d.id === updated.id
+            ? {
+                ...d,
+                title:                    updated.title,
+                academic_record_type:     updated.recordType,
+                academic_school_year:     updated.schoolYear,
+                academic_reporting_period: updated.reportingPeriod ?? null,
+                academic_record_date:     updated.recordDate ?? null,
+                academic_record_source:   updated.recordSource,
+                shared_with_family:       updated.parentVisible,
+              }
+            : d
+        ),
+      };
+    });
+    setEditingDoc(null);
+  }
+
+  function handleDeleteConfirm() {
+    if (!deletingDoc) return;
+    setDeleteError(null);
+    startDelete(async () => {
+      const res = await deleteAcademicDocument(deletingDoc.id);
+      if (!res.success) {
+        setDeleteError(res.error ?? "Delete failed.");
+        return;
+      }
+      setDocs((prev: DocData) => {
+        if (!prev) return prev;
+        return { ...prev, documents: prev.documents.filter((d: DocRow) => d.id !== deletingDoc.id) };
+      });
+      setDeletingDoc(null);
+    });
   }
 
   const docList = docs?.documents ?? [];
@@ -150,7 +353,6 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
       {/* Work Samples section */}
       {activeSection === "samples" && (
         <div className="space-y-4">
-          {/* Visibility filters */}
           {samples.length > 0 && (
             <div className="flex gap-2">
               {([
@@ -192,7 +394,6 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
                     "rounded-2xl border bg-white shadow-card p-4 flex items-start gap-4",
                     sample.yearbook_highlight ? "border-sc-gold-300 ring-1 ring-sc-gold-200" : "border-sc-gray-100"
                   )}>
-                    {/* Thumbnail or type icon */}
                     {sample.thumbnail_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={sample.thumbnail_url} alt={sample.title}
@@ -206,31 +407,22 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-start gap-2">
                         <p className="text-label-md font-semibold text-sc-navy flex-1">{sample.title}</p>
-                        {sample.yearbook_highlight && (
-                          <Star className="size-4 text-sc-gold-500 shrink-0" />
-                        )}
+                        {sample.yearbook_highlight && <Star className="size-4 text-sc-gold-500 shrink-0" />}
                       </div>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-label-sm text-sc-gray">
                         {sample.subject && <span className="font-medium text-sc-navy">{sample.subject}</span>}
                         {sample.subject && <span>·</span>}
                         {sample.work_date && <span>{fmtDate(sample.work_date)}</span>}
                         {sample.quality_rating && (
-                          <>
-                            <span>·</span>
-                            <span className="text-sc-gold-600 font-medium">★ {sample.quality_rating}/5</span>
-                          </>
+                          <><span>·</span><span className="text-sc-gold-600 font-medium">★ {sample.quality_rating}/5</span></>
                         )}
                         {sample.uploader_name && (
-                          <>
-                            <span>·</span>
-                            <span>by {sample.uploader_name}</span>
-                          </>
+                          <><span>·</span><span>by {sample.uploader_name}</span></>
                         )}
                       </div>
                       {sample.description && (
                         <p className="text-label-sm text-sc-gray line-clamp-1">{sample.description}</p>
                       )}
-                      {/* Visibility badges */}
                       <div className="flex items-center gap-2">
                         <span className={cn("flex items-center gap-1 text-label-sm", visCfg.cls)}>
                           <VisCon className="size-3" /> {visCfg.label}
@@ -241,7 +433,6 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
                       </div>
                     </div>
 
-                    {/* Actions */}
                     <div className="flex items-center gap-1 shrink-0">
                       {(sample.google_drive_file_url ?? sample.external_url) && (
                         <a href={sample.google_drive_file_url ?? sample.external_url ?? "#"}
@@ -274,38 +465,60 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
           ) : (
             <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">
               <div className="divide-y divide-sc-gray-100">
-                {docList.map((doc) => (
-                  <div key={doc.id} className="flex items-center gap-4 px-5 py-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sc-teal-50 border border-sc-teal-100">
-                      <FileText className="size-5 text-sc-teal" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-label-md font-semibold text-sc-navy truncate">{doc.title}</p>
-                        {doc.staff_only && <Lock className="size-3.5 text-sc-gray shrink-0" />}
+                {docList.map((doc: DocRow) => {
+                  const isAcademic = doc.document_type === "academic_record";
+                  return (
+                    <div key={doc.id} className="flex items-center gap-4 px-5 py-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sc-teal-50 border border-sc-teal-100">
+                        <FileText className="size-5 text-sc-teal" />
                       </div>
-                      <div className="flex items-center gap-2 text-label-sm text-sc-gray mt-0.5">
-                        <span>{DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type}</span>
-                        <span>·</span>
-                        <span>{fmtDate(doc.created_at)}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-label-md font-semibold text-sc-navy truncate">{doc.title}</p>
+                          {doc.staff_only && <Lock className="size-3.5 text-sc-gray shrink-0" />}
+                        </div>
+                        <div className="flex items-center gap-2 text-label-sm text-sc-gray mt-0.5">
+                          <span>{DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type}</span>
+                          {isAcademic && doc.academic_school_year && (
+                            <><span>·</span><span>{doc.academic_school_year}</span></>
+                          )}
+                          <span>·</span>
+                          <span>{fmtDate(doc.created_at)}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Non-academic: show view/download links */}
+                        {!isAcademic && doc.google_drive_url && (
+                          <a href={doc.google_drive_url} target="_blank" rel="noopener noreferrer"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-teal-50 hover:text-sc-teal transition-colors">
+                            <ExternalLink className="size-4" />
+                          </a>
+                        )}
+                        {!isAcademic && doc.storage_path && (
+                          <a href={`/api/documents/${doc.id}/download`}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-teal-50 hover:text-sc-teal transition-colors">
+                            <Download className="size-4" />
+                          </a>
+                        )}
+                        {/* Academic record: show ⋯ menu for staff, or just view link for others */}
+                        {isAcademic && canManageAcademicRecords && (
+                          <AcademicDocMenu
+                            doc={doc}
+                            onEdit={(item) => setEditingDoc(item)}
+                            onDelete={(d) => { setDeleteError(null); setDeletingDoc(d); }}
+                          />
+                        )}
+                        {isAcademic && !canManageAcademicRecords && (doc.google_drive_url || doc.external_url) && (
+                          <a href={doc.google_drive_url ?? doc.external_url ?? "#"}
+                            target="_blank" rel="noopener noreferrer"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-teal-50 hover:text-sc-teal transition-colors">
+                            <ExternalLink className="size-4" />
+                          </a>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {doc.google_drive_url && (
-                        <a href={doc.google_drive_url} target="_blank" rel="noopener noreferrer"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-teal-50 hover:text-sc-teal transition-colors">
-                          <ExternalLink className="size-4" />
-                        </a>
-                      )}
-                      {doc.storage_path && (
-                        <a href={`/api/documents/${doc.id}/download`}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-teal-50 hover:text-sc-teal transition-colors">
-                          <Download className="size-4" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -327,9 +540,24 @@ export function DocumentsTab({ studentId, driveFolderStatus, driveFolderUrl }: P
           onClose={() => setShowAcademicUpload(false)}
           onSuccess={(keepOpen) => {
             if (!keepOpen) setShowAcademicUpload(false);
-            // Refresh document list
             getStudentDocumentsData(studentId).then((d) => setDocs(d));
           }}
+        />
+      )}
+      {editingDoc && (
+        <EditAcademicDocumentModal
+          doc={editingDoc}
+          onClose={() => setEditingDoc(null)}
+          onSuccess={handleEditSuccess}
+        />
+      )}
+      {deletingDoc && (
+        <DeleteConfirmModal
+          doc={deletingDoc}
+          onCancel={() => { setDeletingDoc(null); setDeleteError(null); }}
+          onConfirm={handleDeleteConfirm}
+          isPending={deleteIsPending}
+          error={deleteError}
         />
       )}
     </div>
