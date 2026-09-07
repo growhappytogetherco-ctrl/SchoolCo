@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import {
   FileText, ExternalLink, Download, Lock, Plus,
   Star, Eye, EyeOff, BookOpen, Trash2, Loader2,
@@ -13,6 +13,13 @@ import { DriveFolderCard } from "@/components/students/profile/drive/DriveFolder
 import { UploadWorkSampleModal } from "@/components/students/profile/drive/UploadWorkSampleModal";
 import { UploadAcademicDocumentModal } from "@/components/documents/UploadAcademicDocumentModal";
 import { EditAcademicDocumentModal } from "@/components/documents/EditAcademicDocumentModal";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { WorkSample } from "@/lib/drive/types";
 import { FILE_TYPE_ICONS } from "@/lib/drive/types";
 import {
@@ -91,7 +98,7 @@ function docRowToHistoryItem(doc: DocRow): AcademicHistoryItem {
   };
 }
 
-// ── ⋯ action menu for academic record rows ────────────────────────────────────
+// ── ⋯ action menu for academic record rows — uses Radix portal to escape overflow-hidden ──
 function AcademicDocMenu({
   doc,
   onEdit,
@@ -101,55 +108,45 @@ function AcademicDocMenu({
   onEdit: (item: AcademicHistoryItem) => void;
   onDelete: (doc: DocRow) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
   return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((p) => !p)}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-gray-100 hover:text-sc-navy transition-colors"
-        aria-label="Actions"
-      >
-        <MoreHorizontal className="size-4" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-9 z-30 min-w-[140px] rounded-xl border border-sc-gray-100 bg-white shadow-lg py-1">
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-sc-gray hover:bg-sc-gray-100 hover:text-sc-navy transition-colors"
+          aria-label="Actions"
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuPortal>
+        <DropdownMenuContent align="end" sideOffset={4} className="min-w-[172px] z-50">
           {(doc.google_drive_url || doc.external_url) && (
-            <a
-              href={doc.google_drive_url ?? doc.external_url ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50"
-            >
-              <ExternalLink className="size-3.5" /> View Document
-            </a>
+            <DropdownMenuItem asChild>
+              <a
+                href={doc.google_drive_url ?? doc.external_url ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <ExternalLink className="size-3.5" /> View Document
+              </a>
+            </DropdownMenuItem>
           )}
-          <button
-            onClick={() => { setOpen(false); onEdit(docRowToHistoryItem(doc)); }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50"
+          <DropdownMenuItem
+            onClick={() => onEdit(docRowToHistoryItem(doc))}
+            className="flex items-center gap-2 cursor-pointer"
           >
             <Pencil className="size-3.5" /> Edit Record Details
-          </button>
-          <button
-            onClick={() => { setOpen(false); onDelete(doc); }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-label-sm text-sc-rose hover:bg-sc-rose-50"
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onDelete(doc)}
+            className="flex items-center gap-2 cursor-pointer text-sc-rose focus:text-sc-rose focus:bg-sc-rose-50"
           >
             <Trash2 className="size-3.5" /> Delete from SchoolCo
-          </button>
-        </div>
-      )}
-    </div>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenuPortal>
+    </DropdownMenu>
   );
 }
 
