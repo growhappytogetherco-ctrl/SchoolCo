@@ -292,7 +292,7 @@ export async function sendStaffInvite(payload: {
     }
 
     // Send invite email via Supabase auth
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://schoolco.app";
+    const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://schoolco.app";
     const { error: inviteErr } = await adminClient.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${siteUrl}/auth/callback?next=/auth/set-password&invitation_id=${invitation.id}&org_id=${orgId}`,
       data: {
@@ -334,7 +334,7 @@ export async function resendStaffInvite(invitationId: string): Promise<ActionRes
 
     if (fetchErr || !inv) return { success: false, error: "Invitation not found or already accepted/revoked" };
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://schoolco.app";
+    const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://schoolco.app";
 
     const { error: inviteErr } = await adminClient.auth.admin.inviteUserByEmail((inv as any).email, {
       redirectTo: `${siteUrl}/auth/callback?next=/auth/set-password&invitation_id=${invitationId}&org_id=${orgId}`,

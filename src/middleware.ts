@@ -36,6 +36,7 @@ export async function middleware(request: NextRequest) {
     "/terms",
     "/auth/callback",
     "/auth/set-password",
+    "/auth/change-password",
     "/attendance/scan", // native-camera QR landing — handles its own auth redirect
   ];
 
@@ -50,6 +51,14 @@ export async function middleware(request: NextRequest) {
     (pathname.includes(".") && !pathname.startsWith("/dashboard") && !pathname.startsWith("/portal"));
 
   if (isInternalRoute) return supabaseResponse;
+
+  // ── Force password change for admin-provisioned accounts ──────
+  if (user && pathname !== "/auth/change-password" && !isPublicRoute) {
+    const mustChange = user.app_metadata?.must_change_password === true;
+    if (mustChange) {
+      return NextResponse.redirect(new URL("/auth/change-password", request.url));
+    }
+  }
 
   // ── Not authenticated ───────────────────────────────────────
   if (!user) {

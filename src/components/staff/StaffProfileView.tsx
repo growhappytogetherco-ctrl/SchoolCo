@@ -1,16 +1,20 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Mail, Phone, Shield, ShieldCheck, ShieldAlert, ShieldX,
   Clock, Calendar, AlertTriangle, Edit2, UserX, UserCheck,
-  BookOpen, Heart, Briefcase, User, QrCode,
+  BookOpen, Heart, Briefcase, User, QrCode, KeyRound, Loader2,
 } from "lucide-react";
 import {
   updateStaffMember, setStaffStatus,
   type StaffRosterRow, type BgStatus, type TrainingStatus, type CprStatus,
 } from "@/app/actions/staffActions";
+import {
+  getStaffLoginStatus, adminCreateLoginAccount, adminSetTemporaryPassword,
+  type StaffLoginStatus,
+} from "@/app/actions/staffLogin";
 import { ROLE_LABELS, ADMIN_ROLES, type UserRole } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ComplianceSection } from "./ComplianceSection";
@@ -344,6 +348,255 @@ function EditForm({ member, onClose, onSaved }: {
   );
 }
 
+// ── Login & Access Card ───────────────────────────────────────────────────
+
+function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#";
+  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
+
+const STATUS_LABELS_LOGIN: Record<string, string> = {
+  active:         "Active",
+  invite_pending: "Invite Pending",
+  no_login:       "No Login",
+  disabled:       "Disabled",
+};
+
+const STATUS_COLORS_LOGIN: Record<string, string> = {
+  active:         "bg-sc-teal/10 text-sc-teal-700 border-sc-teal/20",
+  invite_pending: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200",
+  no_login:       "bg-sc-gray-100 text-sc-gray border-sc-gray-200",
+  disabled:       "bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200",
+};
+
+function LoginAccessCard({
+  staffRosterId,
+  allRoles,
+  flash,
+}: {
+  staffRosterId: string;
+  allRoles: string[];
+  flash: (msg: string, ok?: boolean) => void;
+}) {
+  const [loginStatus, setLoginStatus]   = useState<StaffLoginStatus | null>(null);
+  const [loading, setLoading]           = useState(true);
+  const [isPending, startTransition]    = useTransition();
+
+  // Create-account form
+  const [showCreate, setShowCreate]     = useState(false);
+  const [createEmail, setCreateEmail]   = useState("");
+  const [createPassword, setCreatePassword] = useState("");
+  const [createRoles, setCreateRoles]   = useState<string[]>(allRoles.length > 0 ? allRoles : ["staff"]);
+
+  // Reset-password form
+  const [showReset, setShowReset]       = useState(false);
+  const [resetPassword, setResetPassword] = useState("");
+
+  const loadStatus = useCallback(async () => {
+    setLoading(true);
+    const res = await getStaffLoginStatus(staffRosterId);
+    if (res.success) setLoginStatus(res.data);
+    setLoading(false);
+  }, [staffRosterId]);
+
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  function handleCreateAccount(e: React.FormEvent) {
+    e.preventDefault();
+    startTransition(async () => {
+      const res = await adminCreateLoginAccount({
+        staffRosterId,
+        email:        createEmail.trim().toLowerCase(),
+        roles:        createRoles,
+        tempPassword: createPassword,
+      });
+      if (!res.success) { flash(res.error ?? "Failed to create account.", false); return; }
+      flash(res.data?.message ?? "Account created.");
+      setShowCreate(false);
+      await loadStatus();
+    });
+  }
+
+  function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    startTransition(async () => {
+      const res = await adminSetTemporaryPassword({
+        staffRosterId,
+        tempPassword: resetPassword,
+      });
+      if (!res.success) { flash(res.error ?? "Failed to set password.", false); return; }
+      flash(res.data?.message ?? "Temporary password set.");
+      setShowReset(false);
+      setResetPassword("");
+      await loadStatus();
+    });
+  }
+
+  return (
+    <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-5 space-y-4">
+      <h2 className="font-serif text-heading-3 text-sc-navy flex items-center gap-2">
+        <KeyRound className="size-5 text-sc-gray-400" /> Login &amp; Access
+      </h2>
+
+      {loading && (
+        <div className="flex items-center gap-2 text-label-sm text-sc-gray">
+          <Loader2 className="size-3.5 animate-spin" /> Loading…
+        </div>
+      )}
+
+      {!loading && loginStatus && (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-label-sm font-medium ${STATUS_COLORS_LOGIN[loginStatus.status]}`}>
+              {STATUS_LABELS_LOGIN[loginStatus.status]}
+            </span>
+            {loginStatus.must_change_password && (
+              <span className="inline-flex rounded-full border border-sc-gold-300 bg-sc-gold-50 px-2.5 py-0.5 text-label-sm font-medium text-sc-gold-700">
+                Must change password
+              </span>
+            )}
+            {loginStatus.email && (
+              <span className="text-label-sm text-sc-gray">{loginStatus.email}</span>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-wrap gap-2">
+            {loginStatus.status === "no_login" && !showCreate && (
+              <button
+                onClick={() => setShowCreate(true)}
+                className="rounded-lg border border-sc-teal text-sc-teal px-3 py-1.5 text-label-sm font-medium hover:bg-sc-teal/5 transition-colors"
+              >
+                Create Login Account
+              </button>
+            )}
+            {(loginStatus.status === "active" || loginStatus.status === "invite_pending") && !showReset && (
+              <button
+                onClick={() => setShowReset(true)}
+                className="rounded-lg border border-sc-gray-200 text-sc-gray px-3 py-1.5 text-label-sm font-medium hover:bg-sc-gray-50 transition-colors"
+              >
+                Set Temporary Password
+              </button>
+            )}
+          </div>
+
+          {/* Create account form */}
+          {showCreate && (
+            <form onSubmit={handleCreateAccount} className="rounded-xl border border-sc-gray-100 bg-sc-gray-50/50 p-4 space-y-3">
+              <p className="text-label-sm font-medium text-sc-navy">Create Login Account</p>
+              <div>
+                <label className="block text-label-sm text-sc-gray mb-1">Email address</label>
+                <input
+                  type="email"
+                  value={createEmail}
+                  onChange={e => setCreateEmail(e.target.value)}
+                  required
+                  placeholder="staff@example.com"
+                  className="w-full rounded-lg border border-sc-gray-200 px-3 py-2 text-sc-navy text-sm focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal"
+                />
+              </div>
+              <div>
+                <label className="block text-label-sm text-sc-gray mb-1">Temporary password</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={createPassword}
+                    onChange={e => setCreatePassword(e.target.value)}
+                    required
+                    minLength={8}
+                    placeholder="Min 8 characters"
+                    className="flex-1 rounded-lg border border-sc-gray-200 px-3 py-2 text-sc-navy text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCreatePassword(generateTempPassword())}
+                    className="rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm text-sc-gray hover:bg-sc-gray-50 transition-colors shrink-0"
+                  >
+                    Generate
+                  </button>
+                </div>
+                {createPassword && (
+                  <p className="text-label-sm text-sc-gray mt-1">
+                    Share this with the staff member: <span className="font-mono font-medium text-sc-navy">{createPassword}</span>
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(false)}
+                  className="rounded-lg px-3 py-1.5 text-label-sm text-sc-gray hover:bg-sc-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="rounded-lg bg-sc-teal px-3 py-1.5 text-label-sm text-white font-medium hover:bg-sc-teal-700 disabled:opacity-50 transition-colors"
+                >
+                  {isPending ? "Creating…" : "Create Account"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Reset password form */}
+          {showReset && (
+            <form onSubmit={handleResetPassword} className="rounded-xl border border-sc-gray-100 bg-sc-gray-50/50 p-4 space-y-3">
+              <p className="text-label-sm font-medium text-sc-navy">Set Temporary Password</p>
+              <div>
+                <label className="block text-label-sm text-sc-gray mb-1">New temporary password</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={resetPassword}
+                    onChange={e => setResetPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    placeholder="Min 8 characters"
+                    className="flex-1 rounded-lg border border-sc-gray-200 px-3 py-2 text-sc-navy text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setResetPassword(generateTempPassword())}
+                    className="rounded-lg border border-sc-gray-200 px-3 py-2 text-label-sm text-sc-gray hover:bg-sc-gray-50 transition-colors shrink-0"
+                  >
+                    Generate
+                  </button>
+                </div>
+                {resetPassword && (
+                  <p className="text-label-sm text-sc-gray mt-1">
+                    Share this with the staff member: <span className="font-mono font-medium text-sc-navy">{resetPassword}</span>
+                  </p>
+                )}
+              </div>
+              <p className="text-label-sm text-sc-gray">
+                Staff member will be required to change this password on next login.
+              </p>
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowReset(false); setResetPassword(""); }}
+                  className="rounded-lg px-3 py-1.5 text-label-sm text-sc-gray hover:bg-sc-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="rounded-lg bg-sc-navy px-3 py-1.5 text-label-sm text-white font-medium hover:bg-sc-navy/90 disabled:opacity-50 transition-colors"
+                >
+                  {isPending ? "Setting…" : "Set Password"}
+                </button>
+              </div>
+            </form>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 
 export function StaffProfileView({ member: init, currentRole }: {
@@ -572,6 +825,15 @@ export function StaffProfileView({ member: init, currentRole }: {
       )}
 
       {/* Documents */}
+      {/* Login & Access — admin only */}
+      {canManage && (
+        <LoginAccessCard
+          staffRosterId={member.id}
+          allRoles={allRoles.filter(Boolean) as string[]}
+          flash={flash}
+        />
+      )}
+
       <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-5">
         <h2 className="font-serif text-heading-3 text-sc-navy mb-2 flex items-center gap-2">
           <Briefcase className="size-5 text-sc-gray-400" /> Documents & Files
