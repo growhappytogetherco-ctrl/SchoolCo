@@ -533,8 +533,8 @@ export async function updateAcademicDocument(
 }
 
 // ── Delete academic document ───────────────────────────────────────────────────
-// Removes the DB row and the associated Drive file (if any).
-// If Drive deletion fails, the DB row is NOT removed — caller sees the error.
+// Removes the SchoolCo DB row. The Google Drive file is intentionally NOT deleted
+// so the original document is preserved. Staff can remove Drive files separately.
 
 export async function deleteAcademicDocument(
   documentId: string,
@@ -573,19 +573,7 @@ export async function deleteAcademicDocument(
     },
   });
 
-  // Delete Drive file first (if present)
-  const driveId = (doc as any).google_drive_id as string | null;
-  if (driveId) {
-    const driveResult = await deleteDriveFile(driveId);
-    if (!driveResult.success) {
-      return {
-        success: false,
-        error: `Could not delete the file from Google Drive: ${driveResult.error}. The SchoolCo record was NOT removed. Resolve the Drive issue or contact support.`,
-      };
-    }
-  }
-
-  // Delete the DB row
+  // Delete the DB row only — Drive file is preserved intentionally
   const { error } = await supabase
     .from("student_documents")
     .delete()

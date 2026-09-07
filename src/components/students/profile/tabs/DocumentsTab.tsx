@@ -132,20 +132,20 @@ function AcademicDocMenu({
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50"
             >
-              <ExternalLink className="size-3.5" /> View File
+              <ExternalLink className="size-3.5" /> View Document
             </a>
           )}
           <button
             onClick={() => { setOpen(false); onEdit(docRowToHistoryItem(doc)); }}
             className="flex w-full items-center gap-2 px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-50"
           >
-            <Pencil className="size-3.5" /> Edit
+            <Pencil className="size-3.5" /> Edit Record Details
           </button>
           <button
             onClick={() => { setOpen(false); onDelete(doc); }}
             className="flex w-full items-center gap-2 px-3 py-2 text-label-sm text-sc-rose hover:bg-sc-rose-50"
           >
-            <Trash2 className="size-3.5" /> Delete
+            <Trash2 className="size-3.5" /> Delete from SchoolCo
           </button>
         </div>
       )}
@@ -175,10 +175,9 @@ function DeleteConfirmModal({
             <AlertTriangle className="size-5 text-sc-rose" />
           </div>
           <div>
-            <p className="font-serif text-heading-2 text-sc-navy">Delete Academic Record?</p>
+            <p className="font-serif text-heading-2 text-sc-navy">Delete Academic Record from SchoolCo?</p>
             <p className="text-label-sm text-sc-gray mt-1">
-              &ldquo;{doc.title}&rdquo; will be permanently deleted.
-              {doc.google_drive_id && " The file will also be removed from Google Drive."}
+              This will remove &ldquo;{doc.title}&rdquo; from SchoolCo. The original file in Google Drive will remain.
             </p>
           </div>
         </div>
@@ -200,7 +199,7 @@ function DeleteConfirmModal({
             disabled={isPending}
             className="rounded-lg bg-sc-rose px-4 py-2 text-label-sm text-white hover:bg-sc-rose-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
           >
-            {isPending ? <><Loader2 className="size-3.5 animate-spin" /> Deleting…</> : "Delete Permanently"}
+            {isPending ? <><Loader2 className="size-3.5 animate-spin" /> Deleting…</> : "Delete from SchoolCo"}
           </button>
         </div>
       </div>
