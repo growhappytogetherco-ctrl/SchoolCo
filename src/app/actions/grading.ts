@@ -577,7 +577,7 @@ export async function getSectionGradingContext(
     const adminRoles = ["admin", "full_admin", "platform_admin"];
     const isAdmin = adminRoles.includes(role);
     const isTeacher = (section as any).teacher_id === profileId;
-    const canEdit = isAdmin || isTeacher || ["staff", "registrar"].includes(role);
+    const canEdit = isAdmin || isTeacher || ["teacher", "staff", "registrar"].includes(role);
 
     return {
       success: true,
