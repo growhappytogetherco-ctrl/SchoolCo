@@ -17,7 +17,48 @@ export default async function DashboardHomePage() {
 
   if (!orgId) redirect("/select-mission");
 
-  const firstName = profile?.full_name?.split(" ")[0] ?? "Friend";
+  // Resolve first name using fallback chain:
+  // 1. staff_roster.first_name (most reliable — admin-entered, links via profile_id)
+  // 2. profiles.full_name first word
+  // 3. Supabase Auth user_metadata name fields
+  // 4. Email prefix
+  let firstName: string | null = null;
+
+  const profileAny = profile as any;
+  if (!firstName && profileAny?.id) {
+    try {
+      const supabase = await createClient();
+      const { data: staffRow } = await supabase
+        .from("staff_roster")
+        .select("first_name")
+        .eq("profile_id", profileAny.id)
+        .maybeSingle();
+      const fn = (staffRow as any)?.first_name as string | null | undefined;
+      if (fn?.trim()) firstName = fn.trim();
+    } catch { /* non-staff users have no roster row */ }
+  }
+
+  if (!firstName) {
+    const fromProfile = profileAny?.full_name?.trim().split(" ")[0];
+    if (fromProfile) firstName = fromProfile;
+  }
+
+  if (!firstName) {
+    const meta = user.user_metadata;
+    const fromMeta =
+      meta?.preferred_username ||
+      meta?.name?.split(" ")[0] ||
+      meta?.full_name?.split(" ")[0] ||
+      meta?.given_name;
+    if (fromMeta?.trim()) firstName = String(fromMeta).trim();
+  }
+
+  if (!firstName) {
+    const emailPrefix = user.email?.split("@")[0];
+    if (emailPrefix) firstName = emailPrefix;
+  }
+
+  firstName = firstName ?? "Friend";
 
   // Resolve org name from cookie-based org ID
   let orgName = "Rising Leaders Academy";
