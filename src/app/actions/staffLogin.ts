@@ -218,7 +218,7 @@ export async function adminCreateLoginAccount(payload: {
     if (existingProfile) {
       profileId = (existingProfile as any).id;
     } else {
-      const { data: newProfile, error: pErr } = await adminClient
+      const { data: newProfile, error: pErr } = await (adminClient as any)
         .from("profiles")
         .insert({
           id:           authUserId,
@@ -251,7 +251,7 @@ export async function adminCreateLoginAccount(payload: {
       .maybeSingle();
 
     if (!existingMember) {
-      await adminClient.from("organization_members").insert({
+      await (adminClient as any).from("organization_members").insert({
         organization_id: orgId,
         profile_id:      profileId,
         role:            primaryRole,
@@ -260,14 +260,14 @@ export async function adminCreateLoginAccount(payload: {
         joined_at:       new Date().toISOString(),
       });
     } else {
-      await adminClient
+      await (adminClient as any)
         .from("organization_members")
         .update({ role: primaryRole, roles: additionalRoles, status: "active" })
         .eq("id", (existingMember as any).id);
     }
 
     // Link staff_roster → profile
-    await supabase
+    await (supabase as any)
       .from("staff_roster")
       .update({ profile_id: profileId })
       .eq("id", payload.staffRosterId)
@@ -285,6 +285,9 @@ export async function adminCreateLoginAccount(payload: {
 
 // ── Admin-set temporary password ──────────────────────────────────────────────
 // Sets a temporary password without sending an email, marks must_change_password.
+// Handles both linked accounts (profile_id set) and invite-pending accounts
+// (profile_id null but email known from pending invite). In the invite-pending
+// case it also completes the linking so subsequent logins work normally.
 
 export async function adminSetTemporaryPassword(payload: {
   staffRosterId: string;
@@ -293,42 +296,203 @@ export async function adminSetTemporaryPassword(payload: {
   try {
     const { supabase, adminClient, orgId } = await assertAdmin();
 
-    const { data: roster } = await supabase
+    // ── 1. Get roster row ───────────────────────────────────────────────────
+    const { data: roster, error: rosterErr } = await supabase
       .from("staff_roster")
       .select("profile_id")
       .eq("id", payload.staffRosterId)
       .eq("organization_id", orgId)
       .single();
 
-    if (!(roster as any)?.profile_id) {
-      return { success: false, error: "No login account found for this staff member." };
+    if (rosterErr) {
+      return { success: false, error: "Staff record not found: " + rosterErr.message };
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("auth_user_id")
-      .eq("id", (roster as any).profile_id)
-      .single();
+    let authUserId: string | null = null;
+    let profileId:  string | null = (roster as any)?.profile_id ?? null;
 
-    const authUserId = (profile as any)?.auth_user_id as string | null;
-    if (!authUserId) {
-      return { success: false, error: "No Supabase auth account linked to this profile." };
+    // ── 2a. Linked account — resolve auth user from profile ─────────────────
+    if (profileId) {
+      const { data: profile, error: profErr } = await adminClient
+        .from("profiles")
+        .select("auth_user_id")
+        .eq("id", profileId)
+        .single();
+
+      if (profErr) {
+        return { success: false, error: "Profile lookup failed: " + profErr.message };
+      }
+
+      authUserId = (profile as any)?.auth_user_id ?? null;
+      if (!authUserId) {
+        return { success: false, error: "Profile is not linked to a Supabase auth account." };
+      }
     }
 
-    const { error } = await adminClient.auth.admin.updateUserById(authUserId, {
-      password:     payload.tempPassword,
-      app_metadata: { must_change_password: true },
-    });
+    // ── 2b. Invite-pending — look up by email, then complete linking ────────
+    if (!profileId) {
+      // Find the pending invite to get the email address
+      const { data: invite, error: invErr } = await adminClient
+        .from("staff_invitations")
+        .select("id, email, intended_roles")
+        .eq("staff_roster_id", payload.staffRosterId)
+        .eq("organization_id", orgId)
+        .eq("status", "pending")
+        .order("invited_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (error) return { success: false, error: error.message };
+      if (invErr) {
+        return { success: false, error: "Invite lookup failed: " + invErr.message };
+      }
+
+      if (!invite) {
+        return {
+          success: false,
+          error:   "No login account and no pending invite found. Use 'Create Login Account' first.",
+        };
+      }
+
+      const email = ((invite as any).email as string).toLowerCase().trim();
+
+      // Find profile by email — the Supabase auth trigger creates a profiles
+      // row with auth_user_id set whenever a user signs up or accepts an invite.
+      const { data: profileByEmail } = await adminClient
+        .from("profiles")
+        .select("id, auth_user_id")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (profileByEmail && (profileByEmail as any).auth_user_id) {
+        // Auth account exists and is linked to a profile — use it
+        profileId  = (profileByEmail as any).id as string;
+        authUserId = (profileByEmail as any).auth_user_id as string;
+      } else {
+        // Profile may not exist yet (Supabase invite sent but user never clicked link).
+        // Find the auth user via admin listUsers filtered by email.
+        const { data: { users }, error: listErr } = await adminClient.auth.admin.listUsers({
+          perPage: 1000,
+        });
+
+        if (listErr) {
+          return { success: false, error: "Auth user lookup failed: " + listErr.message };
+        }
+
+        const authUser = users.find(u => u.email?.toLowerCase() === email);
+        if (!authUser) {
+          return {
+            success: false,
+            error:   `No Supabase auth account found for ${email}. The staff member must first accept an invite or you must create an account directly.`,
+          };
+        }
+
+        authUserId = authUser.id;
+
+        // Create or update the profile so future logins work
+        if (!profileByEmail) {
+          const { data: newProfile, error: pErr } = await (adminClient as any)
+            .from("profiles")
+            .insert({
+              id:           authUserId,
+              auth_user_id: authUserId,
+              email,
+              full_name:    authUser.user_metadata?.full_name ?? "",
+            })
+            .select("id")
+            .single();
+
+          if (pErr) {
+            return { success: false, error: "Failed to create profile: " + pErr.message };
+          }
+          profileId = (newProfile as any).id as string;
+        } else {
+          // Profile exists but auth_user_id was null — patch it
+          await (adminClient as any)
+            .from("profiles")
+            .update({ auth_user_id: authUserId })
+            .eq("id", (profileByEmail as any).id);
+          profileId = (profileByEmail as any).id as string;
+        }
+      }
+
+      // Complete the linking: org membership + roster link + mark invite accepted
+      const intendedRoles: string[] = (invite as any).intended_roles ?? ["staff"];
+      const primaryRole = intendedRoles.reduce((best: string, r: string) =>
+        ROLE_HIERARCHY.indexOf(r as any) > ROLE_HIERARCHY.indexOf(best as any) ? r : best,
+        intendedRoles[0] ?? "staff"
+      );
+      const additionalRoles = intendedRoles.filter(r => r !== primaryRole);
+
+      const { data: existingMember } = await adminClient
+        .from("organization_members")
+        .select("id")
+        .eq("profile_id", profileId)
+        .eq("organization_id", orgId)
+        .maybeSingle();
+
+      if (!existingMember) {
+        await (adminClient as any).from("organization_members").insert({
+          organization_id: orgId,
+          profile_id:      profileId,
+          role:            primaryRole,
+          roles:           additionalRoles,
+          status:          "active",
+          joined_at:       new Date().toISOString(),
+        });
+      } else {
+        await (adminClient as any)
+          .from("organization_members")
+          .update({ role: primaryRole, roles: additionalRoles, status: "active" })
+          .eq("id", (existingMember as any).id);
+      }
+
+      // Link staff_roster → profile
+      await (adminClient as any)
+        .from("staff_roster")
+        .update({ profile_id: profileId })
+        .eq("id", payload.staffRosterId)
+        .eq("organization_id", orgId);
+
+      // Mark invite accepted
+      await (adminClient as any)
+        .from("staff_invitations")
+        .update({
+          status:       "accepted",
+          accepted_at:  new Date().toISOString(),
+          auth_user_id: authUserId,
+        })
+        .eq("id", (invite as any).id);
+    }
+
+    // ── 3. Update password + must_change_password on the auth user ──────────
+    const { data: updateResult, error: updateErr } = await adminClient.auth.admin.updateUserById(
+      authUserId!,
+      {
+        password:     payload.tempPassword,
+        app_metadata: { must_change_password: true },
+      }
+    );
+
+    if (updateErr) {
+      return { success: false, error: "Supabase password update failed: " + updateErr.message };
+    }
+
+    // Verify the update was applied to the correct user
+    if (!updateResult.user || updateResult.user.id !== authUserId) {
+      return { success: false, error: "Unexpected: password update applied to wrong user." };
+    }
 
     revalidatePath("/dashboard/staff");
     return {
       success: true,
-      data: { message: "Temporary password set. Staff member must change password on next login." },
+      data: {
+        message: profileId && (roster as any)?.profile_id
+          ? "Temporary password set. Staff member must change password on next login."
+          : "Account linked and temporary password set. Staff member must change password on next login.",
+      },
     };
   } catch (e) {
-    return { success: false, error: String(e) };
+    return { success: false, error: "Unexpected error: " + String(e) };
   }
 }
 

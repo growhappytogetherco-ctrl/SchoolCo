@@ -391,6 +391,8 @@ function LoginAccessCard({
   // Reset-password form
   const [showReset, setShowReset]       = useState(false);
   const [resetPassword, setResetPassword] = useState("");
+  const [resetError, setResetError]     = useState("");
+  const [createError, setCreateError]   = useState("");
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -403,6 +405,7 @@ function LoginAccessCard({
 
   function handleCreateAccount(e: React.FormEvent) {
     e.preventDefault();
+    setCreateError("");
     startTransition(async () => {
       const res = await adminCreateLoginAccount({
         staffRosterId,
@@ -410,24 +413,33 @@ function LoginAccessCard({
         roles:        createRoles,
         tempPassword: createPassword,
       });
-      if (!res.success) { flash(res.error ?? "Failed to create account.", false); return; }
+      if (!res.success) {
+        setCreateError(res.error ?? "Failed to create account.");
+        return;
+      }
       flash(res.data?.message ?? "Account created.");
       setShowCreate(false);
+      setCreateError("");
       await loadStatus();
     });
   }
 
   function handleResetPassword(e: React.FormEvent) {
     e.preventDefault();
+    setResetError("");
     startTransition(async () => {
       const res = await adminSetTemporaryPassword({
         staffRosterId,
         tempPassword: resetPassword,
       });
-      if (!res.success) { flash(res.error ?? "Failed to set password.", false); return; }
+      if (!res.success) {
+        setResetError(res.error ?? "Failed to set password.");
+        return;
+      }
       flash(res.data?.message ?? "Temporary password set.");
       setShowReset(false);
       setResetPassword("");
+      setResetError("");
       await loadStatus();
     });
   }
@@ -484,6 +496,11 @@ function LoginAccessCard({
           {showCreate && (
             <form onSubmit={handleCreateAccount} className="rounded-xl border border-sc-gray-100 bg-sc-gray-50/50 p-4 space-y-3">
               <p className="text-label-sm font-medium text-sc-navy">Create Login Account</p>
+              {createError && (
+                <div className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">
+                  {createError}
+                </div>
+              )}
               <div>
                 <label className="block text-label-sm text-sc-gray mb-1">Email address</label>
                 <input
@@ -544,6 +561,11 @@ function LoginAccessCard({
           {showReset && (
             <form onSubmit={handleResetPassword} className="rounded-xl border border-sc-gray-100 bg-sc-gray-50/50 p-4 space-y-3">
               <p className="text-label-sm font-medium text-sc-navy">Set Temporary Password</p>
+              {resetError && (
+                <div className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">
+                  {resetError}
+                </div>
+              )}
               <div>
                 <label className="block text-label-sm text-sc-gray mb-1">New temporary password</label>
                 <div className="flex gap-2">
