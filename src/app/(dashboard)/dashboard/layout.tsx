@@ -81,10 +81,36 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       const org = membership.organizations as OrgContext;
 
+      // Resolve display name: staff_roster.first_name + last_name is
+      // authoritative for admin-provisioned accounts where profiles.full_name
+      // may be blank. Fall back through profile → auth metadata → email.
+      let displayName: string = (profile as any)?.full_name?.trim() ?? "";
+      if (!displayName) {
+        const { data: staffRow } = await supabase
+          .from("staff_roster")
+          .select("first_name, last_name")
+          .eq("profile_id", profileId)
+          .eq("organization_id", orgId)
+          .maybeSingle();
+        if (staffRow) {
+          const fn = (staffRow as any).first_name?.trim() ?? "";
+          const ln = (staffRow as any).last_name?.trim()  ?? "";
+          displayName = [fn, ln].filter(Boolean).join(" ");
+        }
+      }
+      if (!displayName) {
+        const meta = user.user_metadata;
+        displayName = (meta?.full_name ?? meta?.name ?? "").trim();
+      }
+      if (!displayName && user.email) {
+        displayName = user.email.split("@")[0];
+      }
+      if (!displayName) displayName = "User";
+
       setCtx({
         id:             profileId,
-        full_name:      profile?.full_name ?? "User",
-        avatar_url:     profile?.avatar_url ?? null,
+        full_name:      displayName,
+        avatar_url:     (profile as any)?.avatar_url ?? null,
         role:           membership.role as UserRole,
         org,
         hasParentAccess,
