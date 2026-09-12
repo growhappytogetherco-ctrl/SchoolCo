@@ -6,10 +6,7 @@ import { StudentStep, type StudentStepData } from "./steps/StudentStep";
 import { GuardianStep, type GuardianStepData } from "./steps/GuardianStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { FamilyStep, type FamilyStepData } from "./steps/FamilyStep";
-import { createFamily } from "@/app/actions/families";
-import { createHousehold } from "@/app/actions/households";
-import { createStudent } from "@/app/actions/students";
-import { inviteGuardian } from "@/app/actions/guardians";
+import { enrollStudent } from "@/app/actions/enrollment";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -80,101 +77,60 @@ export function EnrollmentWizard({ prefillFamily }: { prefillFamily?: PrefillFam
 
   async function onSubmit() {
     if (!studentData) return;
+    if (!isExistingFamily && !familyData) {
+      setError("Family information is missing. Please go back to step 1.");
+      return;
+    }
     setSaving(true);
     setError(null);
 
-    try {
-      let familyId: string;
-      let householdId: string | null = null;
+    const result = await enrollStudent({
+      // Family
+      ...(isExistingFamily
+        ? { existing_family_id: prefillFamily!.id }
+        : {
+            family_name:     familyData!.family_name,
+            household_label: familyData!.household_label || undefined,
+            household_phone: familyData!.phone ?? null,
+            household_email: familyData!.email ?? null,
+            household_address: familyData!.address?.street1
+              ? {
+                  country: "US",
+                  street1: familyData!.address.street1 ?? undefined,
+                  city:    familyData!.address.city    ?? undefined,
+                  state:   familyData!.address.state   ?? undefined,
+                  zip:     familyData!.address.zip     ?? undefined,
+                }
+              : null,
+            family_notes: familyData!.notes ?? null,
+          }),
+      // Student
+      first_name:        studentData.first_name,
+      last_name:         studentData.last_name,
+      preferred_name:    studentData.preferred_name ?? null,
+      grade_level:       studentData.grade_level    ?? null,
+      track:             studentData.track          ?? null,
+      enrollment_status: "enrolled",
+      enrollment_date:   new Date().toISOString().slice(0, 10),
+      // Guardian (optional)
+      guardian_full_name:            guardianData?.full_name        ?? null,
+      guardian_email:                guardianData?.email            ?? null,
+      guardian_phone:                guardianData?.phone            ?? null,
+      guardian_relationship_type:    (guardianData?.relationship_type as any) ?? null,
+      guardian_custody_type:         (guardianData?.custody_type    as any) ?? "joint",
+      guardian_is_legal_guardian:    guardianData?.is_legal_guardian    ?? true,
+      guardian_is_emergency_contact: guardianData?.is_emergency_contact ?? false,
+      guardian_can_pickup:           guardianData?.can_pickup            ?? true,
+    });
 
-      if (isExistingFamily) {
-        // ── Existing family path: skip family/household creation ──────────
-        familyId = prefillFamily!.id;
-      } else {
-        // ── New family path: create family + primary household ────────────
-        if (!familyData) {
-          setError("Family information is missing. Please go back to step 1.");
-          return;
-        }
+    setSaving(false);
 
-        const familyResult = await createFamily({
-          family_name:        familyData.family_name,
-          is_split_household: false,
-          notes:              familyData.notes ?? undefined,
-        });
-        if (!familyResult.success) {
-          throw new Error(familyResult.error ?? "Failed to create family.");
-        }
-        familyId = familyResult.data.id;
-
-        const householdResult = await createHousehold({
-          family_id:       familyId,
-          household_label: familyData.household_label || `${familyData.family_name} – Primary`,
-          sort_order:      1,
-          phone:           familyData.phone ?? null,
-          email:           familyData.email || null,
-          address_json:    familyData.address?.street1 ? {
-            country: "US",
-            street1: familyData.address.street1 ?? undefined,
-            city:    familyData.address.city    ?? undefined,
-            state:   familyData.address.state   ?? undefined,
-            zip:     familyData.address.zip     ?? undefined,
-          } : undefined,
-        });
-        if (!householdResult.success) {
-          throw new Error(householdResult.error ?? "Failed to create household.");
-        }
-        householdId = householdResult.data.id;
-      }
-
-      // ── Create student ────────────────────────────────────────────────────
-      const studentResult = await createStudent({
-        family_id:         familyId,
-        first_name:        studentData.first_name,
-        last_name:         studentData.last_name,
-        preferred_name:    studentData.preferred_name ?? null,
-        grade_level:       studentData.grade_level    ?? null,
-        enrollment_status: "enrolled",
-        enrollment_date:   new Date().toISOString().slice(0, 10),
-        track:             studentData.track ?? null,
-      });
-      if (!studentResult.success) {
-        throw new Error(studentResult.error ?? "Failed to create student record.");
-      }
-      const studentId = studentResult.data.id;
-
-      // ── Invite guardian (non-fatal) ───────────────────────────────────────
-      if (guardianData?.email && guardianData.full_name) {
-        try {
-          await inviteGuardian({
-            student_id:           studentId,
-            family_id:            familyId,
-            household_id:         householdId ?? null,
-            full_name:            guardianData.full_name,
-            email:                guardianData.email,
-            phone:                guardianData.phone ?? null,
-            relationship_type:    (guardianData.relationship_type || "parent") as Parameters<typeof inviteGuardian>[0]["relationship_type"],
-            custody_type:         (guardianData.custody_type || "primary") as Parameters<typeof inviteGuardian>[0]["custody_type"],
-            is_legal_guardian:    guardianData.is_legal_guardian ?? true,
-            is_primary_contact:   true,
-            is_emergency_contact: guardianData.is_emergency_contact ?? false,
-            can_pickup:           guardianData.can_pickup ?? true,
-            court_order_on_file:  false,
-          });
-        } catch (guardianErr) {
-          console.warn("[Enrollment] Guardian invite failed:", guardianErr);
-        }
-      }
-
-      // ── Navigate immediately — don't rely on React state surviving a
-      //    router refresh triggered by revalidatePath inside the server actions.
-      router.push(`/dashboard/students/${studentId}?enrolled=1`);
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred. Please try again.");
-    } finally {
-      setSaving(false);
+    if (!result.success) {
+      setError(result.error ?? "An unexpected error occurred. Please try again.");
+      return;
     }
+
+    router.push(`/dashboard/students/${result.data.student_id}?enrolled=1`);
   }
 
   // ── Wizard ────────────────────────────────────────────────────────────────
