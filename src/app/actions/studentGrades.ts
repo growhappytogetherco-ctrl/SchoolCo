@@ -212,23 +212,21 @@ export async function getStudentGradeProfile(
     // Student info
     const { data: student } = await supabase
       .from("students")
-      .select("first_name, last_name, preferred_name, school_year_id")
+      .select("first_name, last_name, preferred_name")
       .eq("id", studentId)
       .single();
     if (!student) return { success: false, error: "Student not found" };
 
-    const schoolYearId = (student as any).school_year_id as string | null;
+    // school_year_id was removed from students in migration 00061; derive from active school year
+    const { data: currentYear } = await supabase
+      .from("school_years")
+      .select("id, label")
+      .eq("organization_id", orgId)
+      .eq("is_current", true)
+      .maybeSingle();
 
-    // Get school year label
-    let schoolYearLabel = "";
-    if (schoolYearId) {
-      const { data: sy } = await supabase
-        .from("school_years")
-        .select("label")
-        .eq("id", schoolYearId)
-        .single();
-      schoolYearLabel = (sy as any)?.label ?? "";
-    }
+    const schoolYearId = (currentYear as any)?.id as string | null ?? null;
+    const schoolYearLabel = (currentYear as any)?.label as string ?? "";
 
     // Load all grading periods for this school year
     const { data: allPeriodsData } = schoolYearId
