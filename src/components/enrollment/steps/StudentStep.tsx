@@ -29,9 +29,11 @@ export type StudentStepData = z.infer<typeof Schema>;
 export function StudentStep({
   onNext,
   onBack,
+  stepLabel = "Step 2 of 4",
 }: {
-  onNext: (data: StudentStepData) => void;
-  onBack: () => void;
+  onNext:     (data: StudentStepData) => void;
+  onBack?:    () => void;
+  stepLabel?: string;
 }) {
   const { register, handleSubmit, formState: { errors } } = useForm<StudentStepData>({
     resolver: zodResolver(Schema),
@@ -45,7 +47,7 @@ export function StudentStep({
         </div>
         <div>
           <h2 className="font-serif text-heading-2 text-sc-navy">Student Information</h2>
-          <p className="text-label-sm text-sc-gray">Step 2 of 4</p>
+          <p className="text-label-sm text-sc-gray">{stepLabel}</p>
         </div>
       </div>
 
@@ -96,7 +98,9 @@ export function StudentStep({
         </div>
 
         <div className="flex gap-3 pt-2">
-          <Button type="button" variant="outline" onClick={onBack}>← Back</Button>
+          {onBack && (
+            <Button type="button" variant="outline" onClick={onBack}>← Back</Button>
+          )}
           <Button type="submit" className="flex-1">Next: Guardian →</Button>
         </div>
       </form>

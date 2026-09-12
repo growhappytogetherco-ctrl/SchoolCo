@@ -25,9 +25,11 @@ export type GuardianStepData = {
 export function GuardianStep({
   onNext,
   onBack,
+  stepLabel = "Step 3 of 4",
 }: {
-  onNext: (data: GuardianStepData) => void;
-  onBack: () => void;
+  onNext:     (data: GuardianStepData) => void;
+  onBack:     () => void;
+  stepLabel?: string;
 }) {
   const { register, handleSubmit, formState: { errors } } = useForm({
     defaultValues: {
@@ -50,7 +52,7 @@ export function GuardianStep({
         </div>
         <div>
           <h2 className="font-serif text-heading-2 text-sc-navy">Guardian Information</h2>
-          <p className="text-label-sm text-sc-gray">Step 3 of 4 · An invite email will be sent.</p>
+          <p className="text-label-sm text-sc-gray">{stepLabel} · An invite email will be sent.</p>
         </div>
       </div>
 

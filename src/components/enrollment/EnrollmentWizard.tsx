@@ -2,47 +2,54 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle } from "lucide-react";
-import { FamilyStep,  type FamilyStepData  } from "./steps/FamilyStep";
 import { StudentStep, type StudentStepData } from "./steps/StudentStep";
-import { GuardianStep,type GuardianStepData} from "./steps/GuardianStep";
-import { ReviewStep }                         from "./steps/ReviewStep";
-import { createFamily }                        from "@/app/actions/families";
-import { createHousehold }                     from "@/app/actions/households";
-import { createStudent }                       from "@/app/actions/students";
-import { inviteGuardian }                      from "@/app/actions/guardians";
+import { GuardianStep, type GuardianStepData } from "./steps/GuardianStep";
+import { ReviewStep } from "./steps/ReviewStep";
+import { FamilyStep, type FamilyStepData } from "./steps/FamilyStep";
+import { createFamily } from "@/app/actions/families";
+import { createHousehold } from "@/app/actions/households";
+import { createStudent } from "@/app/actions/students";
+import { inviteGuardian } from "@/app/actions/guardians";
 
-// ── Steps ─────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────
 
-type Step = "family" | "student" | "guardian" | "review";
+export interface PrefillFamily {
+  id:          string;
+  family_name: string;
+}
 
-const STEPS: { id: Step; label: string }[] = [
+type NewFamilyStep = "family" | "student" | "guardian" | "review";
+type ExistingFamilyStep = "student" | "guardian" | "review";
+
+// ── Step indicators ───────────────────────────────────────────────────────
+
+const NEW_FAMILY_STEPS: { id: NewFamilyStep; label: string }[] = [
   { id: "family",   label: "Family"   },
   { id: "student",  label: "Student"  },
   { id: "guardian", label: "Guardian" },
   { id: "review",   label: "Review"   },
 ];
 
-// ── Wizard state ──────────────────────────────────────────────────────────
-
-interface WizardState {
-  family:   FamilyStepData  | null;
-  student:  StudentStepData | null;
-  guardian: GuardianStepData | null;
-  // Resolved IDs after DB writes
-  familyId?:      string;
-  householdId?:   string;
-  studentId?:     string;
-}
+const EXISTING_FAMILY_STEPS: { id: ExistingFamilyStep; label: string }[] = [
+  { id: "student",  label: "Student"  },
+  { id: "guardian", label: "Guardian" },
+  { id: "review",   label: "Review"   },
+];
 
 // ── Main component ────────────────────────────────────────────────────────
 
-export function EnrollmentWizard({ prefillFamilyId: _prefillFamilyId }: { prefillFamilyId?: string }) {
-  const router  = useRouter();
-  const [step, setStep]     = useState<Step>("family");
-  const [state, setState]   = useState<WizardState>({ family: null, student: null, guardian: null });
+export function EnrollmentWizard({ prefillFamily }: { prefillFamily?: PrefillFamily }) {
+  const router = useRouter();
+
+  // When adding to an existing family, we skip the family step entirely.
+  const isExistingFamily = !!prefillFamily;
+  const STEPS = isExistingFamily ? EXISTING_FAMILY_STEPS : NEW_FAMILY_STEPS;
+
+  const [step, setStep]     = useState<string>(STEPS[0].id);
+  const [familyData, setFamilyData]   = useState<FamilyStepData | null>(null);
+  const [studentData, setStudentData] = useState<StudentStepData | null>(null);
+  const [guardianData, setGuardianData] = useState<GuardianStepData | null>(null);
   const [saving, setSaving] = useState(false);
-  const [done, setDone]     = useState(false);
   const [error, setError]   = useState<string | null>(null);
 
   const stepIndex = STEPS.findIndex((s) => s.id === step);
@@ -52,139 +59,129 @@ export function EnrollmentWizard({ prefillFamilyId: _prefillFamilyId }: { prefil
     if (prev) setStep(prev.id);
   }
 
-  // ── Step handlers ────────────────────────────────────────────────────────
+  // ── Step handlers ─────────────────────────────────────────────────────────
 
   function onFamilyNext(data: FamilyStepData) {
-    setState((s) => ({ ...s, family: data }));
+    setFamilyData(data);
     setStep("student");
   }
 
   function onStudentNext(data: StudentStepData) {
-    setState((s) => ({ ...s, student: data }));
+    setStudentData(data);
     setStep("guardian");
   }
 
   function onGuardianNext(data: GuardianStepData) {
-    setState((s) => ({ ...s, guardian: data }));
+    setGuardianData(data);
     setStep("review");
   }
 
   // ── Final submission ──────────────────────────────────────────────────────
 
   async function onSubmit() {
-    if (!state.family || !state.student) return;
+    if (!studentData) return;
     setSaving(true);
     setError(null);
 
     try {
-      // 1. Create family
-      const familyResult = await createFamily({
-        family_name:        state.family.family_name,
-        is_split_household: false,
-        notes:              state.family.notes ?? undefined,
-      });
-      if (!familyResult.success) throw new Error(familyResult.error);
-      const familyId = familyResult.data.id;
+      let familyId: string;
+      let householdId: string | null = null;
 
-      // 2. Create primary household
-      const householdResult = await createHousehold({
-        family_id:       familyId,
-        household_label: state.family.household_label || `${state.family.family_name} – Primary`,
-        sort_order:      1,
-        phone:           state.family.phone ?? null,
-        email:           state.family.email ?? null,
-        address_json:    state.family.address ? {
-          country: "US",
-          street1: state.family.address.street1 ?? undefined,
-          city:    state.family.address.city    ?? undefined,
-          state:   state.family.address.state   ?? undefined,
-          zip:     state.family.address.zip     ?? undefined,
-        } : undefined,
-      });
-      if (!householdResult.success) throw new Error(householdResult.error);
-      const householdId = householdResult.data.id;
+      if (isExistingFamily) {
+        // ── Existing family path: skip family/household creation ──────────
+        familyId = prefillFamily!.id;
+      } else {
+        // ── New family path: create family + primary household ────────────
+        if (!familyData) {
+          setError("Family information is missing. Please go back to step 1.");
+          return;
+        }
 
-      // 3. Create student
+        const familyResult = await createFamily({
+          family_name:        familyData.family_name,
+          is_split_household: false,
+          notes:              familyData.notes ?? undefined,
+        });
+        if (!familyResult.success) {
+          throw new Error(familyResult.error ?? "Failed to create family.");
+        }
+        familyId = familyResult.data.id;
+
+        const householdResult = await createHousehold({
+          family_id:       familyId,
+          household_label: familyData.household_label || `${familyData.family_name} – Primary`,
+          sort_order:      1,
+          phone:           familyData.phone ?? null,
+          email:           familyData.email || null,
+          address_json:    familyData.address?.street1 ? {
+            country: "US",
+            street1: familyData.address.street1 ?? undefined,
+            city:    familyData.address.city    ?? undefined,
+            state:   familyData.address.state   ?? undefined,
+            zip:     familyData.address.zip     ?? undefined,
+          } : undefined,
+        });
+        if (!householdResult.success) {
+          throw new Error(householdResult.error ?? "Failed to create household.");
+        }
+        householdId = householdResult.data.id;
+      }
+
+      // ── Create student ────────────────────────────────────────────────────
       const studentResult = await createStudent({
         family_id:         familyId,
-        first_name:        state.student.first_name,
-        last_name:         state.student.last_name,
-        preferred_name:    state.student.preferred_name ?? null,
-        grade_level:       state.student.grade_level    ?? null,
+        first_name:        studentData.first_name,
+        last_name:         studentData.last_name,
+        preferred_name:    studentData.preferred_name ?? null,
+        grade_level:       studentData.grade_level    ?? null,
         enrollment_status: "enrolled",
         enrollment_date:   new Date().toISOString().slice(0, 10),
-        track:             state.student.track ?? null,
+        track:             studentData.track ?? null,
       });
-      if (!studentResult.success) throw new Error(studentResult.error);
+      if (!studentResult.success) {
+        throw new Error(studentResult.error ?? "Failed to create student record.");
+      }
       const studentId = studentResult.data.id;
 
-      // 4. Invite guardian (optional — skip if guardian step was skipped)
-      if (state.guardian?.email) {
-        const guardianResult = await inviteGuardian({
-          student_id:           studentId,
-          family_id:            familyId,
-          household_id:         householdId,
-          full_name:            state.guardian.full_name,
-          email:                state.guardian.email!,
-          phone:                state.guardian.phone ?? null,
-          relationship_type:    state.guardian.relationship_type as Parameters<typeof inviteGuardian>[0]["relationship_type"],
-          custody_type:         state.guardian.custody_type as Parameters<typeof inviteGuardian>[0]["custody_type"],
-          is_legal_guardian:    state.guardian.is_legal_guardian ?? true,
-          is_primary_contact:   true,
-          is_emergency_contact: state.guardian.is_emergency_contact ?? false,
-          can_pickup:           state.guardian.can_pickup ?? true,
-          court_order_on_file:  false,
-        });
-        if (!guardianResult.success) {
-          // Guardian invite failure is non-fatal — family + student already created
-          console.warn("[Enrollment] Guardian invite failed:", guardianResult.error);
+      // ── Invite guardian (non-fatal) ───────────────────────────────────────
+      if (guardianData?.email && guardianData.full_name) {
+        try {
+          await inviteGuardian({
+            student_id:           studentId,
+            family_id:            familyId,
+            household_id:         householdId ?? null,
+            full_name:            guardianData.full_name,
+            email:                guardianData.email,
+            phone:                guardianData.phone ?? null,
+            relationship_type:    (guardianData.relationship_type || "parent") as Parameters<typeof inviteGuardian>[0]["relationship_type"],
+            custody_type:         (guardianData.custody_type || "primary") as Parameters<typeof inviteGuardian>[0]["custody_type"],
+            is_legal_guardian:    guardianData.is_legal_guardian ?? true,
+            is_primary_contact:   true,
+            is_emergency_contact: guardianData.is_emergency_contact ?? false,
+            can_pickup:           guardianData.can_pickup ?? true,
+            court_order_on_file:  false,
+          });
+        } catch (guardianErr) {
+          console.warn("[Enrollment] Guardian invite failed:", guardianErr);
         }
       }
 
-      setState((s) => ({ ...s, familyId, householdId, studentId }));
-      setDone(true);
+      // ── Navigate immediately — don't rely on React state surviving a
+      //    router refresh triggered by revalidatePath inside the server actions.
+      router.push(`/dashboard/students/${studentId}?enrolled=1`);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+      setError(err instanceof Error ? err.message : "An unexpected error occurred. Please try again.");
     } finally {
       setSaving(false);
     }
   }
 
-  // ── Done screen ───────────────────────────────────────────────────────────
-
-  if (done && state.studentId) {
-    return (
-      <div className="flex flex-col items-center py-16 gap-6 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-sc-green-50">
-          <CheckCircle className="size-8 text-sc-green" />
-        </div>
-        <div>
-          <h2 className="font-serif text-heading-1 text-sc-navy mb-2">Student Enrolled!</h2>
-          <p className="text-body-md text-sc-gray max-w-sm">
-            {state.student?.first_name} {state.student?.last_name} has been enrolled
-            {state.guardian?.email ? ` and an invite has been sent to ${state.guardian.email}` : ""}.
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => router.push(`/dashboard/students/${state.studentId}`)}
-            className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-5 py-2.5 text-white text-label-md font-medium"
-          >
-            View Student
-          </button>
-          <button
-            onClick={() => router.push(`/dashboard/families/${state.familyId}`)}
-            className="inline-flex items-center gap-2 rounded-lg border border-sc-gray-200 bg-white px-5 py-2.5 text-sc-navy text-label-md font-medium"
-          >
-            View Family
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // ── Wizard ────────────────────────────────────────────────────────────────
+
+  const displayFamilyData: FamilyStepData | null = isExistingFamily
+    ? { family_name: prefillFamily!.family_name }
+    : familyData;
 
   return (
     <div className="space-y-6">
@@ -213,14 +210,28 @@ export function EnrollmentWizard({ prefillFamilyId: _prefillFamilyId }: { prefil
 
       {/* Step content */}
       <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card">
-        {step === "family"   && <FamilyStep   onNext={onFamilyNext}   />}
-        {step === "student"  && <StudentStep  onNext={onStudentNext}  onBack={goBack} />}
-        {step === "guardian" && <GuardianStep onNext={onGuardianNext} onBack={goBack} />}
-        {step === "review"   && (
+        {!isExistingFamily && step === "family" && (
+          <FamilyStep onNext={onFamilyNext} />
+        )}
+        {step === "student"  && (
+          <StudentStep
+            onNext={onStudentNext}
+            onBack={isExistingFamily ? undefined : goBack}
+            stepLabel={isExistingFamily ? "Step 1 of 3" : "Step 2 of 4"}
+          />
+        )}
+        {step === "guardian" && (
+          <GuardianStep
+            onNext={onGuardianNext}
+            onBack={goBack}
+            stepLabel={isExistingFamily ? "Step 2 of 3" : "Step 3 of 4"}
+          />
+        )}
+        {step === "review" && (
           <ReviewStep
-            family={state.family!}
-            student={state.student!}
-            guardian={state.guardian}
+            family={displayFamilyData ?? { family_name: prefillFamily?.family_name ?? "" }}
+            student={studentData!}
+            guardian={guardianData}
             onBack={goBack}
             onSubmit={onSubmit}
             saving={saving}
