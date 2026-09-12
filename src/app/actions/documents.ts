@@ -375,7 +375,7 @@ export async function getMyChildAcademicDocuments(
   const { data: guardianship } = await supabase
     .from("guardianships")
     .select("id")
-    .eq("guardian_profile_id", user.id)
+    .eq("profile_id", user.id)
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
     .eq("status", "active")
