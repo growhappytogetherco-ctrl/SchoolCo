@@ -236,6 +236,7 @@ export function EnrollmentWizard({ prefillFamily }: { prefillFamily?: PrefillFam
             onSubmit={onSubmit}
             saving={saving}
             error={error}
+            stepLabel={isExistingFamily ? "Step 3 of 3" : "Step 4 of 4"}
           />
         )}
       </div>

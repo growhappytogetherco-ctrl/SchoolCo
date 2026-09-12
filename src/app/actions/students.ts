@@ -11,7 +11,7 @@ import type { Student } from "@/types/database";
 
 // ── Schemas ───────────────────────────────────────────────────────────────
 
-export const CreateStudentSchema = z.object({
+const CreateStudentSchema = z.object({
   family_id:           z.string().uuid("Select a family"),
   first_name:          z.string().min(1, "First name is required").max(100),
   last_name:           z.string().min(1, "Last name is required").max(100),
@@ -24,7 +24,7 @@ export const CreateStudentSchema = z.object({
   homeroom_teacher:    z.string().max(100).optional().nullable(),
 });
 
-export const UpdateStudentSchema = z.object({
+const UpdateStudentSchema = z.object({
   id:                  z.string().uuid(),
   first_name:          z.string().min(1).max(100).optional(),
   last_name:           z.string().min(1).max(100).optional(),

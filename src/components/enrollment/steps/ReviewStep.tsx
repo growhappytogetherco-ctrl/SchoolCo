@@ -14,14 +14,16 @@ export function ReviewStep({
   onSubmit,
   saving,
   error,
+  stepLabel = "Step 4 of 4",
 }: {
-  family:   FamilyStepData;
-  student:  StudentStepData;
-  guardian: GuardianStepData | null;
-  onBack:   () => void;
-  onSubmit: () => void;
-  saving:   boolean;
-  error:    string | null;
+  family:     FamilyStepData;
+  student:    StudentStepData;
+  guardian:   GuardianStepData | null;
+  onBack:     () => void;
+  onSubmit:   () => void;
+  saving:     boolean;
+  error:      string | null;
+  stepLabel?: string;
 }) {
   return (
     <div className="p-6 sm:p-8">
@@ -31,7 +33,7 @@ export function ReviewStep({
         </div>
         <div>
           <h2 className="font-serif text-heading-2 text-sc-navy">Review &amp; Enroll</h2>
-          <p className="text-label-sm text-sc-gray">Step 4 of 4 · Confirm the information below before submitting.</p>
+          <p className="text-label-sm text-sc-gray">{stepLabel} · Confirm the information below before submitting.</p>
         </div>
       </div>
 
