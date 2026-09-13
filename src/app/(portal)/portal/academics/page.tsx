@@ -91,7 +91,7 @@ export default async function PortalAcademicsPage() {
                     <div key={c.id} className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-5 space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <p className="font-serif text-heading-3 text-sc-navy">
-                          {c.lesson_topic ?? c.subject_area ?? "Progress Update"}
+                          {c.lesson_topic ?? c.subject ?? "Progress Update"}
                         </p>
                         <span className="shrink-0 text-label-sm text-sc-gray-400">{fmtDate(c.recorded_date)}</span>
                       </div>

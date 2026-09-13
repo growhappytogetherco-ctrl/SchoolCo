@@ -133,7 +133,7 @@ export default async function PortalChildDetailPage({
 
   const [entries, attendanceHistory, checkins, goals, medical] = await Promise.all([
     getStudentTimelineForParent(id, orgId),
-    getAttendanceHistoryForParent(id, user.id, orgId, 14),
+    getAttendanceHistoryForParent(id, user.id, orgId, 7),
     getProgressCheckinsForParent(id, user.id, orgId, 5),
     getStudentGoalsForParent(id, user.id, orgId),
     getMedicalSummaryForParent(id, user.id, orgId),
@@ -339,7 +339,7 @@ export default async function PortalChildDetailPage({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-serif text-heading-3 text-sc-navy">
-                      {c.lesson_topic ?? c.subject_area ?? "Progress Update"}
+                      {c.lesson_topic ?? c.subject ?? "Progress Update"}
                     </p>
                     <p className="text-label-sm text-sc-gray-400">{fmtDate(c.recorded_date)}</p>
                   </div>

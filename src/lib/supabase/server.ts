@@ -620,7 +620,7 @@ export async function getAttendanceHistoryForParent(
 export interface ProgressCheckin {
   id: string;
   recorded_date: string;
-  subject_area: string | null;
+  subject: string | null;
   lesson_topic: string | null;
   what_was_worked_on: string | null;
   student_response: string | null;
@@ -651,7 +651,7 @@ export async function getProgressCheckinsForParent(
 
   const { data, error } = await supabase
     .from("academic_progress")
-    .select("id, recorded_date, subject_area, lesson_topic, what_was_worked_on, student_response, progress_observed, parent_follow_up_notes, confidence_level")
+    .select("id, recorded_date, subject, lesson_topic, what_was_worked_on, student_response, progress_observed, parent_follow_up_notes, confidence_level")
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
     .eq("parent_visible", true)
