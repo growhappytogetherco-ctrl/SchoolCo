@@ -282,6 +282,24 @@ function CheckInForm({ payload, onChange, onSave, onCancel, saving, saveError }:
         )}
       </div>
 
+      {/* Share with parent */}
+      <div className="rounded-xl border border-sc-teal/20 bg-sc-teal-50 p-4">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={payload.parent_visible ?? false}
+            onChange={(e) => set("parent_visible", e.target.checked)}
+            className="mt-0.5 rounded border-sc-gray-300 text-sc-teal focus:ring-sc-teal/30"
+          />
+          <div>
+            <span className="text-label-sm font-medium text-sc-teal-700">Share with parent</span>
+            <p className="text-label-sm text-sc-teal-700/70 mt-0.5">
+              When selected, this update will appear in the family&apos;s Parent Portal.
+            </p>
+          </div>
+        </label>
+      </div>
+
       {/* Optional fields: due date */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
@@ -385,6 +403,11 @@ function CheckInCard({
             {record.parent_follow_up_required && record.status !== "completed" && (
               <span className="rounded-full bg-sc-gold-50 text-sc-gold-700 border border-sc-gold-200 px-2 py-0.5 text-label-sm font-medium flex items-center gap-1">
                 <AlertTriangle className="size-3" /> Follow-up needed
+              </span>
+            )}
+            {record.parent_visible && (
+              <span className="rounded-full bg-sc-teal-50 text-sc-teal-700 border border-sc-teal/20 px-2 py-0.5 text-label-sm font-medium">
+                Shared with parent
               </span>
             )}
           </div>
@@ -666,6 +689,7 @@ export function ProgressTab({ studentId, isAdmin }: Props) {
       confidence_level:          record.confidence_level,
       parent_follow_up_required: record.parent_follow_up_required,
       parent_follow_up_notes:    record.parent_follow_up_notes,
+      parent_visible:            record.parent_visible,
       curriculum_enrollment_id:  record.curriculum_enrollment_id,
       growth_goal_id:            record.growth_goal_id,
       assessment_id:             record.assessment_id,

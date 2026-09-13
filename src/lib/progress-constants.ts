@@ -85,6 +85,7 @@ export const BLANK_CHECKIN_PAYLOAD = {
   confidence_level:          null as ConfidenceLevel | null,
   parent_follow_up_required: false,
   parent_follow_up_notes:    null as string | null,
+  parent_visible:            false,
   curriculum_enrollment_id:  null as string | null,
   growth_goal_id:            null as string | null,
   assessment_id:             null as string | null,

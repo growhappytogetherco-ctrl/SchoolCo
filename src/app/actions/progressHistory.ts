@@ -26,6 +26,7 @@ export interface CheckIn {
   confidence_level: ConfidenceLevel | null;
   parent_follow_up_required: boolean;
   parent_follow_up_notes: string | null;
+  parent_visible: boolean;
   curriculum_enrollment_id: string | null;
   growth_goal_id: string | null;
   assessment_id: string | null;
@@ -52,6 +53,7 @@ export interface CheckInPayload {
   confidence_level: ConfidenceLevel | null;
   parent_follow_up_required: boolean;
   parent_follow_up_notes: string | null;
+  parent_visible: boolean;
   curriculum_enrollment_id: string | null;
   growth_goal_id: string | null;
   assessment_id: string | null;
@@ -98,6 +100,7 @@ function fromRow(row: Record<string, unknown>): CheckIn {
     confidence_level:          (row.confidence_level as ConfidenceLevel) ?? null,
     parent_follow_up_required: Boolean(row.parent_follow_up_required),
     parent_follow_up_notes:    (row.parent_follow_up_notes as string) ?? null,
+    parent_visible:            Boolean(row.parent_visible),
     curriculum_enrollment_id:  (row.curriculum_enrollment_id as string) ?? null,
     growth_goal_id:            (row.growth_goal_id as string) ?? null,
     assessment_id:             (row.assessment_id as string) ?? null,
@@ -147,7 +150,7 @@ export async function getCheckIns(
       check_in_type, recorded_date,
       lesson_topic, what_was_worked_on, notes,
       student_response, progress_observed, next_steps,
-      confidence_level, parent_follow_up_required, parent_follow_up_notes,
+      confidence_level, parent_follow_up_required, parent_follow_up_notes, parent_visible,
       curriculum_enrollment_id, assessment_id, growth_goal_id,
       recorded_by, staff_member_id, assigned_staff_id,
       due_date, status,
@@ -292,6 +295,7 @@ export async function createCheckIn(
     confidence_level:          payload.confidence_level || null,
     parent_follow_up_required: payload.parent_follow_up_required ?? false,
     parent_follow_up_notes:    payload.parent_follow_up_notes || null,
+    parent_visible:            payload.parent_visible ?? false,
     curriculum_enrollment_id:  payload.curriculum_enrollment_id || null,
     growth_goal_id:            payload.growth_goal_id || null,
     assessment_id:             payload.assessment_id || null,
@@ -337,6 +341,7 @@ export async function updateCheckIn(
     confidence_level:          payload.confidence_level || null,
     parent_follow_up_required: payload.parent_follow_up_required ?? false,
     parent_follow_up_notes:    payload.parent_follow_up_notes || null,
+    parent_visible:            payload.parent_visible ?? false,
     curriculum_enrollment_id:  payload.curriculum_enrollment_id || null,
     growth_goal_id:            payload.growth_goal_id || null,
     assessment_id:             payload.assessment_id || null,
