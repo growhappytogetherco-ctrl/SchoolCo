@@ -582,7 +582,7 @@ export async function getAttendanceHistoryForParent(
   studentId: string,
   userId: string,
   orgId: string,
-  limit = 14
+  days = 7
 ): Promise<AttendanceDay[]> {
   const profileId = await resolveProfileId(userId);
   const supabase = await createClient();
@@ -599,13 +599,17 @@ export async function getAttendanceHistoryForParent(
     .maybeSingle();
   if (!gd) return [];
 
+  const since = new Date();
+  since.setDate(since.getDate() - (days - 1));
+  const sinceDate = since.toISOString().split("T")[0];
+
   const { data, error } = await supabase
     .from("attendance_records")
     .select("date, status, check_in_at, check_out_at, is_late, is_early_pickup, absence_reason")
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
-    .order("date", { ascending: false })
-    .limit(limit);
+    .gte("date", sinceDate)
+    .order("date", { ascending: false });
 
   if (error) return [];
   return (data ?? []) as AttendanceDay[];

@@ -16,7 +16,7 @@ function fmtDate(d: string): string {
 
 function fmtTime(iso: string | null): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
 }
 
 function AttendanceDot({ status }: { status: string }) {
@@ -40,16 +40,16 @@ export default async function PortalAttendancePage() {
 
   const children = await getGuardianChildren(user.id, orgId);
 
-  // Fetch last 30 days for each child
+  // Fetch last 7 calendar days for each child
   const histories = await Promise.all(
-    children.map((c) => getAttendanceHistoryForParent(c.id, user.id, orgId, 30))
+    children.map((c) => getAttendanceHistoryForParent(c.id, user.id, orgId, 7))
   );
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="font-serif text-heading-1 text-sc-navy">Attendance</h1>
-        <p className="text-body-md text-sc-gray mt-1">Recent attendance history for your children.</p>
+        <p className="text-body-md text-sc-gray mt-1">Attendance for the past 7 days. Contact RLA for full history.</p>
       </div>
 
       {children.length === 0 ? (
