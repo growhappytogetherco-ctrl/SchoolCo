@@ -517,12 +517,17 @@ export async function getGradebookData(
       const grades: Record<string, import("./grading-constants").StudentGrade | null> = {};
       const assigned: Record<string, boolean> = {};
 
-      // Only include assignments that target this student in grade calculation
+      // Only include assignments that target this student in grade calculation.
+      // Legacy discrimination: if target_mode is NULL the assignment predates
+      // targeting (migration 00074). In that case zero target rows → whole-course.
+      // Post-migration assignments always have target_mode set; zero target rows
+      // (e.g. created against empty roster) means nobody is targeted — not all.
       const inputs: GradeInput[] = assignmentList
         .filter(a => {
           const targets = targetIndex.get(a.id);
-          // If no target rows exist (legacy data edge-case), treat as assigned to all
-          const isAssigned = !targets || targets.size === 0 || targets.has(student_id);
+          const isLegacy = (a as any).target_mode == null;
+          const noTargets = !targets || targets.size === 0;
+          const isAssigned = noTargets ? isLegacy : targets!.has(student_id);
           assigned[a.id] = isAssigned;
           return isAssigned;
         })

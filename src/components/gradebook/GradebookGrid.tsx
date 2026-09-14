@@ -17,6 +17,7 @@ interface Props {
   onSaveGrade: (studentId: string, assignmentId: string, status: string, points: number | null) => Promise<void>;
   onBulkStatus: (assignmentId: string, status: string, onlyBlank: boolean) => Promise<void>;
   onQuickGrade: (assignmentId: string) => void;
+  onEditTargets: (assignment: Assignment) => void;
   onEditAssignment: () => void;
 }
 
@@ -34,6 +35,7 @@ export function GradebookGrid({
   onSaveGrade,
   onBulkStatus,
   onQuickGrade,
+  onEditTargets,
   onEditAssignment,
 }: Props) {
   // Grid ref for keyboard navigation: cellRefs[rowIdx][colIdx]
@@ -113,6 +115,7 @@ export function GradebookGrid({
                     assignment={a}
                     canEdit={canEdit}
                     onQuickGrade={() => onQuickGrade(a.id)}
+                    onEditTargets={() => onEditTargets(a)}
                     onArchive={() => handleArchiveAssignment(a)}
                     onBulkStatus={(status, onlyBlank) => onBulkStatus(a.id, status, onlyBlank)}
                   />
@@ -190,12 +193,14 @@ function AssignmentHeaderCell({
   assignment,
   canEdit,
   onQuickGrade,
+  onEditTargets,
   onArchive,
   onBulkStatus,
 }: {
   assignment: Assignment;
   canEdit: boolean;
   onQuickGrade: () => void;
+  onEditTargets: () => void;
   onArchive: () => void;
   onBulkStatus: (status: string, onlyBlank: boolean) => void;
 }) {
@@ -211,6 +216,7 @@ function AssignmentHeaderCell({
         <div className="absolute right-0 top-0 opacity-0 group-hover/header:opacity-100 transition-opacity">
           <AssignmentMenu
             onQuickGrade={onQuickGrade}
+            onEditTargets={onEditTargets}
             onArchive={onArchive}
             onBulkStatus={onBulkStatus}
           />
@@ -222,10 +228,12 @@ function AssignmentHeaderCell({
 
 function AssignmentMenu({
   onQuickGrade,
+  onEditTargets,
   onArchive,
   onBulkStatus,
 }: {
   onQuickGrade: () => void;
+  onEditTargets: () => void;
   onArchive: () => void;
   onBulkStatus: (status: string, onlyBlank: boolean) => void;
 }) {
@@ -240,6 +248,12 @@ function AssignmentMenu({
           className="w-full text-left px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-100/60 transition-colors"
         >
           Quick Grade
+        </button>
+        <button
+          onClick={onEditTargets}
+          className="w-full text-left px-3 py-2 text-label-sm text-sc-navy hover:bg-sc-gray-100/60 transition-colors"
+        >
+          Edit Targets
         </button>
         <div className="border-t border-sc-gray-100 my-1" />
         <div className="px-3 py-1 text-[10px] text-sc-gray-400 font-medium uppercase tracking-wide">Mark blank as</div>

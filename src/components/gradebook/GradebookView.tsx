@@ -9,6 +9,7 @@ import { getGradebookData, upsertStudentGrade, deleteStudentGrade, bulkSetGradeS
 import { calculatePointsGrade } from "@/lib/grading/calculator";
 import { GradebookGrid } from "./GradebookGrid";
 import { CreateAssignmentDrawer } from "./CreateAssignmentDrawer";
+import { EditAssignmentTargetsDrawer } from "./EditAssignmentTargetsDrawer";
 import { QuickGradePanel } from "./QuickGradePanel";
 
 export type CellSaveState = "idle" | "saving" | "saved" | "error";
@@ -63,6 +64,7 @@ export function GradebookView({
   >(new Map());
 
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
+  const [editTargetsAssignment, setEditTargetsAssignment] = useState<Assignment | null>(null);
   const [quickGradeAssignmentId, setQuickGradeAssignmentId] = useState<string | null>(null);
 
   // Load/reload gradebook data
@@ -358,6 +360,7 @@ export function GradebookView({
           onSaveGrade={saveGrade}
           onBulkStatus={handleBulkStatus}
           onQuickGrade={(assignmentId) => setQuickGradeAssignmentId(assignmentId)}
+          onEditTargets={(assignment) => setEditTargetsAssignment(assignment)}
           onEditAssignment={() => activePeriodId && loadData(activePeriodId)}
         />
       )}
@@ -375,6 +378,20 @@ export function GradebookView({
           onClose={() => setShowCreateAssignment(false)}
           onCreated={() => {
             setShowCreateAssignment(false);
+            if (activePeriodId) loadData(activePeriodId);
+          }}
+        />
+      )}
+
+      {/* Edit Assignment Targets Drawer */}
+      {editTargetsAssignment && (
+        <EditAssignmentTargetsDrawer
+          assignment={editTargetsAssignment}
+          orgId={orgId}
+          roster={roster}
+          onClose={() => setEditTargetsAssignment(null)}
+          onUpdated={() => {
+            setEditTargetsAssignment(null);
             if (activePeriodId) loadData(activePeriodId);
           }}
         />

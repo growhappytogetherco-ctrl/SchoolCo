@@ -50,7 +50,7 @@ export interface Assignment {
   points_possible:   number;
   is_graded:         boolean;
   status:            string;
-  target_mode:       "all" | "selected";
+  target_mode:       "all" | "selected" | null;
   created_by:        string | null;
   created_at:        string;
   updated_at:        string;
