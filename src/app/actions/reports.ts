@@ -221,14 +221,26 @@ async function computeCoursesForPeriod(
     const gradingMethod = (sec.grading_method ?? "points") as "points" | "weighted";
     const categoryWeights = sec.category_weights as CategoryWeights | null;
 
-    const { data: assignments } = await supabase
+    const { data: allAssignments } = await supabase
       .from("assignments")
       .select("id, points_possible, is_graded, category")
       .eq("course_section_id", sectionId)
       .eq("grading_period_id", periodId)
       .eq("status", "active");
 
-    const aList = (assignments ?? []) as Array<{ id: string; points_possible: number; is_graded: boolean; category: string }>;
+    const allAList = (allAssignments ?? []) as Array<{ id: string; points_possible: number; is_graded: boolean; category: string }>;
+    // Filter to only assignments targeting this student
+    const targetedIds = new Set<string>();
+    if (allAList.length > 0) {
+      const { data: tgts } = await supabase
+        .from("assignment_student_targets")
+        .select("assignment_id")
+        .eq("student_id", studentId)
+        .in("assignment_id", allAList.map((a) => a.id));
+      for (const t of tgts ?? []) targetedIds.add((t as any).assignment_id);
+    }
+    const aList = allAList.filter((a) => targetedIds.has(a.id) || targetedIds.size === 0);
+
     const gradeMap = new Map<string, { points_earned: number | null; grade_status: string }>();
     if (aList.length > 0) {
       const { data: grades } = await supabase
@@ -304,13 +316,25 @@ async function computeCoursesForSemester(
     const rawQuarterResults: QuarterGradeResult[] = [];
 
     for (const q of quarterList) {
-      const { data: assignments } = await supabase
+      const { data: allAssignmentsQ } = await supabase
         .from("assignments")
         .select("id, points_possible, is_graded, category")
         .eq("course_section_id", sectionId)
         .eq("grading_period_id", q.id)
         .eq("status", "active");
-      const aList = (assignments ?? []) as Array<{ id: string; points_possible: number; is_graded: boolean; category: string }>;
+      const allAListQ = (allAssignmentsQ ?? []) as Array<{ id: string; points_possible: number; is_graded: boolean; category: string }>;
+      // Filter to only assignments targeting this student
+      const targetedIdsQ = new Set<string>();
+      if (allAListQ.length > 0) {
+        const { data: tgtsQ } = await supabase
+          .from("assignment_student_targets")
+          .select("assignment_id")
+          .eq("student_id", studentId)
+          .in("assignment_id", allAListQ.map((a) => a.id));
+        for (const t of tgtsQ ?? []) targetedIdsQ.add((t as any).assignment_id);
+      }
+      const aList = allAListQ.filter((a) => targetedIdsQ.has(a.id) || targetedIdsQ.size === 0);
+
       const gradeMap = new Map<string, { points_earned: number | null; grade_status: string }>();
       if (aList.length > 0) {
         const { data: grades } = await supabase

@@ -279,7 +279,7 @@ export async function getStudentGradeProfile(
       const gradingMethod = (sec.grading_method ?? "points") as "points" | "weighted";
       const categoryWeights = sec.category_weights as CategoryWeights | null;
 
-      // Load assignments for this section + period
+      // Load assignments for this section + period that target this student
       const { data: assignments } = await supabase
         .from("assignments")
         .select("id, points_possible, is_graded, category")
@@ -287,9 +287,25 @@ export async function getStudentGradeProfile(
         .eq("grading_period_id", activePeriodId)
         .eq("status", "active");
 
-      const assignmentList = (assignments ?? []) as Array<{
+      const allAssignments = (assignments ?? []) as Array<{
         id: string; points_possible: number; is_graded: boolean; category: string;
       }>;
+      const allAssignmentIds = allAssignments.map((a) => a.id);
+
+      // Filter to only assignments targeting this student
+      const targetedIds = new Set<string>();
+      if (allAssignmentIds.length > 0) {
+        const { data: targets } = await supabase
+          .from("assignment_student_targets")
+          .select("assignment_id")
+          .eq("student_id", studentId)
+          .in("assignment_id", allAssignmentIds);
+        for (const t of targets ?? []) targetedIds.add((t as any).assignment_id);
+      }
+      // Legacy: if no targets exist for an assignment, treat as targeted (backfill gap protection)
+      const assignmentList = allAssignments.filter(
+        (a) => targetedIds.has(a.id) || targetedIds.size === 0
+      );
       const assignmentIds = assignmentList.map((a) => a.id);
 
       // Load grades for this student
@@ -380,8 +396,8 @@ export async function getStudentCourseGradeDetail(
     const gradingMethod = ((section as any).grading_method ?? "points") as "points" | "weighted";
     const categoryWeights = (section as any).category_weights as CategoryWeights | null;
 
-    // Assignments for this period
-    const { data: assignments } = await supabase
+    // Assignments for this period — only those targeting this student
+    const { data: allAssignments } = await supabase
       .from("assignments")
       .select("id, title, category, due_date, assigned_date, points_possible, is_graded")
       .eq("course_section_id", courseSectionId)
@@ -390,11 +406,27 @@ export async function getStudentCourseGradeDetail(
       .order("assigned_date", { ascending: true })
       .order("created_at", { ascending: true });
 
-    const assignmentList = (assignments ?? []) as Array<{
+    const allAssignmentsFull = (allAssignments ?? []) as Array<{
       id: string; title: string; category: string;
       due_date: string | null; assigned_date: string;
       points_possible: number; is_graded: boolean;
     }>;
+    const allAssignmentIds = allAssignmentsFull.map((a) => a.id);
+
+    // Load targets for this student
+    const targetedIds = new Set<string>();
+    if (allAssignmentIds.length > 0) {
+      const { data: targets } = await supabase
+        .from("assignment_student_targets")
+        .select("assignment_id")
+        .eq("student_id", studentId)
+        .in("assignment_id", allAssignmentIds);
+      for (const t of targets ?? []) targetedIds.add((t as any).assignment_id);
+    }
+    // Legacy protection: if no target rows, include all
+    const assignmentList = allAssignmentsFull.filter(
+      (a) => targetedIds.has(a.id) || targetedIds.size === 0
+    );
     const assignmentIds = assignmentList.map((a) => a.id);
 
     // Grades — teacher_note intentionally excluded

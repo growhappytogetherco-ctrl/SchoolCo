@@ -67,6 +67,7 @@ export default async function GradebookPage({
         gradeScaleLevels={ctx.gradeScaleLevels}
         canEdit={ctx.canEdit}
         studentCount={roster.length}
+        roster={roster.map(s => ({ studentId: s.student_id, studentName: s.student_name }))}
       />
     </div>
   );

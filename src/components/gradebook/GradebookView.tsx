@@ -18,6 +18,11 @@ export interface LocalGradeState {
   cellState: CellSaveState;
 }
 
+interface RosterStudent {
+  studentId: string;
+  studentName: string;
+}
+
 interface Props {
   orgId: string;
   courseSectionId: string;
@@ -30,6 +35,7 @@ interface Props {
   gradeScaleLevels: GradeScaleLevel[];
   canEdit: boolean;
   studentCount: number;
+  roster: RosterStudent[];
 }
 
 export function GradebookView({
@@ -44,6 +50,7 @@ export function GradebookView({
   gradeScaleLevels,
   canEdit,
   studentCount,
+  roster,
 }: Props) {
   const [activePeriodId, setActivePeriodId] = useState<string | null>(initialPeriodId);
   const [data, setData] = useState<GradebookData | null>(null);
@@ -89,21 +96,24 @@ export function GradebookView({
   }
 
   // Compute current quarter grade for a student from local + server data
+  // Only includes assignments that are targeted at this student.
   function computeQuarterGrade(studentId: string) {
     if (!data) return null;
     const row = data.studentRows.find(r => r.studentId === studentId);
     if (!row) return null;
-    const inputs: GradeInput[] = data.assignments.map(a => {
-      const g = getEffectiveGrade(studentId, a.id);
-      return {
-        assignment_id:   a.id,
-        points_possible: a.points_possible,
-        points_earned:   g?.grade_status === "graded" ? (g.points_earned ?? null) : null,
-        grade_status:    (g?.grade_status ?? "not_graded") as any,
-        category:        a.category as any,
-        is_graded:       a.is_graded,
-      };
-    });
+    const inputs: GradeInput[] = data.assignments
+      .filter(a => row.assigned[a.id] !== false)  // skip not-assigned
+      .map(a => {
+        const g = getEffectiveGrade(studentId, a.id);
+        return {
+          assignment_id:   a.id,
+          points_possible: a.points_possible,
+          points_earned:   g?.grade_status === "graded" ? (g.points_earned ?? null) : null,
+          grade_status:    (g?.grade_status ?? "not_graded") as any,
+          category:        a.category as any,
+          is_graded:       a.is_graded,
+        };
+      });
     return calculatePointsGrade(inputs, gradeScaleLevels);
   }
 
@@ -203,11 +213,13 @@ export function GradebookView({
 
   async function handleBulkStatus(assignmentId: string, status: string, onlyBlank: boolean) {
     if (!data) return;
+    // Only act on students who are assigned this assignment
+    const assignedRows = data.studentRows.filter(r => r.assigned[assignmentId] !== false);
     const targetStudents = onlyBlank
-      ? data.studentRows
+      ? assignedRows
           .filter(r => !getEffectiveGrade(r.studentId, assignmentId))
           .map(r => r.studentId)
-      : data.studentRows.map(r => r.studentId);
+      : assignedRows.map(r => r.studentId);
 
     if (targetStudents.length === 0) return;
 
@@ -359,6 +371,7 @@ export function GradebookView({
           periodName={activePeriod?.name ?? ""}
           periodStart={activePeriod?.start_date ?? ""}
           periodEnd={activePeriod?.end_date ?? ""}
+          roster={roster}
           onClose={() => setShowCreateAssignment(false)}
           onCreated={() => {
             setShowCreateAssignment(false);
@@ -367,15 +380,17 @@ export function GradebookView({
         />
       )}
 
-      {/* Quick Grade Panel */}
+      {/* Quick Grade Panel — shows only students assigned this assignment */}
       {quickGradeAssignment && data && (
         <QuickGradePanel
           assignment={quickGradeAssignment}
-          students={data.studentRows.map(r => ({
-            studentId: r.studentId,
-            studentName: r.studentName,
-            grade: getEffectiveGrade(r.studentId, quickGradeAssignment.id),
-          }))}
+          students={data.studentRows
+            .filter(r => r.assigned[quickGradeAssignment.id] !== false)
+            .map(r => ({
+              studentId: r.studentId,
+              studentName: r.studentName,
+              grade: getEffectiveGrade(r.studentId, quickGradeAssignment.id),
+            }))}
           canEdit={canEdit}
           onSaveGrade={saveGrade}
           onClose={() => setQuickGradeAssignmentId(null)}

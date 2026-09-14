@@ -50,6 +50,7 @@ export interface Assignment {
   points_possible:   number;
   is_graded:         boolean;
   status:            string;
+  target_mode:       "all" | "selected";
   created_by:        string | null;
   created_at:        string;
   updated_at:        string;
@@ -80,6 +81,10 @@ export interface CreateAssignmentPayload {
   pointsPossible:  number;
   isGraded?:       boolean;
   gradingPeriodId?: string;  // optional override; auto-resolved from assignedDate if omitted
+  targetMode:      "all" | "selected";
+  targetStudentIds?: string[];  // required when targetMode='selected'
+  // When targetMode='all', caller passes enrolled student IDs to snapshot into targets
+  enrolledStudentIds?: string[];
 }
 
 export interface UpsertGradePayload {
@@ -102,6 +107,7 @@ export interface GradebookData {
 export interface GradebookStudentRow {
   studentId:   string;
   studentName: string;
-  grades:      Record<string, StudentGrade | null>;  // keyed by assignment_id
+  grades:      Record<string, StudentGrade | null>;  // keyed by assignment_id; null = assigned but not graded
+  assigned:    Record<string, boolean>;              // keyed by assignment_id; false = not assigned (N/A)
   quarterGrade: import("@/lib/grading/types").QuarterGradeResult | null;
 }

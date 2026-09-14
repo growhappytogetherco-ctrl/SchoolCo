@@ -150,6 +150,8 @@ export async function createAssignment(
       periodId = resolved as string;
     }
 
+    const targetMode = payload.targetMode ?? "all";
+
     const { data, error } = await supabase
       .from("assignments")
       .insert({
@@ -163,13 +165,37 @@ export async function createAssignment(
         due_date:          payload.dueDate ?? null,
         points_possible:   payload.pointsPossible,
         is_graded:         payload.isGraded ?? true,
+        target_mode:       targetMode,
         created_by:        userId,
       })
       .select()
       .single();
 
     if (error) throw error;
-    revalidatePath("/dashboard/gradebook");
+
+    // Snapshot targets
+    const targetIds: string[] =
+      targetMode === "selected"
+        ? (payload.targetStudentIds ?? [])
+        : (payload.enrolledStudentIds ?? []);
+
+    if (targetIds.length > 0) {
+      const targetRows = targetIds.map(sid => ({
+        organization_id: payload.orgId,
+        assignment_id:   (data as any).id,
+        student_id:      sid,
+      }));
+      const { error: tErr } = await supabase
+        .from("assignment_student_targets")
+        .insert(targetRows);
+      if (tErr) {
+        // Roll back the assignment to avoid orphaned record
+        await supabase.from("assignments").delete().eq("id", (data as any).id);
+        throw new Error("Failed to save assignment targets: " + tErr.message);
+      }
+    }
+
+    revalidatePath("/dashboard/courses");
     return { success: true, data };
   } catch (e) {
     return { success: false, error: String(e) };
@@ -462,6 +488,22 @@ export async function getGradebookData(
       : { data: [], error: null };
     if (gErr) throw gErr;
 
+    // Fetch assignment_student_targets for these assignments
+    const { data: allTargets, error: tErr } = assignmentIds.length > 0
+      ? await supabase
+          .from("assignment_student_targets")
+          .select("assignment_id, student_id")
+          .in("assignment_id", assignmentIds)
+      : { data: [], error: null };
+    if (tErr) throw tErr;
+
+    // Index targets: assignment_id → Set of student_ids
+    const targetIndex = new Map<string, Set<string>>();
+    for (const t of allTargets ?? []) {
+      if (!targetIndex.has(t.assignment_id)) targetIndex.set(t.assignment_id, new Set());
+      targetIndex.get(t.assignment_id)!.add(t.student_id);
+    }
+
     // Index grades: student_id → assignment_id → grade row
     const gradeIndex = new Map<string, Map<string, import("./grading-constants").StudentGrade>>();
     for (const g of allGrades ?? []) {
@@ -473,22 +515,37 @@ export async function getGradebookData(
     const studentRows: import("./grading-constants").GradebookStudentRow[] = studentList.map(({ student_id, student_name }) => {
       const studentGradeMap = gradeIndex.get(student_id) ?? new Map();
       const grades: Record<string, import("./grading-constants").StudentGrade | null> = {};
+      const assigned: Record<string, boolean> = {};
 
-      const inputs: GradeInput[] = assignmentList.map(a => {
-        const g = studentGradeMap.get(a.id) ?? null;
-        grades[a.id] = g;
-        return {
-          assignment_id:   a.id,
-          points_possible: a.points_possible,
-          points_earned:   g?.points_earned ?? null,
-          grade_status:    (g?.grade_status ?? "not_graded") as import("@/lib/grading/types").GradeStatus,
-          category:        a.category as import("@/lib/grading/types").AssignmentCategory,
-          is_graded:       a.is_graded,
-        };
-      });
+      // Only include assignments that target this student in grade calculation
+      const inputs: GradeInput[] = assignmentList
+        .filter(a => {
+          const targets = targetIndex.get(a.id);
+          // If no target rows exist (legacy data edge-case), treat as assigned to all
+          const isAssigned = !targets || targets.size === 0 || targets.has(student_id);
+          assigned[a.id] = isAssigned;
+          return isAssigned;
+        })
+        .map(a => {
+          const g = studentGradeMap.get(a.id) ?? null;
+          grades[a.id] = g;
+          return {
+            assignment_id:   a.id,
+            points_possible: a.points_possible,
+            points_earned:   g?.points_earned ?? null,
+            grade_status:    (g?.grade_status ?? "not_graded") as import("@/lib/grading/types").GradeStatus,
+            category:        a.category as import("@/lib/grading/types").AssignmentCategory,
+            is_graded:       a.is_graded,
+          };
+        });
+
+      // Mark non-assigned assignments explicitly
+      for (const a of assignmentList) {
+        if (!(a.id in assigned)) assigned[a.id] = false;
+      }
 
       const quarterGrade = calculatePointsGrade(inputs, scale);
-      return { studentId: student_id, studentName: student_name, grades, quarterGrade };
+      return { studentId: student_id, studentName: student_name, grades, assigned, quarterGrade };
     });
 
     return {
@@ -650,6 +707,124 @@ export async function deleteStudentGrade(
     if (error) throw error;
     revalidatePath("/dashboard/courses");
     return { success: true, data: undefined };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+// ── Assignment targeting ──────────────────────────────────────────────────────
+
+export async function getAssignmentTargets(
+  assignmentId: string,
+  orgId: string
+): Promise<ActionResult<string[]>> {
+  try {
+    const { supabase } = await assertStaff(orgId);
+    const { data, error } = await supabase
+      .from("assignment_student_targets")
+      .select("student_id")
+      .eq("assignment_id", assignmentId)
+      .eq("organization_id", orgId);
+    if (error) throw error;
+    return { success: true, data: (data ?? []).map(r => r.student_id) };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+// Update which students an assignment targets.
+// studentIds must be from the course roster.
+// If a student being removed already has a grade, the caller is responsible for
+// confirming with the user before calling this function (UI-level guard).
+// This function removes both the target row AND the grade row for removed students.
+export async function updateAssignmentTargets(payload: {
+  assignmentId: string;
+  orgId: string;
+  targetMode: "all" | "selected";
+  studentIds: string[];  // the complete desired target list
+  removeGradesForRemovedStudents: boolean;
+}): Promise<ActionResult<void>> {
+  try {
+    const { supabase } = await assertStaff(payload.orgId);
+
+    // Get existing targets
+    const { data: existing } = await supabase
+      .from("assignment_student_targets")
+      .select("student_id")
+      .eq("assignment_id", payload.assignmentId)
+      .eq("organization_id", payload.orgId);
+
+    const existingSet = new Set((existing ?? []).map(r => r.student_id));
+    const desiredSet  = new Set(payload.studentIds);
+
+    const toAdd    = payload.studentIds.filter(id => !existingSet.has(id));
+    const toRemove = [...existingSet].filter(id => !desiredSet.has(id));
+
+    // Add new targets
+    if (toAdd.length > 0) {
+      const rows = toAdd.map(sid => ({
+        organization_id: payload.orgId,
+        assignment_id:   payload.assignmentId,
+        student_id:      sid,
+      }));
+      const { error } = await supabase
+        .from("assignment_student_targets")
+        .insert(rows);
+      if (error) throw error;
+    }
+
+    // Remove dropped targets (and optionally their grades)
+    if (toRemove.length > 0) {
+      const { error } = await supabase
+        .from("assignment_student_targets")
+        .delete()
+        .eq("assignment_id", payload.assignmentId)
+        .eq("organization_id", payload.orgId)
+        .in("student_id", toRemove);
+      if (error) throw error;
+
+      if (payload.removeGradesForRemovedStudents) {
+        await supabase
+          .from("student_assignment_grades")
+          .delete()
+          .eq("assignment_id", payload.assignmentId)
+          .eq("organization_id", payload.orgId)
+          .in("student_id", toRemove);
+      }
+    }
+
+    // Update target_mode on the assignment
+    await supabase
+      .from("assignments")
+      .update({ target_mode: payload.targetMode })
+      .eq("id", payload.assignmentId)
+      .eq("organization_id", payload.orgId);
+
+    revalidatePath("/dashboard/courses");
+    return { success: true, data: undefined };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+// Check which students in a list already have grades for a given assignment
+export async function getStudentsWithGrades(
+  assignmentId: string,
+  studentIds: string[],
+  orgId: string
+): Promise<ActionResult<string[]>> {
+  try {
+    const { supabase } = await assertStaff(orgId);
+    if (studentIds.length === 0) return { success: true, data: [] };
+    const { data, error } = await supabase
+      .from("student_assignment_grades")
+      .select("student_id")
+      .eq("assignment_id", assignmentId)
+      .eq("organization_id", orgId)
+      .in("student_id", studentIds)
+      .eq("grade_status", "graded");
+    if (error) throw error;
+    return { success: true, data: (data ?? []).map(r => r.student_id) };
   } catch (e) {
     return { success: false, error: String(e) };
   }

@@ -142,21 +142,33 @@ export function GradebookGrid({
                   </td>
 
                   {/* Grade cells */}
-                  {data.assignments.map((a, colIdx) => (
-                    <td key={a.id} className="px-1 py-1 text-center">
-                      <GradeCell
-                        grade={getEffectiveGrade(row.studentId, a.id)}
-                        saveState={getCellSaveState(row.studentId, a.id)}
-                        pointsPossible={a.points_possible}
-                        canEdit={canEdit}
-                        cellRef={el => setCellRef(row.studentId, a.id, el)}
-                        onSave={(status, points) =>
-                          onSaveGrade(row.studentId, a.id, status, points)
-                        }
-                        onKeyNav={(e) => handleKeyNavigation(e, rowIdx, colIdx)}
-                      />
-                    </td>
-                  ))}
+                  {data.assignments.map((a, colIdx) => {
+                    const isAssigned = row.assigned[a.id] !== false;
+                    return (
+                      <td key={a.id} className="px-1 py-1 text-center">
+                        {isAssigned ? (
+                          <GradeCell
+                            grade={getEffectiveGrade(row.studentId, a.id)}
+                            saveState={getCellSaveState(row.studentId, a.id)}
+                            pointsPossible={a.points_possible}
+                            canEdit={canEdit}
+                            cellRef={el => setCellRef(row.studentId, a.id, el)}
+                            onSave={(status, points) =>
+                              onSaveGrade(row.studentId, a.id, status, points)
+                            }
+                            onKeyNav={(e) => handleKeyNavigation(e, rowIdx, colIdx)}
+                          />
+                        ) : (
+                          <span
+                            className="text-sc-gray-400 text-label-sm px-2"
+                            title="Not assigned to this student"
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
 
                   {/* Current quarter grade */}
                   <td className="px-4 py-2 text-right">
