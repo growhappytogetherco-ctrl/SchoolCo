@@ -22,6 +22,7 @@ async function assertStaff(orgId: string) {
   const user = await getUser();
   if (!user) throw new Error("Unauthenticated");
 
+  // Resolve canonical profiles.id — stub accounts have profiles.id ≠ auth.uid()
   const profileId = await resolveProfileId(user.id);
   const { data: member } = await supabase
     .from("organization_members")
@@ -35,7 +36,8 @@ async function assertStaff(orgId: string) {
   if (!member || !staffRoles.includes((member as any).role)) {
     throw new Error("Insufficient permissions");
   }
-  return { supabase, userId: user.id };
+  // Return profileId (profiles.id) — required for FK columns like created_by/updated_by
+  return { supabase, userId: profileId };
 }
 
 // ── Grade scale loader ────────────────────────────────────────────────────────
