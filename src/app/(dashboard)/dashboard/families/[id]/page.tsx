@@ -496,10 +496,11 @@ interface GuardianshipRow {
 }
 
 interface ProfileRow {
-  id:         string;
-  full_name:  string | null;
-  email:      string | null;
-  phone:      string | null;
+  id:           string;
+  full_name:    string | null;
+  email:        string | null;
+  phone:        string | null;
+  auth_user_id: string | null;
 }
 
 interface StudentRow {

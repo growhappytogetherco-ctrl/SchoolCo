@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpen } from "lucide-react";
-import { clearMustChangePassword } from "@/app/actions/staffLogin";
+import { completePasswordSetup } from "@/app/actions/parentLogin";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -26,13 +26,13 @@ export default function ChangePasswordPage() {
     setError("");
 
     startTransition(async () => {
-      const result = await clearMustChangePassword(password);
+      const result = await completePasswordSetup(password);
       if (!result.success) {
         setError(result.error ?? "Failed to update password. Please try again.");
         return;
       }
       setSuccess(true);
-      setTimeout(() => router.push("/select-mission"), 1500);
+      setTimeout(() => router.push(result.data.redirectTo), 1500);
     });
   }
 

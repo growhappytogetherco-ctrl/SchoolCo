@@ -483,17 +483,18 @@ function GuardianPersonCard({
           </div>
         </div>
 
-        {/* ── Portal status — ALWAYS visible ── */}
+        {/* ── Login & Access — ALWAYS visible ── */}
         {canManage && (
-          <div className="mx-4 mb-3 rounded-lg border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-label-sm font-semibold text-sc-gray-400 uppercase tracking-wide shrink-0">
-              Parent Portal
+          <div className="mx-4 mb-3 rounded-lg border border-sc-gray-100 bg-sc-gray-50 px-3 py-2.5 space-y-2">
+            <p className="text-label-sm font-semibold text-sc-gray-400 uppercase tracking-wide">
+              Login &amp; Access
             </p>
             <GuardianPortalControls
               profileId={group.profile_id}
               familyId={familyId}
               status={group.portal_status}
               hasEmail={!!group.email}
+              hasAuth={group.has_auth}
               guardianName={group.full_name}
               guardianEmail={group.email}
               previewStudents={previewStudents}

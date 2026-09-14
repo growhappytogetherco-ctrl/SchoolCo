@@ -2,179 +2,170 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, UserX, UserCheck, GraduationCap, Home, Pencil, X, ShieldCheck } from "lucide-react";
+import {
+  Mail, UserX, UserCheck, GraduationCap, Home, Pencil, X,
+  KeyRound, UserPlus, Send, Eye, EyeOff,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setPortalAccess } from "@/app/actions/guardians";
-import { inviteParentPortalUser } from "@/app/actions/inviteParentPortalUser";
 import { grantStaffAccess } from "@/app/actions/staffManagement";
+import {
+  adminCreateParentAccount,
+  adminSetParentTempPassword,
+  adminSendParentPasswordSetupLink,
+  adminDisableParentLogin,
+  adminEnableParentLogin,
+} from "@/app/actions/parentLogin";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// PortalStatus: derived from organization_members.status
 export type PortalStatus = "no_account" | "invited" | "active" | "disabled";
+
+// LoginStatus: computed from PortalStatus + hasAuth
+export type LoginStatus = "no_login" | "setup_required" | "active" | "disabled";
 
 export interface PortalPreviewStudent {
   name:      string;
   household: string | null;
 }
 
-// ── Derived display status ─────────────────────────────────────────────────────
+// ── Derive internal login status ──────────────────────────────────────────────
 
-type DisplayStatus =
-  | "missing_email"
-  | "ready"
-  | "invited"
-  | "active"
-  | "disabled"
-  | "staff_active";
-
-function deriveDisplayStatus(
-  portalStatus: PortalStatus,
-  hasEmail:     boolean,
-  isStaff:      boolean,
-): DisplayStatus {
-  if (isStaff && portalStatus === "active") return "staff_active";
-  if (portalStatus === "no_account" && !hasEmail) return "missing_email";
-  if (portalStatus === "no_account" && hasEmail)  return "ready";
-  if (portalStatus === "invited")  return "invited";
-  if (portalStatus === "active")   return "active";
-  if (portalStatus === "disabled") return "disabled";
-  return "missing_email";
+function deriveLoginStatus(portal: PortalStatus, hasAuth: boolean): LoginStatus {
+  if (portal === "active")   return "active";
+  if (portal === "disabled") return "disabled";
+  if (hasAuth)               return "setup_required"; // auth exists but not fully active
+  return "no_login";
 }
 
-const STATUS_UI: Record<DisplayStatus, { label: string; dot: string; text: string }> = {
-  missing_email: { label: "Missing Email",    dot: "bg-sc-gray-300",   text: "text-sc-gray"      },
-  ready:         { label: "Ready to Invite",  dot: "bg-sc-teal",       text: "text-sc-teal-700"  },
-  invited:       { label: "Invitation Sent",  dot: "bg-sc-gold-500",   text: "text-sc-gold-700"  },
-  active:        { label: "Active",           dot: "bg-green-500",     text: "text-green-700"    },
-  staff_active:  { label: "Active (Staff)",   dot: "bg-sc-navy",       text: "text-sc-navy"      },
-  disabled:      { label: "Disabled",         dot: "bg-sc-rose",       text: "text-sc-rose-700"  },
+const LOGIN_STATUS_UI: Record<LoginStatus, { label: string; dot: string; text: string }> = {
+  no_login:      { label: "No Login",        dot: "bg-sc-gray-300",  text: "text-sc-gray-400"   },
+  setup_required:{ label: "Setup Required",  dot: "bg-sc-gold-500",  text: "text-sc-gold-700"   },
+  active:        { label: "Active",          dot: "bg-green-500",    text: "text-green-700"     },
+  disabled:      { label: "Disabled",        dot: "bg-sc-rose",      text: "text-sc-rose-700"   },
 };
 
-// ── Invite confirmation dialog ─────────────────────────────────────────────────
+// ── Temp-password modal (shared by Create and Reset) ─────────────────────────
 
-function PortalInviteDialog({
-  profileId,
-  familyId,
-  guardianName,
-  guardianEmail,
-  previewStudents,
-  isResend,
+function TempPasswordModal({
+  title,
+  description,
+  email,
+  onConfirm,
   onClose,
 }: {
-  profileId:       string;
-  familyId:        string;
-  guardianName:    string;
-  guardianEmail:   string;
-  previewStudents: PortalPreviewStudent[];
-  isResend:        boolean;
-  onClose:         () => void;
+  title:       string;
+  description: string;
+  email:       string | null;
+  onConfirm:   (password: string) => void;
+  onClose:     () => void;
 }) {
-  const router = useRouter();
-  const [sending, startSend] = useTransition();
-  const [error,   setError]  = useState<string | null>(null);
-  const [sent,    setSent]   = useState(false);
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw]     = useState(false);
+  const [localErr, setLocalErr] = useState("");
 
-  // Group students by household for cleaner preview
-  const byHousehold: Record<string, string[]> = {};
-  for (const s of previewStudents) {
-    const hh = s.household ?? "No Household Assigned";
-    if (!byHousehold[hh]) byHousehold[hh] = [];
-    byHousehold[hh].push(s.name);
-  }
-
-  function confirm() {
-    startSend(async () => {
-      setError(null);
-      try {
-        const result = await inviteParentPortalUser({ profile_id: profileId, family_id: familyId });
-        if (!result.success) { setError(result.error ?? "Failed to send invite."); return; }
-        setSent(true);
-        // router.refresh() is called client-side after success — invite does not depend on page re-render
-        setTimeout(() => { onClose(); router.refresh(); }, 1500);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "An unexpected error occurred.");
-      }
-    });
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) { setLocalErr("Password must be at least 8 characters."); return; }
+    setLocalErr("");
+    onConfirm(password);
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-sc-navy/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
-
+      <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-sc-gray-100 bg-sc-navy">
-          <h2 className="font-serif text-heading-3 text-white">
-            {isResend ? "Resend Portal Invitation" : "Invite to Parent Portal"}
-          </h2>
+          <h2 className="font-serif text-heading-3 text-white">{title}</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/10">
             <X className="size-4 text-white" />
           </button>
         </div>
-
         <div className="p-5 space-y-4">
-          {sent ? (
-            <div className="rounded-xl bg-sc-teal-50 border border-sc-teal-200 p-4 text-center">
-              <p className="text-label-md font-semibold text-sc-teal-700">Invitation sent!</p>
-              <p className="text-label-sm text-sc-teal mt-0.5">{guardianEmail}</p>
+          <p className="text-body-sm text-sc-gray">{description}</p>
+          {email && (
+            <div className="rounded-lg border border-sc-gray-100 bg-sc-gray-50 px-4 py-3">
+              <p className="text-label-sm text-sc-gray-400 uppercase tracking-wide font-semibold mb-0.5">Guardian Email</p>
+              <p className="text-label-sm text-sc-navy">{email}</p>
             </div>
-          ) : (
-            <>
-              {/* Guardian */}
-              <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-4 py-3">
-                <p className="text-label-sm text-sc-gray-400 uppercase tracking-wide font-semibold mb-1">Guardian</p>
-                <p className="font-serif text-heading-3 text-sc-navy">{guardianName}</p>
-                <p className="flex items-center gap-1.5 text-label-sm text-sc-gray mt-0.5">
-                  <Mail className="size-3" /> {guardianEmail}
-                </p>
-              </div>
-
-              {/* Access preview */}
-              <div className="space-y-3">
-                <p className="text-label-sm text-sc-gray-400 uppercase tracking-wide font-semibold">Portal Access Preview</p>
-                {Object.keys(byHousehold).length === 0 ? (
-                  <p className="text-label-sm text-sc-gray italic">No student relationships found.</p>
-                ) : (
-                  Object.entries(byHousehold).map(([hh, students]) => (
-                    <div key={hh} className="rounded-xl border border-sc-gray-100 bg-white p-3 space-y-2">
-                      <p className="flex items-center gap-1.5 text-label-sm font-semibold text-sc-navy">
-                        <Home className="size-3.5" /> {hh}
-                      </p>
-                      <ul className="space-y-1">
-                        {students.map((s) => (
-                          <li key={s} className="flex items-center gap-1.5 text-label-sm text-sc-gray ml-5">
-                            <GraduationCap className="size-3" /> {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {isResend && (
-                <p className="text-label-sm text-sc-gray bg-sc-gold-50 border border-sc-gold-200 rounded-lg px-3 py-2">
-                  A new invitation email will be sent. This does not create a duplicate account.
-                </p>
-              )}
-
-              {error && (
-                <p className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">{error}</p>
-              )}
-
-              <div className="flex gap-3 pt-1">
-                <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-                <Button
-                  className="flex-1 bg-sc-teal hover:bg-sc-teal-700"
-                  disabled={sending}
-                  onClick={confirm}
-                >
-                  <Mail className="size-3.5 mr-1.5" />
-                  {sending ? "Sending…" : isResend ? "Resend Invitation" : "Send Invitation"}
-                </Button>
-              </div>
-            </>
           )}
+          <form onSubmit={submit} className="space-y-3">
+            {localErr && (
+              <p className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">{localErr}</p>
+            )}
+            <div>
+              <label className="block text-label-sm font-medium text-sc-navy mb-1.5">Temporary Password</label>
+              <div className="relative">
+                <input
+                  type={showPw ? "text" : "password"}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  placeholder="Min. 8 characters"
+                  autoFocus
+                  className="w-full rounded-lg border border-sc-gray-200 px-3 py-2.5 pr-10 text-sc-navy placeholder:text-sc-gray-400 focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sc-gray-400 hover:text-sc-navy"
+                >
+                  {showPw ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+              <p className="text-label-sm text-sc-gray-400 mt-1">
+                Guardian will be required to change this on first login.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Button type="button" variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button type="submit" className="flex-1 bg-sc-teal hover:bg-sc-teal-700">
+                <KeyRound className="size-3.5 mr-1.5" /> Set Password
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Confirm action modal (disable / enable) ───────────────────────────────────
+
+function ConfirmModal({
+  title,
+  message,
+  confirmLabel,
+  confirmClass,
+  onConfirm,
+  onClose,
+}: {
+  title:        string;
+  message:      string;
+  confirmLabel: string;
+  confirmClass: string;
+  onConfirm:    () => void;
+  onClose:      () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-sc-navy/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-sc-gray-100 bg-sc-navy">
+          <h2 className="font-serif text-heading-3 text-white">{title}</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-white/10">
+            <X className="size-4 text-white" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-body-sm text-sc-gray">{message}</p>
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+            <Button className={cn("flex-1", confirmClass)} onClick={onConfirm}>{confirmLabel}</Button>
+          </div>
         </div>
       </div>
     </div>
@@ -188,6 +179,7 @@ export function GuardianPortalControls({
   familyId,
   status,
   hasEmail,
+  hasAuth,
   guardianName,
   guardianEmail,
   previewStudents,
@@ -199,6 +191,7 @@ export function GuardianPortalControls({
   familyId:        string;
   status:          PortalStatus;
   hasEmail:        boolean;
+  hasAuth:         boolean;
   guardianName:    string;
   guardianEmail:   string | null;
   previewStudents: PortalPreviewStudent[];
@@ -207,12 +200,80 @@ export function GuardianPortalControls({
   onEditContact?:  () => void;
 }) {
   const router = useRouter();
-  const [showInvite, setShowInvite] = useState(false);
-  const [busy, startAction]         = useTransition();
-  const [error, setError]           = useState<string | null>(null);
+  const [busy, startAction] = useTransition();
+  const [error, setError]   = useState<string | null>(null);
+  const [toast, setToast]   = useState<string | null>(null);
 
-  const displayStatus = deriveDisplayStatus(status, hasEmail, isStaffMember);
-  const ui = STATUS_UI[displayStatus];
+  // Modal state
+  const [modal, setModal] = useState<
+    | "create_account"
+    | "set_temp_password"
+    | "disable_confirm"
+    | "enable_confirm"
+    | null
+  >(null);
+
+  const loginStatus = deriveLoginStatus(status, hasAuth);
+  const statusUi    = LOGIN_STATUS_UI[loginStatus];
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  }
+
+  function clearState() { setError(null); setModal(null); }
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  function handleCreateAccount(tempPassword: string) {
+    clearState();
+    startAction(async () => {
+      const r = await adminCreateParentAccount({ profileId, tempPassword });
+      if (!r.success) { setError(r.error); return; }
+      showToast(r.data.message);
+      router.refresh();
+    });
+  }
+
+  function handleSetTempPassword(tempPassword: string) {
+    clearState();
+    startAction(async () => {
+      const r = await adminSetParentTempPassword({ profileId, tempPassword });
+      if (!r.success) { setError(r.error); return; }
+      showToast(r.data.message);
+      router.refresh();
+    });
+  }
+
+  function handleSendSetupLink() {
+    setError(null);
+    startAction(async () => {
+      const r = await adminSendParentPasswordSetupLink(profileId);
+      if (!r.success) { setError(r.error); return; }
+      showToast("Setup link sent to " + (guardianEmail ?? "guardian") + ".");
+      router.refresh();
+    });
+  }
+
+  function handleDisable() {
+    clearState();
+    startAction(async () => {
+      const r = await adminDisableParentLogin(profileId);
+      if (!r.success) { setError(r.error); return; }
+      showToast("Portal access disabled.");
+      router.refresh();
+    });
+  }
+
+  function handleEnable() {
+    clearState();
+    startAction(async () => {
+      const r = await adminEnableParentLogin(profileId);
+      if (!r.success) { setError(r.error); return; }
+      showToast("Portal access re-enabled.");
+      router.refresh();
+    });
+  }
 
   async function handleGrantStaff() {
     setError(null);
@@ -223,129 +284,210 @@ export function GuardianPortalControls({
     });
   }
 
-  async function handleDisable() {
-    setError(null);
-    startAction(async () => {
-      const r = await setPortalAccess({ profile_id: profileId, family_id: familyId, action: "disable" });
-      if (!r.success) { setError(r.error); return; }
-      router.refresh();
-    });
+  // ── Staff with parent role — simplified display ────────────────────────────
+
+  if (isStaffMember && status === "active") {
+    return (
+      <span className="text-label-sm text-sc-gray-400">
+        Access via staff account — no separate parent login needed.
+      </span>
+    );
   }
 
-  async function handleRestore() {
-    setError(null);
-    startAction(async () => {
-      const r = await setPortalAccess({ profile_id: profileId, family_id: familyId, action: "restore" });
-      if (!r.success) { setError(r.error); return; }
-      router.refresh();
-    });
-  }
+  // ── Admin Login & Access section ───────────────────────────────────────────
 
-  return (
-    <>
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Status badge */}
-        <span className={cn("flex items-center gap-1.5 text-label-sm font-medium", ui.text)}>
-          <span className={cn("inline-block h-2 w-2 rounded-full shrink-0", ui.dot)} />
-          {ui.label}
-        </span>
+  if (isAdminViewer) {
+    return (
+      <>
+        {/* Status row */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <span className={cn("flex items-center gap-1.5 text-label-sm font-semibold", statusUi.text)}>
+              <span className={cn("inline-block h-2 w-2 rounded-full shrink-0", statusUi.dot)} />
+              {statusUi.label}
+            </span>
+            {guardianEmail && (
+              <p className="flex items-center gap-1 text-label-sm text-sc-gray ml-3.5">
+                <Mail className="size-3" /> {guardianEmail}
+              </p>
+            )}
+            {!hasEmail && (
+              <p className="text-label-sm text-sc-gray-400 ml-3.5 italic">No email on file</p>
+            )}
+          </div>
 
-        {/* Actions */}
-        {displayStatus === "missing_email" && onEditContact && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-label-sm px-2.5"
-            onClick={onEditContact}
-          >
-            <Pencil className="size-3.5 mr-1" />
-            Edit Contact Info
-          </Button>
-        )}
+          {/* Primary actions */}
+          <div className="flex flex-wrap gap-1.5">
+            {loginStatus === "no_login" && (
+              <>
+                {hasEmail ? (
+                  <Button
+                    size="sm"
+                    className="h-7 text-label-sm px-2.5 bg-sc-teal hover:bg-sc-teal-700 text-white"
+                    disabled={busy}
+                    onClick={() => setModal("create_account")}
+                  >
+                    <UserPlus className="size-3.5 mr-1" />
+                    Create Login Account
+                  </Button>
+                ) : (
+                  onEditContact && (
+                    <Button size="sm" variant="outline" className="h-7 text-label-sm px-2.5" onClick={onEditContact}>
+                      <Pencil className="size-3.5 mr-1" /> Add Email First
+                    </Button>
+                  )
+                )}
+              </>
+            )}
 
-        {displayStatus === "ready" && (
-          <Button
-            size="sm"
-            className="h-7 text-label-sm px-2.5 bg-sc-teal hover:bg-sc-teal-700 text-white"
-            onClick={() => setShowInvite(true)}
-          >
-            <Mail className="size-3.5 mr-1" />
-            Invite to Parent Portal
-          </Button>
-        )}
+            {(loginStatus === "setup_required" || loginStatus === "active") && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-label-sm px-2.5"
+                  disabled={busy}
+                  onClick={() => setModal("set_temp_password")}
+                >
+                  <KeyRound className="size-3.5 mr-1" />
+                  {loginStatus === "setup_required" ? "Set Temp Password" : "Reset Password"}
+                </Button>
+                {guardianEmail && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-label-sm px-2.5"
+                    disabled={busy}
+                    onClick={handleSendSetupLink}
+                  >
+                    <Send className="size-3.5 mr-1" />
+                    Send Setup Link
+                  </Button>
+                )}
+              </>
+            )}
 
-        {displayStatus === "invited" && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-label-sm px-2.5"
-            onClick={() => setShowInvite(true)}
-          >
-            <Mail className="size-3.5 mr-1" />
-            Resend Invitation
-          </Button>
-        )}
+            {loginStatus === "active" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-label-sm px-2.5 text-sc-navy border-sc-gray-200 hover:border-sc-navy"
+                  disabled={busy}
+                  onClick={handleGrantStaff}
+                >
+                  Grant Staff Access
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-label-sm px-2.5 text-sc-rose hover:text-sc-rose-700 border-sc-rose-200 hover:border-sc-rose"
+                  disabled={busy}
+                  onClick={() => setModal("disable_confirm")}
+                >
+                  <UserX className="size-3.5 mr-1" /> Disable
+                </Button>
+              </>
+            )}
 
-        {displayStatus === "active" && (
-          <>
-            {isAdminViewer && (
+            {loginStatus === "disabled" && (
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 text-label-sm px-2.5 text-sc-navy border-sc-gray-200 hover:border-sc-navy"
+                className="h-7 text-label-sm px-2.5"
                 disabled={busy}
-                onClick={handleGrantStaff}
+                onClick={() => setModal("enable_confirm")}
               >
-                <ShieldCheck className="size-3.5 mr-1" />
-                Grant Staff Access
+                <UserCheck className="size-3.5 mr-1" /> Re-enable
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-label-sm px-2.5 text-sc-rose hover:text-sc-rose-700 border-sc-rose-200 hover:border-sc-rose"
-              disabled={busy}
-              onClick={handleDisable}
-            >
-              <UserX className="size-3.5 mr-1" />
-              Disable Access
-            </Button>
-          </>
+          </div>
+        </div>
+
+        {/* Linked students */}
+        {previewStudents.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {previewStudents.map((s) => (
+              <span
+                key={s.name}
+                className="inline-flex items-center gap-1 rounded-full bg-sc-gray-50 border border-sc-gray-100 px-2 py-0.5 text-label-sm text-sc-navy"
+              >
+                <GraduationCap className="size-3 text-sc-gray-400" /> {s.name}
+                {s.household && (
+                  <span className="text-sc-gray-400">
+                    <Home className="size-2.5 inline mx-0.5" />{s.household}
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
         )}
 
-        {displayStatus === "disabled" && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-label-sm px-2.5"
-            disabled={busy}
-            onClick={handleRestore}
-          >
-            <UserCheck className="size-3.5 mr-1" />
-            Restore Access
-          </Button>
+        {error && (
+          <p className="mt-1 rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-3 py-2 text-label-sm text-sc-rose-700">
+            {error}
+          </p>
         )}
 
-        {displayStatus === "staff_active" && (
-          <span className="text-label-sm text-sc-gray-400">
-            Access via staff account — no parent invite needed.
-          </span>
+        {toast && (
+          <p className="mt-1 rounded-lg bg-sc-teal-50 border border-sc-teal-200 px-3 py-2 text-label-sm text-sc-teal-700">
+            {toast}
+          </p>
         )}
 
-        {error && <span className="text-label-sm text-sc-rose">{error}</span>}
-      </div>
+        {/* Modals */}
+        {modal === "create_account" && (
+          <TempPasswordModal
+            title="Create Login Account"
+            description="Set a temporary password for this guardian. They will be required to change it on their first login."
+            email={guardianEmail}
+            onConfirm={handleCreateAccount}
+            onClose={clearState}
+          />
+        )}
 
-      {showInvite && guardianEmail && (
-        <PortalInviteDialog
-          profileId={profileId}
-          familyId={familyId}
-          guardianName={guardianName}
-          guardianEmail={guardianEmail}
-          previewStudents={previewStudents}
-          isResend={displayStatus === "invited"}
-          onClose={() => setShowInvite(false)}
-        />
-      )}
-    </>
+        {modal === "set_temp_password" && (
+          <TempPasswordModal
+            title={loginStatus === "active" ? "Reset Password" : "Set Temporary Password"}
+            description="Set a new temporary password. The guardian will be required to change it on next login."
+            email={guardianEmail}
+            onConfirm={handleSetTempPassword}
+            onClose={clearState}
+          />
+        )}
+
+        {modal === "disable_confirm" && (
+          <ConfirmModal
+            title="Disable Portal Access"
+            message={`This will prevent ${guardianName} from logging into the Parent Portal. Their account data is preserved.`}
+            confirmLabel="Disable Access"
+            confirmClass="bg-sc-rose hover:bg-sc-rose-700 text-white"
+            onConfirm={() => { setModal(null); handleDisable(); }}
+            onClose={clearState}
+          />
+        )}
+
+        {modal === "enable_confirm" && (
+          <ConfirmModal
+            title="Re-enable Portal Access"
+            message={`This will restore ${guardianName}'s access to the Parent Portal.`}
+            confirmLabel="Re-enable Access"
+            confirmClass="bg-sc-teal hover:bg-sc-teal-700 text-white"
+            onConfirm={() => { setModal(null); handleEnable(); }}
+            onClose={clearState}
+          />
+        )}
+      </>
+    );
+  }
+
+  // ── Non-admin view — simple status badge only ──────────────────────────────
+
+  const simpleUi = LOGIN_STATUS_UI[loginStatus];
+  return (
+    <span className={cn("flex items-center gap-1.5 text-label-sm font-medium", simpleUi.text)}>
+      <span className={cn("inline-block h-2 w-2 rounded-full shrink-0", simpleUi.dot)} />
+      {simpleUi.label}
+    </span>
   );
 }
