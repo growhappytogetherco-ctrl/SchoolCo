@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createClient, getUser, getActiveOrgId, resolveProfileId } from "@/lib/supabase/server";
 import { uploadFileToDrive, deleteDriveFile, isDriveConfigured } from "@/lib/drive/driveClient";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/types/actions";
@@ -110,11 +110,13 @@ async function assertStaff(orgId: string): Promise<{ userId: string } | { error:
   const user = await getUser();
   if (!user) return { error: "Not authenticated" };
 
+  const profileId = await resolveProfileId(user.id);
+
   const supabase = await createClient();
   const { data: member } = await supabase
     .from("organization_members")
     .select("role")
-    .eq("profile_id", user.id)
+    .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();
@@ -181,6 +183,7 @@ async function insertDocumentRow(
 export async function uploadAcademicDocumentFile(
   payload: AcademicDocumentFilePayload,
 ): Promise<ActionResult<{ documentId: string; driveFileUrl: string }>> {
+  try {
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization" };
 
@@ -256,6 +259,10 @@ export async function uploadAcademicDocumentFile(
 
   revalidatePath(`/dashboard/students/${payload.studentId}`);
   return { success: true, data: { documentId: dbResult.data.documentId, driveFileUrl: fileUrl } };
+  } catch (err) {
+    console.error("uploadAcademicDocumentFile unexpected error:", err);
+    return { success: false, error: "An unexpected error occurred during upload. Please try again." };
+  }
 }
 
 // ── Link-only upload (secondary / external path) ──────────────────────────────

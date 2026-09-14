@@ -193,6 +193,7 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
             mimeType:        selectedFile.type || "application/octet-stream",
           });
 
+          if (!result) { setError("Upload failed: no response from server. Please try again."); return; }
           if (!result.success) { setError(result.error ?? "Upload failed."); return; }
           setSuccess("Academic record uploaded successfully.");
         } else {
@@ -209,6 +210,7 @@ export function UploadAcademicDocumentModal({ studentId, onClose, onSuccess }: P
             externalUrl:     externalUrl.trim() || undefined,
           });
 
+          if (!result) { setError("Save failed: no response from server. Please try again."); return; }
           if (!result.success) { setError(result.error ?? "Save failed."); return; }
           setSuccess("Academic record saved successfully.");
         }
