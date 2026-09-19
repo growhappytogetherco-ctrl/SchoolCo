@@ -11,6 +11,7 @@ import { GradebookGrid } from "./GradebookGrid";
 import { CreateAssignmentDrawer } from "./CreateAssignmentDrawer";
 import { EditAssignmentTargetsDrawer } from "./EditAssignmentTargetsDrawer";
 import { QuickGradePanel } from "./QuickGradePanel";
+import { DailyEntryPanel } from "./DailyEntryPanel";
 
 export type CellSaveState = "idle" | "saving" | "saved" | "error";
 
@@ -63,6 +64,7 @@ export function GradebookView({
     Map<string, Map<string, LocalGradeState>>
   >(new Map());
 
+  const [activeTab, setActiveTab] = useState<"grid" | "daily">("grid");
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
   const [editTargetsAssignment, setEditTargetsAssignment] = useState<Assignment | null>(null);
   const [quickGradeAssignmentId, setQuickGradeAssignmentId] = useState<string | null>(null);
@@ -268,27 +270,53 @@ export function GradebookView({
             </p>
           </div>
 
-          {/* Period selector */}
-          <div className="flex items-center gap-1 bg-sc-gray-100/60 rounded-xl p-1 self-start sm:self-center">
-            {quarterPeriods.map(p => (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {/* View tab switcher */}
+            <div className="flex items-center gap-1 bg-sc-gray-100/60 rounded-xl p-1">
               <button
-                key={p.id}
-                onClick={() => setActivePeriodId(p.id)}
+                onClick={() => setActiveTab("grid")}
                 className={`px-3 py-1.5 rounded-lg text-label-sm font-medium transition-colors ${
-                  activePeriodId === p.id
+                  activeTab === "grid"
                     ? "bg-white text-sc-navy shadow-sm"
                     : "text-sc-gray hover:text-sc-navy"
                 }`}
               >
-                {p.name}
+                Grid
               </button>
-            ))}
+              <button
+                onClick={() => setActiveTab("daily")}
+                className={`px-3 py-1.5 rounded-lg text-label-sm font-medium transition-colors ${
+                  activeTab === "daily"
+                    ? "bg-white text-sc-navy shadow-sm"
+                    : "text-sc-gray hover:text-sc-navy"
+                }`}
+              >
+                Daily Entry
+              </button>
+            </div>
+
+            {/* Period selector */}
+            <div className="flex items-center gap-1 bg-sc-gray-100/60 rounded-xl p-1">
+              {quarterPeriods.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setActivePeriodId(p.id)}
+                  className={`px-3 py-1.5 rounded-lg text-label-sm font-medium transition-colors ${
+                    activePeriodId === p.id
+                      ? "bg-white text-sc-navy shadow-sm"
+                      : "text-sc-gray hover:text-sc-navy"
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Toolbar */}
-      {canEdit && (
+      {/* Toolbar — Grid tab only */}
+      {activeTab === "grid" && canEdit && (
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowCreateAssignment(true)}
@@ -315,8 +343,22 @@ export function GradebookView({
         </div>
       )}
 
-      {/* Main content */}
-      {loading ? (
+      {/* Daily Entry tab */}
+      {activeTab === "daily" && (
+        <DailyEntryPanel
+          orgId={orgId}
+          courseSectionId={courseSectionId}
+          periods={periods}
+          activePeriodId={activePeriodId}
+          canEdit={canEdit}
+          roster={roster}
+          onSaved={() => { if (activePeriodId) loadData(activePeriodId); }}
+        />
+      )}
+
+      {/* Grid tab — main content */}
+      {activeTab === "grid" && (
+        loading ? (
         <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-12 text-center">
           <div className="animate-pulse text-sc-gray">Loading gradebook…</div>
         </div>
@@ -363,6 +405,7 @@ export function GradebookView({
           onEditTargets={(assignment) => setEditTargetsAssignment(assignment)}
           onEditAssignment={() => activePeriodId && loadData(activePeriodId)}
         />
+      )
       )}
 
       {/* Create Assignment Drawer */}

@@ -97,7 +97,7 @@ export function GradebookGrid({
   }
 
   return (
-    <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card overflow-hidden">
+    <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card overflow-clip">
       {/* Horizontal scroll wrapper */}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm" style={{ minWidth: `${Math.max(600, 220 + data.assignments.length * 110)}px` }}>
