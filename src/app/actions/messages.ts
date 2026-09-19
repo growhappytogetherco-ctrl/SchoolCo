@@ -146,6 +146,18 @@ export async function getMyConversations(): Promise<ActionResult<ConversationSum
   try {
     const { supabase, user, orgId, profileId } = await requireParent();
 
+    // Enforce family isolation at query level: only return conversations
+    // where the authenticated profile is an explicit participant.
+    // This prevents dual-role users (staff+parent) from seeing all org
+    // conversations via the staff RLS policy when using the parent portal.
+    const { data: myParticipations } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id")
+      .eq("profile_id", profileId);
+
+    const myConvIds = (myParticipations ?? []).map(p => p.conversation_id);
+    if (myConvIds.length === 0) return { success: true, data: [] };
+
     const { data: convRows, error } = await supabase
       .from("conversations")
       .select(`
@@ -157,6 +169,7 @@ export async function getMyConversations(): Promise<ActionResult<ConversationSum
         assigned_profile:profiles!conversations_assigned_to_fkey ( full_name )
       `)
       .eq("organization_id", orgId)
+      .in("id", myConvIds)
       .order("last_message_at", { ascending: false });
 
     if (error) {
@@ -254,6 +267,18 @@ export async function getMyConversationThread(
 ): Promise<ActionResult<ConversationDetail>> {
   try {
     const { supabase, user, orgId, profileId } = await requireParent();
+
+    // Enforce participant-level access: verify the authenticated profile
+    // is an explicit participant before loading the thread. Prevents direct
+    // URL access to conversations belonging to other families.
+    const { data: participantCheck } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id")
+      .eq("conversation_id", conversationId)
+      .eq("profile_id", profileId)
+      .single();
+
+    if (!participantCheck) return { success: false, error: "Conversation not found." };
 
     const { data: conv, error: convErr } = await supabase
       .from("conversations")
@@ -1227,11 +1252,14 @@ export async function getUnreadCount(): Promise<number> {
     const orgId = await getActiveOrgId();
     if (!orgId) return 0;
 
+    // Resolve canonical profileId — stub accounts have profiles.id ≠ auth.uid()
+    const profileId = await resolveProfileId(user.id);
+
     // Determine whether the current user is a parent (non-staff) to apply parent_visible filter
     const { data: membership } = await supabase
       .from("organization_members")
       .select("role")
-      .eq("profile_id", user.id)
+      .eq("profile_id", profileId)
       .eq("organization_id", orgId)
       .eq("status", "active")
       .single();
@@ -1240,7 +1268,7 @@ export async function getUnreadCount(): Promise<number> {
     const { data: parts } = await supabase
       .from("conversation_participants")
       .select("conversation_id, last_read_at")
-      .eq("profile_id", user.id);
+      .eq("profile_id", profileId);
 
     if (!parts?.length) return 0;
 
@@ -1262,7 +1290,7 @@ export async function getUnreadCount(): Promise<number> {
 
     const unreadConvIds = new Set<string>();
     for (const m of msgs ?? []) {
-      if (m.sender_id === user.id) continue;
+      if (m.sender_id === profileId) continue;
       const readAt = readAtMap[m.conversation_id];
       if (!readAt || new Date(m.created_at) > new Date(readAt)) {
         unreadConvIds.add(m.conversation_id);
