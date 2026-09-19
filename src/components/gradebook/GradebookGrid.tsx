@@ -98,19 +98,23 @@ export function GradebookGrid({
 
   return (
     <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card overflow-clip">
-      {/* Horizontal scroll wrapper */}
+      {/* Horizontal scroll wrapper — must be the direct scroll container for sticky columns */}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm" style={{ minWidth: `${Math.max(600, 220 + data.assignments.length * 110)}px` }}>
+        {/*
+          border-separate (not border-collapse) is required for position:sticky on <th>/<td>
+          to work in Safari. border-spacing-0 keeps the visual appearance identical.
+        */}
+        <table className="w-full border-separate border-spacing-0 text-sm" style={{ minWidth: `${Math.max(600, 220 + data.assignments.length * 110)}px` }}>
           <thead>
-            <tr className="border-b border-sc-gray-100">
-              {/* Sticky student name column */}
-              <th className="sticky left-0 z-20 bg-sc-gray-100/80 backdrop-blur-sm text-left px-4 py-3 text-label-sm font-medium text-sc-gray w-44 min-w-[11rem]">
+            <tr>
+              {/* Sticky student name column — solid background required for content occlusion */}
+              <th className="sticky left-0 z-20 bg-sc-gray-100 text-left px-4 py-3 text-label-sm font-medium text-sc-gray w-44 min-w-[11rem] border-b border-sc-gray-100">
                 Student
               </th>
 
               {/* Assignment columns */}
               {data.assignments.map(a => (
-                <th key={a.id} className="bg-sc-gray-100/60 px-2 py-2 text-center min-w-[6.5rem]">
+                <th key={a.id} className="bg-sc-gray-100/60 px-2 py-2 text-center min-w-[6.5rem] border-b border-sc-gray-100">
                   <AssignmentHeaderCell
                     assignment={a}
                     canEdit={canEdit}
@@ -123,7 +127,7 @@ export function GradebookGrid({
               ))}
 
               {/* Current grade column */}
-              <th className="bg-sc-gray-100/60 px-4 py-3 text-right text-label-sm font-medium text-sc-gray min-w-[8rem]">
+              <th className="bg-sc-gray-100/60 px-4 py-3 text-right text-label-sm font-medium text-sc-gray min-w-[8rem] border-b border-sc-gray-100">
                 Current
               </th>
             </tr>
@@ -135,10 +139,10 @@ export function GradebookGrid({
               return (
                 <tr
                   key={row.studentId}
-                  className="border-b border-sc-gray-100/60 hover:bg-sc-gray-100/20 transition-colors group"
+                  className="hover:bg-sc-gray-100/20 transition-colors group"
                 >
-                  {/* Sticky student name */}
-                  <td className="sticky left-0 z-10 bg-white group-hover:bg-sc-gray-100/20 px-4 py-2 font-medium text-sc-navy text-label-md border-r border-sc-gray-100/60 transition-colors">
+                  {/* Sticky student name — solid bg-white always so scrolled assignment cells don't bleed through */}
+                  <td className="sticky left-0 z-10 bg-white px-4 py-2 font-medium text-sc-navy text-label-md border-r border-b border-sc-gray-100/60 transition-colors">
                     <span className="truncate block max-w-[10rem]" title={row.studentName}>
                       {row.studentName}
                     </span>
@@ -148,7 +152,7 @@ export function GradebookGrid({
                   {data.assignments.map((a, colIdx) => {
                     const isAssigned = row.assigned[a.id] !== false;
                     return (
-                      <td key={a.id} className="px-1 py-1 text-center">
+                      <td key={a.id} className="px-1 py-1 text-center border-b border-sc-gray-100/60">
                         {isAssigned ? (
                           <GradeCell
                             grade={getEffectiveGrade(row.studentId, a.id)}
@@ -174,7 +178,7 @@ export function GradebookGrid({
                   })}
 
                   {/* Current quarter grade */}
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-2 text-right border-b border-sc-gray-100/60">
                     <QuarterGradeDisplay grade={qGrade} />
                   </td>
                 </tr>
