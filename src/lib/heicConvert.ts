@@ -11,12 +11,13 @@
  */
 
 // heic-convert has no bundled TS types; we declare the shape we use.
+// At runtime it returns a Buffer (from jpeg-js.encode().data), not an ArrayBuffer.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const heicConvert: (opts: {
-  buffer: ArrayBuffer;
+  buffer: Uint8Array;
   format: "JPEG" | "PNG";
   quality?: number;
-}) => Promise<ArrayBuffer> = require("heic-convert");
+}) => Promise<Buffer> = require("heic-convert");
 
 export type HeicConvertResult =
   | { success: true; buffer: Buffer; mimeType: "image/jpeg" }
@@ -58,26 +59,25 @@ export async function convertHeicToJpeg(
 ): Promise<HeicConvertResult> {
   for (const quality of QUALITY_ATTEMPTS) {
     try {
-      const outputArrayBuffer = await heicConvert({
-        buffer: inputBuffer.buffer.slice(
-          inputBuffer.byteOffset,
-          inputBuffer.byteOffset + inputBuffer.byteLength,
-        ) as ArrayBuffer,
+      // Pass Uint8Array — heic-decode requires an iterable typed array,
+      // not a raw ArrayBuffer (ArrayBuffer has no Symbol.iterator).
+      const outputBuffer = await heicConvert({
+        buffer: new Uint8Array(inputBuffer),
         format: "JPEG",
         quality,
       });
-
-      const outputBuffer = Buffer.from(outputArrayBuffer);
 
       if (outputBuffer.length <= MAX_OUTPUT_BYTES) {
         return { success: true, buffer: outputBuffer, mimeType: "image/jpeg" };
       }
       // Too large — retry at lower quality
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      // Log error type only — never expose raw V8 message to staff UI
+      const tag = e instanceof Error ? e.constructor.name : typeof e;
+      console.error(`[heicConvert] conversion failed (${tag})`);
       return {
         success: false,
-        error: `This HEIC/HEIF document could not be prepared for analysis. The original document has not been changed. (${msg})`,
+        error: "This HEIC/HEIF document could not be prepared for analysis. The original document has not been changed.",
       };
     }
   }

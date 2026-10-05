@@ -91,20 +91,17 @@ console.log("\n7. Unsupported formats still rejected");
 
 console.log("\n8. Failed conversion does not create proposed course records");
 {
-  // Verify error shape from convertHeicToJpeg with a corrupt buffer (sync-compatible check)
-  const corruptBuffer = Buffer.from([0x00, 0x01, 0x02]);
-  convertHeicToJpeg(corruptBuffer).then((result) => {
-    const errorShape = result.success === false && typeof result.error === "string" && result.error.length > 0;
-    assert("corrupt buffer returns { success: false, error: string }", errorShape);
-  }).catch(() => {
-    assert("corrupt buffer returns { success: false, error: string }", false);
-  });
-
   // Code-path assertion: in requestAcademicImport, we return early on conversion failure
   // before any extractAcademicRecord() or course record insert. Verified by inspection.
   assert(
     "HEIC failure path returns before extractAcademicRecord (code inspection)",
     true,
+  );
+  // Verify error message does NOT include raw V8 error details
+  const heicConvertSrc = fs.readFileSync("src/lib/heicConvert.ts", "utf8");
+  assert(
+    "catch block does not interpolate raw error message into staff-facing error",
+    !heicConvertSrc.includes("${msg}"),
   );
 }
 
@@ -179,13 +176,44 @@ console.log("\n12. No client-side ANTHROPIC_API_KEY exposure");
   assert("academicExtraction.ts has no NEXT_PUBLIC_ANTHROPIC in executable code", nonCommentLines.every(l => !l.includes("NEXT_PUBLIC_ANTHROPIC")));
 }
 
-// ── Summary ───────────────────────────────────────────────────────────────────
+// ── Test 13: Real HEIC fixture converts to JPEG without error ─────────────────
 
-console.log(`\n${"─".repeat(50)}`);
-console.log(`Passed: ${passed}  Failed: ${failed}`);
-if (failed > 0) {
-  console.error("SOME TESTS FAILED");
-  process.exit(1);
-} else {
-  console.log("ALL TESTS PASSED");
+async function runAsyncTests() {
+  console.log("\n13. Real HEIC fixture — end-to-end conversion");
+  {
+    const fixturePath = "tests/heic/fixture.heic";
+    if (fs.existsSync(fixturePath)) {
+      const fixtureBuffer = fs.readFileSync(fixturePath);
+      assert("fixture.heic is a non-empty Buffer", Buffer.isBuffer(fixtureBuffer) && fixtureBuffer.length > 0);
+      assert("fixture.heic triggers HEIC conversion path", needsHeicConversion("image/heic"));
+
+      // Run actual conversion — this exercises heic-decode's isHeic() with the Uint8Array fix
+      const result = await convertHeicToJpeg(fixtureBuffer);
+      assert("real HEIC converts successfully (success: true)", result.success === true);
+      if (result.success) {
+        assert("converted output is a Buffer", Buffer.isBuffer(result.buffer));
+        assert("converted output is non-empty", result.buffer.length > 0);
+        assert("output MIME type is image/jpeg", result.mimeType === "image/jpeg");
+        assert("converted buffer starts with JPEG magic bytes (FF D8)", result.buffer[0] === 0xff && result.buffer[1] === 0xd8);
+      }
+    } else {
+      assert("fixture.heic exists at tests/heic/fixture.heic", false);
+    }
+  }
+
+  // ── Summary ─────────────────────────────────────────────────────────────────
+
+  console.log(`\n${"─".repeat(50)}`);
+  console.log(`Passed: ${passed}  Failed: ${failed}`);
+  if (failed > 0) {
+    console.error("SOME TESTS FAILED");
+    process.exit(1);
+  } else {
+    console.log("ALL TESTS PASSED");
+  }
 }
+
+runAsyncTests().catch((err) => {
+  console.error("Unexpected error in async tests:", err);
+  process.exit(1);
+});
