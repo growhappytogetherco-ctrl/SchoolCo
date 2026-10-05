@@ -21,8 +21,12 @@ export interface MatchableRecord {
   final_grade: string | null;
   semester_1_grade: string | null;
   semester_2_grade: string | null;
+  percentage: number | null;
   credits_earned: number | null;
   credits_attempted: number | null;
+  source_credits_attempted: number | null;
+  source_credits_earned: number | null;
+  source_credit_unit: string | null;
   completion_status: string;
   counts_toward_high_school_credit: boolean;
   verification_status: string;
@@ -129,10 +133,16 @@ const MATERIAL_FIELDS: { field: keyof MatchableRecord; label: string }[] = [
   { field: "final_grade",                      label: "Final Grade" },
   { field: "semester_1_grade",                 label: "Semester 1 Grade" },
   { field: "semester_2_grade",                 label: "Semester 2 Grade" },
+  { field: "percentage",                       label: "Percentage" },
   { field: "credits_earned",                   label: "HS Credits Earned" },
   { field: "credits_attempted",                label: "HS Credits Attempted" },
+  { field: "source_credits_earned",            label: "Source Credits Earned" },
+  { field: "source_credits_attempted",         label: "Source Credits Attempted" },
+  { field: "source_credit_unit",               label: "Source Credit Unit" },
   { field: "completion_status",                label: "Completion Status" },
   { field: "course_level",                     label: "Course Level" },
+  { field: "course_code",                      label: "Course Code" },
+  { field: "term",                             label: "Term" },
   { field: "counts_toward_high_school_credit", label: "Counts Toward HS Credit" },
 ];
 

@@ -234,10 +234,22 @@ export async function addCourseRecord(
 
 export async function updateCourseRecord(
   recordId: string,
+  studentId: string,
   payload: UpdateCourseRecordPayload
 ): Promise<ActionResult<void>> {
   try {
     const { user, orgId, supabase } = await assertStaff();
+
+    // Block edits to verified records — must use updateVerifiedCourseRecord
+    const { data: existing } = await (supabase as any)
+      .from("student_course_records")
+      .select("verification_status")
+      .eq("id", recordId)
+      .eq("organization_id", orgId)
+      .single();
+    if (existing?.verification_status === "verified") {
+      return { success: false, error: "This record is verified. Use the verified-record edit flow (requires Registrar)." };
+    }
 
     const updateData: Record<string, unknown> = { updated_by: user.id };
     if (payload.schoolYear       !== undefined) updateData.school_year         = payload.schoolYear;
@@ -272,6 +284,7 @@ export async function updateCourseRecord(
       .eq("organization_id", orgId);
 
     if (error) throw error;
+    revalidatePath(`/dashboard/students/${studentId}`);
     return { success: true, data: undefined };
   } catch (e: unknown) {
     return { success: false, error: (e as Error).message };
@@ -478,7 +491,7 @@ export async function checkCourseRecordDuplicates(
 
     const { data, error } = await (supabase as any)
       .from("student_course_records")
-      .select("id, student_id, school_year, institution_name, course_name, course_code, term, grade_level, course_level, final_grade, semester_1_grade, semester_2_grade, credits_earned, credits_attempted, completion_status, counts_toward_high_school_credit, verification_status")
+      .select("id, student_id, school_year, institution_name, course_name, course_code, term, grade_level, course_level, final_grade, semester_1_grade, semester_2_grade, percentage, credits_earned, credits_attempted, source_credits_attempted, source_credits_earned, source_credit_unit, completion_status, counts_toward_high_school_credit, verification_status")
       .eq("student_id", studentId)
       .eq("organization_id", orgId);
 
