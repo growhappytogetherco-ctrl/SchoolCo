@@ -487,6 +487,55 @@ export async function trashDriveFolder(folderId: string): Promise<DriveResult> {
   }
 }
 
+/**
+ * Download a Drive file's raw bytes via the service account.
+ * Used by the AI extraction pipeline to read academic record files.
+ * Returns a Buffer and the file's mimeType.
+ */
+export async function downloadDriveFile(
+  fileId: string,
+): Promise<DriveResult<{ buffer: Buffer; mimeType: string; name: string }>> {
+  const auth = await getAuth();
+  if (!auth) return { success: false, error: "Google Drive is not configured.", code: "NOT_CONFIGURED" };
+
+  try {
+    const { google } = await import("googleapis");
+    const drive = google.drive({ version: "v3", auth });
+
+    // First get metadata to know mimeType
+    const meta = await drive.files.get({
+      fileId,
+      fields: "id,name,mimeType,size",
+      supportsAllDrives: true,
+    });
+
+    const mimeType = (meta.data.mimeType as string) ?? "application/octet-stream";
+    const name     = (meta.data.name as string) ?? "document";
+
+    // Google Docs/Sheets/Slides need export; binary files need alt=media
+    let downloadRes;
+    if (mimeType.startsWith("application/vnd.google-apps.")) {
+      // Export Google Docs as PDF
+      downloadRes = await drive.files.export(
+        { fileId, mimeType: "application/pdf" },
+        { responseType: "arraybuffer" }
+      );
+    } else {
+      downloadRes = await drive.files.get(
+        { fileId, alt: "media", supportsAllDrives: true } as any,
+        { responseType: "arraybuffer" }
+      );
+    }
+
+    const buffer = Buffer.from(downloadRes.data as ArrayBuffer);
+    const effectiveMime = mimeType.startsWith("application/vnd.google-apps.") ? "application/pdf" : mimeType;
+    return { success: true, data: { buffer, mimeType: effectiveMime, name } };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: `Drive download failed: ${msg}`, code: "DRIVE_ERROR" };
+  }
+}
+
 export async function deleteDriveFile(fileId: string): Promise<DriveResult> {
   const auth = await getAuth();
   if (!auth) return { success: false, error: "Google Drive is not configured.", code: "NOT_CONFIGURED" };

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   BookMarked, Plus, MoreHorizontal, Pencil, Trash2, CheckCircle2,
   AlertCircle, XCircle, Clock, ExternalLink, Loader2, ChevronDown, ChevronUp,
-  FileText, AlertTriangle, ShieldAlert,
+  FileText, AlertTriangle, ShieldAlert, Sparkles,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -19,6 +19,8 @@ import {
   type SourceCreditUnit, type InstitutionType, type SourceDocumentOption,
 } from "@/app/actions/courseRecords";
 import type { DuplicateMatch, ConflictMatch } from "@/lib/courseRecordMatching";
+import { requestAcademicImport, checkPriorImport, getImportJobs, type ImportJob } from "@/app/actions/academicImport";
+import { ImportReviewScreen } from "@/components/grades/ImportReviewScreen";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1040,22 +1042,57 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
   const [dupMatches, setDupMatches]           = useState<DuplicateMatch[]>([]);
   const [conflictMatches, setConflictMatches] = useState<ConflictMatch[]>([]);
 
+  // AI import state
+  const [importJobs, setImportJobs]             = useState<ImportJob[]>([]);
+  const [analyzing, setAnalyzing]               = useState(false);
+  const [analyzeError, setAnalyzeError]         = useState("");
+  const [reviewingImportId, setReviewingImportId] = useState<string | null>(null);
+  const [priorImportWarning, setPriorImportWarning] = useState<ImportJob | null>(null);
+  const [pendingAnalyzeDocId, setPendingAnalyzeDocId] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
-    const [recordsResult, docsResult] = await Promise.all([
+    const [recordsResult, docsResult, jobsResult] = await Promise.all([
       getCourseRecords(studentId),
       getSourceDocumentsForStudent(studentId),
+      getImportJobs(studentId),
     ]);
     if (recordsResult.success) {
       setRecords(recordsResult.data);
     } else {
       setError(recordsResult.error ?? "Failed to load course records.");
     }
-    if (docsResult.success) {
-      setSourceDocs(docsResult.data);
-    }
+    if (docsResult.success) setSourceDocs(docsResult.data);
+    if (jobsResult.success)  setImportJobs(jobsResult.data);
     setLoading(false);
   }, [studentId]);
+
+  async function handleAnalyze(documentId: string) {
+    setAnalyzeError("");
+    // Idempotency check
+    const priorCheck = await checkPriorImport(documentId, studentId);
+    if (priorCheck.success && priorCheck.data?.status === "completed") {
+      setPriorImportWarning(priorCheck.data);
+      setPendingAnalyzeDocId(documentId);
+      return;
+    }
+    await doAnalyze(documentId);
+  }
+
+  async function doAnalyze(documentId: string) {
+    setAnalyzing(true);
+    setAnalyzeError("");
+    setPriorImportWarning(null);
+    setPendingAnalyzeDocId(null);
+    const result = await requestAcademicImport(studentId, documentId);
+    if (result.success) {
+      setReviewingImportId(result.data.importId);
+      await load();
+    } else {
+      setAnalyzeError(result.error ?? "Analysis failed.");
+    }
+    setAnalyzing(false);
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -1210,6 +1247,17 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
   const verifiedCount    = records.filter((r) => r.verification_status === "verified").length;
   const rejectedCount    = records.filter((r) => r.verification_status === "rejected").length;
 
+  // If reviewing an import, show that screen instead
+  if (reviewingImportId) {
+    return (
+      <ImportReviewScreen
+        importId={reviewingImportId}
+        studentId={studentId}
+        onClose={() => { setReviewingImportId(null); load(); }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Duplicate warning modal */}
@@ -1247,15 +1295,109 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
           <h3 className="font-serif text-heading-2 text-sc-navy">Academic Achievement Record</h3>
         </div>
         {canManage && !isForm && (
-          <button
-            onClick={startAdd}
-            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-label-sm font-medium bg-sc-navy text-white hover:bg-sc-navy/90 transition-colors"
-          >
-            <Plus className="size-3.5" />
-            Add Historical Course
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Analyze button — shown when academic docs are available */}
+            {sourceDocuments.length > 0 && (
+              <div className="relative">
+                <select
+                  disabled={analyzing}
+                  onChange={async (e) => {
+                    if (!e.target.value) return;
+                    await handleAnalyze(e.target.value);
+                    e.target.value = "";
+                  }}
+                  className="appearance-none rounded-lg pl-8 pr-3 py-1.5 text-label-sm font-medium border border-sc-teal-700/30 text-sc-teal-700 bg-sc-cream hover:bg-sc-teal/10 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <option value="">
+                    {analyzing ? "Analyzing…" : "Analyze Academic Record"}
+                  </option>
+                  {sourceDocuments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.label}</option>
+                  ))}
+                </select>
+                <Sparkles className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-sc-teal-700 pointer-events-none" />
+              </div>
+            )}
+            <button
+              onClick={startAdd}
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-label-sm font-medium bg-sc-navy text-white hover:bg-sc-navy/90 transition-colors"
+            >
+              <Plus className="size-3.5" />
+              Add Historical Course
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Prior import warning */}
+      {priorImportWarning && pendingAnalyzeDocId && (
+        <div className="rounded-xl border border-sc-gold-300 bg-sc-gold-50 px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="size-5 text-sc-gold-700 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-label-sm font-semibold text-sc-gold-800">This academic record has already been analyzed.</p>
+            <p className="text-label-sm text-sc-gold-700 mt-0.5">
+              Prior import: {priorImportWarning.course_count ?? 0} courses · {new Date(priorImportWarning.created_at).toLocaleDateString()}
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => setReviewingImportId(priorImportWarning.id)}
+              className="rounded-lg px-3 py-1.5 text-label-sm font-medium border border-sc-gold-300 text-sc-gold-800 hover:bg-sc-gold-100"
+            >
+              Open Prior Import
+            </button>
+            <button
+              onClick={() => doAnalyze(pendingAnalyzeDocId)}
+              className="rounded-lg px-3 py-1.5 text-label-sm font-medium bg-sc-navy text-white hover:bg-sc-navy/90"
+            >
+              Re-analyze
+            </button>
+            <button
+              onClick={() => { setPriorImportWarning(null); setPendingAnalyzeDocId(null); }}
+              className="rounded-lg px-3 py-1.5 text-label-sm font-medium text-sc-gray hover:bg-sc-gray-100"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Analyze error */}
+      {analyzeError && (
+        <div className="rounded-xl bg-sc-rose-50 border border-sc-rose-200 px-4 py-3 text-label-sm text-sc-rose-700 flex items-start gap-2">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+          <span>{analyzeError}</span>
+        </div>
+      )}
+
+      {/* Import jobs list — recent imports that staff can open for review */}
+      {!isForm && importJobs.length > 0 && (
+        <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-4 space-y-2">
+          <p className="text-label-sm font-medium text-sc-navy">Import History</p>
+          {importJobs.map((job) => (
+            <div key={job.id} className="flex items-center justify-between gap-3 py-1.5 border-b border-sc-gray-100 last:border-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="size-4 text-sc-gray shrink-0" />
+                <span className="text-label-sm text-sc-navy truncate">{job.document_title ?? "Academic Record"}</span>
+                <span className={`text-label-sm ${job.status === "failed" ? "text-sc-rose" : job.status === "reviewed" ? "text-sc-teal-700" : "text-sc-gold-700"}`}>
+                  · {job.status}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-label-sm text-sc-gray-400">{new Date(job.created_at).toLocaleDateString()}</span>
+                {(job.status === "completed" || job.status === "reviewed") && (
+                  <button
+                    onClick={() => setReviewingImportId(job.id)}
+                    className="text-label-sm text-sc-teal-700 hover:underline"
+                  >
+                    Review →
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Form panel */}
       {isForm && (
