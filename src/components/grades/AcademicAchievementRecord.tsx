@@ -4,17 +4,21 @@ import { useEffect, useState, useCallback } from "react";
 import {
   BookMarked, Plus, MoreHorizontal, Pencil, Trash2, CheckCircle2,
   AlertCircle, XCircle, Clock, ExternalLink, Loader2, ChevronDown, ChevronUp,
+  FileText, AlertTriangle, ShieldAlert,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  getCourseRecords, addCourseRecord, updateCourseRecord, deleteCourseRecord,
-  verifyCourseRecord, markCourseRecordNeedsReview, rejectCourseRecord,
+  getCourseRecords, addCourseRecord, updateCourseRecord, updateVerifiedCourseRecord,
+  deleteCourseRecord, verifyCourseRecord, markCourseRecordNeedsReview, rejectCourseRecord,
+  getSourceDocumentsForStudent, getSourceDocumentUrl, checkCourseRecordDuplicates,
   type CourseRecord, type AddCourseRecordPayload, type UpdateCourseRecordPayload,
-  type CourseCompletionStatus, type CourseTerm, type CourseLevel, type SourceCreditUnit, type InstitutionType,
+  type CourseCompletionStatus, type CourseTerm, type CourseLevel,
+  type SourceCreditUnit, type InstitutionType, type SourceDocumentOption,
 } from "@/app/actions/courseRecords";
+import type { DuplicateMatch, ConflictMatch } from "@/lib/courseRecordMatching";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -89,11 +93,12 @@ function VerificationBadge({ status }: { status: CourseRecord["verification_stat
     rejected:     { icon: XCircle,       color: "text-sc-rose-700 bg-sc-rose-50 border-sc-rose-200",  label: "Rejected" },
     proposed:     { icon: AlertCircle,   color: "text-sc-navy/60 bg-sc-gray-100 border-sc-gray-200",  label: "Proposed" },
   };
-  const { icon: Icon, color, label } = configs[status];
+  const cfg = configs[status] ?? configs.needs_review;
+  const Icon = cfg.icon;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-label-sm font-medium ${color}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-label-sm font-medium ${cfg.color}`}>
       <Icon className="size-3" />
-      {label}
+      {cfg.label}
     </span>
   );
 }
@@ -108,8 +113,8 @@ function CompletionBadge({ status }: { status: CourseCompletionStatus }) {
     in_progress: "text-sc-teal",
   };
   return (
-    <span className={`text-label-sm ${colors[status]}`}>
-      {COMPLETION_LABELS[status]}
+    <span className={`text-label-sm ${colors[status] ?? "text-sc-gray"}`}>
+      {COMPLETION_LABELS[status] ?? status}
     </span>
   );
 }
@@ -156,11 +161,13 @@ function CreditSummary({ records }: { records: CourseRecord[] }) {
 function CourseRow({
   record,
   studentId,
+  sourceDocuments,
   onEdit,
   onRefresh,
 }: {
   record: CourseRecord;
   studentId: string;
+  sourceDocuments: SourceDocumentOption[];
   onEdit: (r: CourseRecord) => void;
   onRefresh: () => void;
 }) {
@@ -199,8 +206,25 @@ function CourseRow({
     }
   }
 
+  async function handleViewOriginal() {
+    if (!record.source_document_id) return;
+    setBusy(true);
+    const result = await getSourceDocumentUrl(record.source_document_id);
+    setBusy(false);
+    if (result.success && result.data) {
+      window.open(result.data, "_blank", "noopener,noreferrer");
+    } else {
+      alert(result.success ? "No URL available for this document." : result.error);
+    }
+  }
+
   const isRejected = record.verification_status === "rejected";
   const grade = record.final_grade ?? record.semester_2_grade ?? record.semester_1_grade ?? null;
+
+  // Find linked source document label for compact display
+  const linkedDoc = record.source_document_id
+    ? sourceDocuments.find((d) => d.id === record.source_document_id)
+    : null;
 
   return (
     <div className={`flex items-start gap-3 py-3 border-b border-sc-gray-100 last:border-0 ${isRejected ? "opacity-50" : ""}`}>
@@ -227,11 +251,27 @@ function CourseRow({
           )}
           <CompletionBadge status={record.completion_status} />
         </div>
-        {/* Source credits (dual enrollment info) */}
+        {/* Source credits (dual enrollment) */}
         {record.source_credits_earned != null && record.source_credit_unit && (
           <p className="text-label-sm text-sc-gray mt-0.5">
             Source: {record.source_credits_earned} {SOURCE_CREDIT_UNIT_LABELS[record.source_credit_unit as SourceCreditUnit]}
           </p>
+        )}
+        {/* Compact source document line */}
+        {linkedDoc && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <FileText className="size-3 text-sc-gray-400 shrink-0" />
+            <span className="text-label-sm text-sc-gray">
+              Source: {linkedDoc.label}
+            </span>
+            <button
+              onClick={handleViewOriginal}
+              disabled={busy}
+              className="text-label-sm text-sc-teal-700 hover:underline disabled:opacity-50"
+            >
+              · View Original
+            </button>
+          </div>
         )}
       </div>
 
@@ -247,7 +287,7 @@ function CourseRow({
         )}
       </div>
 
-      {/* Right: source doc link + menu */}
+      {/* Right: menu */}
       <div className="shrink-0 flex items-center gap-1">
         {busy && <Loader2 className="size-4 animate-spin text-sc-gray" />}
         {!busy && (
@@ -262,16 +302,14 @@ function CourseRow({
             </DropdownMenuTrigger>
             <DropdownMenuPortal>
               <DropdownMenuContent align="end" sideOffset={4} className="min-w-[180px] z-50">
-                {/* View source document */}
+                {/* View Original */}
                 {record.source_document_id && (
-                  <DropdownMenuItem asChild>
-                    <a
-                      href={`#doc-${record.source_document_id}`}
-                      className="flex items-center gap-2"
-                    >
-                      <ExternalLink className="size-3.5" />
-                      View Source Document
-                    </a>
+                  <DropdownMenuItem
+                    onClick={handleViewOriginal}
+                    className="flex items-center gap-2"
+                  >
+                    <ExternalLink className="size-3.5" />
+                    View Original
                   </DropdownMenuItem>
                 )}
 
@@ -357,6 +395,7 @@ interface CourseFormValues {
   sourceCreditsEarned: string;
   sourceCreditUnit: string;
   completionStatus: CourseCompletionStatus;
+  sourceDocumentId: string;
   sourceNotes: string;
 }
 
@@ -381,6 +420,7 @@ const EMPTY_FORM: CourseFormValues = {
   sourceCreditsEarned: "",
   sourceCreditUnit: "",
   completionStatus: "unknown",
+  sourceDocumentId: "",
   sourceNotes: "",
 };
 
@@ -406,6 +446,7 @@ function recordToForm(r: CourseRecord): CourseFormValues {
     sourceCreditsEarned:          r.source_credits_earned != null ? String(r.source_credits_earned) : "",
     sourceCreditUnit:             r.source_credit_unit ?? "",
     completionStatus:             r.completion_status as CourseCompletionStatus,
+    sourceDocumentId:             r.source_document_id ?? "",
     sourceNotes:                  r.source_notes ?? "",
   };
 }
@@ -432,6 +473,7 @@ function formToPayload(f: CourseFormValues): Omit<AddCourseRecordPayload, "stude
     sourceCreditsEarned:          f.sourceCreditsEarned ? parseFloat(f.sourceCreditsEarned) : undefined,
     sourceCreditUnit:             (f.sourceCreditUnit as SourceCreditUnit) || undefined,
     completionStatus:             f.completionStatus,
+    sourceDocumentId:             f.sourceDocumentId || undefined,
     sourceNotes:                  f.sourceNotes || undefined,
   };
 }
@@ -492,11 +534,15 @@ function CourseForm({
   onSave,
   onCancel,
   saving,
+  sourceDocuments,
+  isEditingVerified,
 }: {
   initial: CourseFormValues;
   onSave: (f: CourseFormValues) => void;
   onCancel: () => void;
   saving: boolean;
+  sourceDocuments: SourceDocumentOption[];
+  isEditingVerified?: boolean;
 }) {
   const [form, setForm] = useState<CourseFormValues>(initial);
   const [showSourceCredits, setShowSourceCredits] = useState(
@@ -516,6 +562,21 @@ function CourseForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Verified-record warning banner */}
+      {isEditingVerified && (
+        <div className="rounded-xl border border-sc-gold-300 bg-sc-gold-50 px-4 py-3 flex items-start gap-3">
+          <ShieldAlert className="size-5 text-sc-gold-700 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-label-sm font-semibold text-sc-gold-800">
+              You are editing a verified academic record.
+            </p>
+            <p className="text-label-sm text-sc-gold-700 mt-0.5">
+              Changes will update the student's official cumulative academic history and will be logged for audit purposes. Requires Registrar role or above.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Row 1: School year + grade level */}
       <div className="grid grid-cols-2 gap-4">
         <FormInput
@@ -587,26 +648,10 @@ function CourseForm({
       <div>
         <p className="text-label-sm font-medium text-sc-navy mb-2">Grades</p>
         <div className="grid grid-cols-4 gap-3">
-          <FormInput
-            label="Semester 1"
-            value={form.semester1Grade} onChange={(v) => set("semester1Grade", v)}
-            placeholder="A"
-          />
-          <FormInput
-            label="Semester 2"
-            value={form.semester2Grade} onChange={(v) => set("semester2Grade", v)}
-            placeholder="B+"
-          />
-          <FormInput
-            label="Final Grade"
-            value={form.finalGrade} onChange={(v) => set("finalGrade", v)}
-            placeholder="A"
-          />
-          <FormInput
-            label="Percentage"
-            value={form.percentage} onChange={(v) => set("percentage", v)}
-            placeholder="94.5" type="number"
-          />
+          <FormInput label="Semester 1" value={form.semester1Grade} onChange={(v) => set("semester1Grade", v)} placeholder="A" />
+          <FormInput label="Semester 2" value={form.semester2Grade} onChange={(v) => set("semester2Grade", v)} placeholder="B+" />
+          <FormInput label="Final Grade" value={form.finalGrade} onChange={(v) => set("finalGrade", v)} placeholder="A" />
+          <FormInput label="Percentage" value={form.percentage} onChange={(v) => set("percentage", v)} placeholder="94.5" type="number" />
         </div>
       </div>
 
@@ -682,6 +727,30 @@ function CourseForm({
         )}
       </div>
 
+      {/* Row 9: Source document picker */}
+      <div className="flex flex-col gap-1">
+        <FieldLabel>Source Document</FieldLabel>
+        {sourceDocuments.length === 0 ? (
+          <p className="text-label-sm text-sc-gray-400 italic">
+            No academic records uploaded for this student. Upload a transcript or record card first to link it here.
+          </p>
+        ) : (
+          <select
+            value={form.sourceDocumentId}
+            onChange={(e) => set("sourceDocumentId", e.target.value)}
+            className="rounded-lg border border-sc-gray-200 px-3 py-2 text-label-md text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal/40 focus:border-sc-teal bg-white"
+          >
+            <option value="">— No source document —</option>
+            {sourceDocuments.map((d) => (
+              <option key={d.id} value={d.id}>{d.label}</option>
+            ))}
+          </select>
+        )}
+        <p className="text-label-sm text-sc-gray-400">
+          Link the uploaded transcript or record card that supports this course entry.
+        </p>
+      </div>
+
       {/* Source notes */}
       <div className="flex flex-col gap-1">
         <FieldLabel>Provenance / Notes</FieldLabel>
@@ -710,10 +779,183 @@ function CourseForm({
           className="rounded-lg px-4 py-2 text-label-md font-medium bg-sc-navy text-white hover:bg-sc-navy/90 transition-colors disabled:opacity-50 flex items-center gap-2"
         >
           {saving && <Loader2 className="size-3.5 animate-spin" />}
-          Save Record
+          {isEditingVerified ? "Save Verified Record" : "Save Record"}
         </button>
       </div>
     </form>
+  );
+}
+
+// ── Duplicate warning modal ───────────────────────────────────────────────────
+
+function DuplicateWarningModal({
+  duplicates,
+  onSaveAsSeparate,
+  onGoBack,
+  onCancel,
+}: {
+  duplicates: DuplicateMatch[];
+  onSaveAsSeparate: () => void;
+  onGoBack: () => void;
+  onCancel: () => void;
+}) {
+  const strongCount = duplicates.filter((d) => d.matchLevel === "strong").length;
+  const first = duplicates[0];
+
+  function fmtGrade(r: DuplicateMatch["record"]) {
+    return r.final_grade ?? r.semester_2_grade ?? r.semester_1_grade ?? "—";
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sc-navy/30 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-xl border border-sc-gray-100 w-full max-w-lg p-6 space-y-5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sc-gold-50 border border-sc-gold-200">
+            <AlertTriangle className="size-5 text-sc-gold-700" />
+          </div>
+          <div>
+            <h4 className="font-serif text-sc-navy font-semibold text-lg">Possible Duplicate Found</h4>
+            <p className="text-label-sm text-sc-gray mt-0.5">
+              {strongCount > 0 ? "A strongly matching record already exists." : "A possibly matching record was found."}
+              {" "}Review before saving.
+            </p>
+          </div>
+        </div>
+
+        {/* Existing record details */}
+        <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50/50 p-4 space-y-1">
+          <p className="text-label-sm font-semibold text-sc-navy uppercase tracking-wide">Existing Record</p>
+          <p className="font-medium text-sc-navy">{first.record.course_name}</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-label-sm text-sc-gray">
+            <span>{first.record.school_year}</span>
+            {first.record.grade_level && <span>Grade {first.record.grade_level}</span>}
+            {first.record.institution_name && <span>{first.record.institution_name}</span>}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-label-sm">
+            <span className="text-sc-navy font-medium">Grade: {fmtGrade(first.record)}</span>
+            {first.record.credits_earned != null && (
+              <span className="text-sc-teal-700">HS Credit: {first.record.credits_earned}</span>
+            )}
+            <VerificationBadge status={first.record.verification_status as any} />
+          </div>
+          {duplicates.length > 1 && (
+            <p className="text-label-sm text-sc-gray mt-1">
+              +{duplicates.length - 1} more possible match{duplicates.length > 2 ? "es" : ""}
+            </p>
+          )}
+        </div>
+
+        <p className="text-label-sm text-sc-gray">
+          If this is a legitimate retake, repeated course, or different term, you may save it as a separate record.
+        </p>
+
+        <div className="flex flex-col gap-2 pt-1 border-t border-sc-gray-100">
+          <button
+            onClick={onSaveAsSeparate}
+            className="rounded-lg px-4 py-2 text-label-md font-medium bg-sc-navy text-white hover:bg-sc-navy/90 transition-colors"
+          >
+            Save as Separate Record
+          </button>
+          <button
+            onClick={onGoBack}
+            className="rounded-lg px-4 py-2 text-label-md font-medium border border-sc-gray-200 text-sc-navy hover:bg-sc-gray-50 transition-colors"
+          >
+            Go Back and Edit
+          </button>
+          <button
+            onClick={onCancel}
+            className="rounded-lg px-4 py-2 text-label-md font-medium text-sc-gray hover:bg-sc-gray-100 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Conflict warning modal ────────────────────────────────────────────────────
+
+function ConflictWarningModal({
+  conflicts,
+  onSaveAsSeparate,
+  onEditNew,
+  onCancel,
+}: {
+  conflicts: ConflictMatch[];
+  onSaveAsSeparate: () => void;
+  onEditNew: () => void;
+  onCancel: () => void;
+}) {
+  const first = conflicts[0];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sc-navy/30 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-xl border border-sc-rose-200 w-full max-w-lg p-6 space-y-5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sc-rose-50 border border-sc-rose-200">
+            <ShieldAlert className="size-5 text-sc-rose" />
+          </div>
+          <div>
+            <h4 className="font-serif text-sc-navy font-semibold text-lg">Conflict with Verified Record</h4>
+            <p className="text-label-sm text-sc-gray mt-0.5">
+              The new record disagrees with an existing verified record on material academic fields.
+              The verified record has not been changed.
+            </p>
+          </div>
+        </div>
+
+        {/* Side-by-side comparison */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-sc-teal-700/20 bg-sc-cream p-3 space-y-1.5">
+            <p className="text-label-sm font-semibold text-sc-teal-700 uppercase tracking-wide">Existing Verified</p>
+            <p className="font-medium text-sc-navy text-label-md">{first.record.course_name}</p>
+            {first.conflictingFields.map((f) => (
+              <div key={f.field}>
+                <p className="text-label-sm text-sc-gray">{f.label}</p>
+                <p className="text-label-sm font-medium text-sc-navy">{String(f.existing ?? "—")}</p>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-xl border border-sc-rose-200 bg-sc-rose-50 p-3 space-y-1.5">
+            <p className="text-label-sm font-semibold text-sc-rose uppercase tracking-wide">New Record</p>
+            <p className="font-medium text-sc-navy text-label-md">{first.record.course_name}</p>
+            {first.conflictingFields.map((f) => (
+              <div key={f.field}>
+                <p className="text-label-sm text-sc-gray">{f.label}</p>
+                <p className="text-label-sm font-medium text-sc-navy">{String(f.proposed ?? "—")}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-label-sm text-sc-gray">
+          To update the verified record, go back and edit the existing verified entry directly.
+          You may also save the new record as a separate entry for review.
+        </p>
+
+        <div className="flex flex-col gap-2 pt-1 border-t border-sc-gray-100">
+          <button
+            onClick={onEditNew}
+            className="rounded-lg px-4 py-2 text-label-md font-medium border border-sc-gray-200 text-sc-navy hover:bg-sc-gray-50 transition-colors"
+          >
+            Edit New Record
+          </button>
+          <button
+            onClick={onSaveAsSeparate}
+            className="rounded-lg px-4 py-2 text-label-md font-medium bg-sc-navy text-white hover:bg-sc-navy/90 transition-colors"
+          >
+            Save New as Separate Record
+          </button>
+          <button
+            onClick={onCancel}
+            className="rounded-lg px-4 py-2 text-label-md font-medium text-sc-gray hover:bg-sc-gray-100 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -723,12 +965,14 @@ function YearGroup({
   schoolYear,
   records,
   studentId,
+  sourceDocuments,
   onEdit,
   onRefresh,
 }: {
   schoolYear: string;
   records: CourseRecord[];
   studentId: string;
+  sourceDocuments: SourceDocumentOption[];
   onEdit: (r: CourseRecord) => void;
   onRefresh: () => void;
 }) {
@@ -757,6 +1001,7 @@ function YearGroup({
               key={r.id}
               record={r}
               studentId={studentId}
+              sourceDocuments={sourceDocuments}
               onEdit={onEdit}
               onRefresh={onRefresh}
             />
@@ -769,27 +1014,45 @@ function YearGroup({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+type FilterTab = "all" | "needs_review" | "verified" | "rejected";
+
 interface Props {
   studentId: string;
   canManage: boolean;
 }
 
 export function AcademicAchievementRecord({ studentId, canManage }: Props) {
-  const [records, setRecords] = useState<CourseRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [mode, setMode] = useState<"list" | "add" | "edit">("list");
-  const [editTarget, setEditTarget] = useState<CourseRecord | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const [records, setRecords]               = useState<CourseRecord[]>([]);
+  const [sourceDocuments, setSourceDocs]    = useState<SourceDocumentOption[]>([]);
+  const [loading, setLoading]               = useState(true);
+  const [error, setError]                   = useState("");
+  const [mode, setMode]                     = useState<"list" | "add" | "edit">("list");
+  const [editTarget, setEditTarget]         = useState<CourseRecord | null>(null);
+  const [saving, setSaving]                 = useState(false);
+  const [saveError, setSaveError]           = useState("");
+  const [filterTab, setFilterTab]           = useState<FilterTab>("all");
+  const [isEditingVerified, setIsEditingVerified] = useState(false);
+
+  // Duplicate / conflict modal state
+  const [pendingForm, setPendingForm]         = useState<CourseFormValues | null>(null);
+  const [showDupWarning, setShowDupWarning]   = useState(false);
+  const [showConflict, setShowConflict]       = useState(false);
+  const [dupMatches, setDupMatches]           = useState<DuplicateMatch[]>([]);
+  const [conflictMatches, setConflictMatches] = useState<ConflictMatch[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await getCourseRecords(studentId);
-    if (result.success) {
-      setRecords(result.data);
+    const [recordsResult, docsResult] = await Promise.all([
+      getCourseRecords(studentId),
+      getSourceDocumentsForStudent(studentId),
+    ]);
+    if (recordsResult.success) {
+      setRecords(recordsResult.data);
     } else {
-      setError(result.error ?? "Failed to load course records.");
+      setError(recordsResult.error ?? "Failed to load course records.");
+    }
+    if (docsResult.success) {
+      setSourceDocs(docsResult.data);
     }
     setLoading(false);
   }, [studentId]);
@@ -798,12 +1061,14 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
 
   function startAdd() {
     setEditTarget(null);
+    setIsEditingVerified(false);
     setMode("add");
     setSaveError("");
   }
 
   function startEdit(r: CourseRecord) {
     setEditTarget(r);
+    setIsEditingVerified(r.verification_status === "verified");
     setMode("edit");
     setSaveError("");
   }
@@ -811,16 +1076,48 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
   function cancelForm() {
     setMode("list");
     setEditTarget(null);
+    setIsEditingVerified(false);
     setSaveError("");
   }
 
-  async function handleAdd(form: CourseFormValues) {
+  async function runDuplicateCheck(
+    form: CourseFormValues,
+    excludeId?: string
+  ): Promise<{ duplicates: DuplicateMatch[]; conflicts: ConflictMatch[] } | null> {
+    const result = await checkCourseRecordDuplicates(
+      studentId,
+      {
+        school_year:                       form.schoolYear,
+        institution_name:                  form.institutionName || null,
+        course_name:                       form.courseName,
+        course_code:                       form.courseCode || null,
+        term:                              form.term || null,
+        grade_level:                       form.gradeLevel || null,
+        course_level:                      form.courseLevel || null,
+        final_grade:                       form.finalGrade || null,
+        semester_1_grade:                  form.semester1Grade || null,
+        semester_2_grade:                  form.semester2Grade || null,
+        credits_earned:                    form.creditsEarned ? parseFloat(form.creditsEarned) : null,
+        credits_attempted:                 form.creditsAttempted ? parseFloat(form.creditsAttempted) : null,
+        completion_status:                 form.completionStatus,
+        counts_toward_high_school_credit:  form.countsTowardHighSchoolCredit,
+        verification_status:               "needs_review",
+      },
+      excludeId
+    );
+    if (!result.success) return null;
+    return result.data;
+  }
+
+  async function doAdd(form: CourseFormValues) {
     setSaving(true);
     setSaveError("");
     const payload = { studentId, ...formToPayload(form) };
     const result = await addCourseRecord(payload);
     if (result.success) {
       setMode("list");
+      setShowDupWarning(false);
+      setShowConflict(false);
       await load();
     } else {
       setSaveError(result.error ?? "Save failed.");
@@ -828,14 +1125,18 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
     setSaving(false);
   }
 
-  async function handleEdit(form: CourseFormValues) {
+  async function doEdit(form: CourseFormValues) {
     if (!editTarget) return;
     setSaving(true);
     setSaveError("");
     const payload = formToPayload(form) as UpdateCourseRecordPayload;
-    const result = await updateCourseRecord(editTarget.id, payload);
+    const action = isEditingVerified ? updateVerifiedCourseRecord : updateCourseRecord;
+    const result = await action(editTarget.id, editTarget.student_id, payload);
     if (result.success) {
       setMode("list");
+      setShowDupWarning(false);
+      setShowConflict(false);
+      setIsEditingVerified(false);
       await load();
     } else {
       setSaveError(result.error ?? "Save failed.");
@@ -843,8 +1144,57 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
     setSaving(false);
   }
 
-  // Group records by school_year descending
-  const groups = records.reduce<Record<string, CourseRecord[]>>((acc, r) => {
+  async function handleAdd(form: CourseFormValues) {
+    const checks = await runDuplicateCheck(form);
+    if (checks) {
+      if (checks.conflicts.length > 0) {
+        setPendingForm(form);
+        setConflictMatches(checks.conflicts);
+        setShowConflict(true);
+        return;
+      }
+      if (checks.duplicates.length > 0) {
+        setPendingForm(form);
+        setDupMatches(checks.duplicates);
+        setShowDupWarning(true);
+        return;
+      }
+    }
+    await doAdd(form);
+  }
+
+  async function handleEdit(form: CourseFormValues) {
+    if (!editTarget) return;
+    // For verified record edits, skip duplicate check (staff is knowingly editing)
+    if (isEditingVerified) {
+      await doEdit(form);
+      return;
+    }
+    const checks = await runDuplicateCheck(form, editTarget.id);
+    if (checks) {
+      if (checks.conflicts.length > 0) {
+        setPendingForm(form);
+        setConflictMatches(checks.conflicts);
+        setShowConflict(true);
+        return;
+      }
+      if (checks.duplicates.length > 0) {
+        setPendingForm(form);
+        setDupMatches(checks.duplicates);
+        setShowDupWarning(true);
+        return;
+      }
+    }
+    await doEdit(form);
+  }
+
+  // Group and filter records
+  const filteredRecords = records.filter((r) => {
+    if (filterTab === "all") return true;
+    return r.verification_status === filterTab;
+  });
+
+  const groups = filteredRecords.reduce<Record<string, CourseRecord[]>>((acc, r) => {
     (acc[r.school_year] = acc[r.school_year] ?? []).push(r);
     return acc;
   }, {});
@@ -852,8 +1202,40 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
 
   const isForm = mode === "add" || mode === "edit";
 
+  const needsReviewCount = records.filter((r) => r.verification_status === "needs_review").length;
+  const verifiedCount    = records.filter((r) => r.verification_status === "verified").length;
+  const rejectedCount    = records.filter((r) => r.verification_status === "rejected").length;
+
   return (
     <div className="space-y-4">
+      {/* Duplicate warning modal */}
+      {showDupWarning && dupMatches.length > 0 && pendingForm && (
+        <DuplicateWarningModal
+          duplicates={dupMatches}
+          onSaveAsSeparate={async () => {
+            setShowDupWarning(false);
+            if (mode === "add") await doAdd(pendingForm);
+            else await doEdit(pendingForm);
+          }}
+          onGoBack={() => { setShowDupWarning(false); setPendingForm(null); }}
+          onCancel={() => { setShowDupWarning(false); setPendingForm(null); cancelForm(); }}
+        />
+      )}
+
+      {/* Conflict warning modal */}
+      {showConflict && conflictMatches.length > 0 && pendingForm && (
+        <ConflictWarningModal
+          conflicts={conflictMatches}
+          onSaveAsSeparate={async () => {
+            setShowConflict(false);
+            if (mode === "add") await doAdd(pendingForm);
+            else await doEdit(pendingForm);
+          }}
+          onEditNew={() => { setShowConflict(false); setPendingForm(null); }}
+          onCancel={() => { setShowConflict(false); setPendingForm(null); cancelForm(); }}
+        />
+      )}
+
       {/* Section header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -887,6 +1269,8 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
             onSave={mode === "add" ? handleAdd : handleEdit}
             onCancel={cancelForm}
             saving={saving}
+            sourceDocuments={sourceDocuments}
+            isEditingVerified={isEditingVerified}
           />
         </div>
       )}
@@ -905,9 +1289,35 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
         </div>
       )}
 
-      {/* Credit summary — when there are any records */}
+      {/* Credit summary + filter tabs */}
       {!loading && !isForm && records.length > 0 && (
-        <CreditSummary records={records} />
+        <>
+          <CreditSummary records={records} />
+
+          {/* Filter tabs */}
+          <div className="flex gap-1 border-b border-sc-gray-100 pb-0">
+            {(
+              [
+                { key: "all",          label: `All (${records.length})` },
+                { key: "needs_review", label: `Needs Review (${needsReviewCount})` },
+                { key: "verified",     label: `Verified (${verifiedCount})` },
+                { key: "rejected",     label: `Rejected (${rejectedCount})` },
+              ] as { key: FilterTab; label: string }[]
+            ).map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setFilterTab(key)}
+                className={`px-3 py-2 text-label-sm font-medium rounded-t-lg transition-colors ${
+                  filterTab === key
+                    ? "text-sc-navy border-b-2 border-sc-navy"
+                    : "text-sc-gray hover:text-sc-navy"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Empty state */}
@@ -930,6 +1340,13 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
         </div>
       )}
 
+      {/* Filtered empty state */}
+      {!loading && !isForm && records.length > 0 && filteredRecords.length === 0 && (
+        <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-8 text-center">
+          <p className="text-sc-gray text-label-md">No {filterTab.replace("_", " ")} records.</p>
+        </div>
+      )}
+
       {/* Year groups */}
       {!loading && !isForm && sortedYears.length > 0 && (
         <div className="space-y-3">
@@ -939,6 +1356,7 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
               schoolYear={year}
               records={groups[year]}
               studentId={studentId}
+              sourceDocuments={sourceDocuments}
               onEdit={startEdit}
               onRefresh={load}
             />

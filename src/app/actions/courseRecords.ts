@@ -1,9 +1,14 @@
 "use server";
 
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
-import { isStaffRole } from "@/lib/constants";
+import { isStaffRole, getRoleLevel } from "@/lib/constants";
 import { revalidatePath } from "next/cache";
+import { logAudit } from "@/lib/audit";
 import type { ActionResult } from "@/types/actions";
+import {
+  findDuplicates, findConflictsWithVerified,
+  type MatchableRecord, type DuplicateMatch, type ConflictMatch,
+} from "@/lib/courseRecordMatching";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -136,7 +141,18 @@ async function assertStaff() {
   const role = (member as unknown as { role: string } | null)?.role ?? "";
   if (!isStaffRole(role)) throw new Error("Unauthorized");
 
-  return { user, orgId, supabase };
+  return { user, orgId, supabase, role };
+}
+
+// ── Source document types ─────────────────────────────────────────────────────
+
+export interface SourceDocumentOption {
+  id: string;
+  label: string;          // e.g. "2024–2025 Academic Achievement Record — Transcript"
+  schoolYear: string;
+  recordType: string;
+  googleDriveUrl: string | null;
+  externalUrl: string | null;
 }
 
 // ── Read ──────────────────────────────────────────────────────────────────────
@@ -364,6 +380,207 @@ export async function deleteCourseRecord(
       .eq("organization_id", orgId);
 
     if (error) throw error;
+    revalidatePath(`/dashboard/students/${studentId}`);
+    return { success: true, data: undefined };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+// ── Source document picker ────────────────────────────────────────────────────
+
+const RECORD_TYPE_LABELS: Record<string, string> = {
+  progress_report:            "Progress Report",
+  report_card:                "Report Card",
+  transcript:                 "Transcript",
+  academic_summary:           "Academic Summary",
+  assessment_report:          "Assessment Report",
+  academic_achievement_record:"Academic Achievement Record",
+  other_academic:             "Other Academic",
+};
+
+export async function getSourceDocumentsForStudent(
+  studentId: string
+): Promise<ActionResult<SourceDocumentOption[]>> {
+  try {
+    const { orgId, supabase } = await assertStaff();
+
+    const { data, error } = await (supabase as any)
+      .from("student_documents")
+      .select("id, title, academic_record_type, academic_school_year, academic_reporting_period, google_drive_url, external_url")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .eq("document_type", "academic_record")
+      .order("academic_school_year", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    const options: SourceDocumentOption[] = (data ?? []).map((d: any) => {
+      const typeLabel = RECORD_TYPE_LABELS[d.academic_record_type] ?? d.academic_record_type ?? "Document";
+      const period    = d.academic_reporting_period ? ` (${d.academic_reporting_period})` : "";
+      const yearPart  = d.academic_school_year ? `${d.academic_school_year} ` : "";
+      const label     = d.title
+        ? `${d.title}${period}`
+        : `${yearPart}${typeLabel}${period}`;
+      return {
+        id:             d.id,
+        label,
+        schoolYear:     d.academic_school_year ?? "",
+        recordType:     d.academic_record_type ?? "",
+        googleDriveUrl: d.google_drive_url ?? null,
+        externalUrl:    d.external_url ?? null,
+      };
+    });
+
+    return { success: true, data: options };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+export async function getSourceDocumentUrl(
+  documentId: string
+): Promise<ActionResult<string>> {
+  try {
+    const { orgId, supabase } = await assertStaff();
+
+    const { data, error } = await (supabase as any)
+      .from("student_documents")
+      .select("google_drive_url, external_url")
+      .eq("id", documentId)
+      .eq("organization_id", orgId)
+      .single();
+
+    if (error) throw error;
+    const url = data?.google_drive_url ?? data?.external_url ?? null;
+    if (!url) return { success: false, error: "No URL available for this document." };
+    return { success: true, data: url };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+// ── Duplicate / conflict detection ───────────────────────────────────────────
+
+export interface DuplicateCheckResult {
+  duplicates: DuplicateMatch[];
+  conflicts: ConflictMatch[];
+}
+
+export async function checkCourseRecordDuplicates(
+  studentId: string,
+  proposed: Omit<MatchableRecord, "id" | "student_id">,
+  excludeRecordId?: string
+): Promise<ActionResult<DuplicateCheckResult>> {
+  try {
+    const { orgId, supabase } = await assertStaff();
+
+    const { data, error } = await (supabase as any)
+      .from("student_course_records")
+      .select("id, student_id, school_year, institution_name, course_name, course_code, term, grade_level, course_level, final_grade, semester_1_grade, semester_2_grade, credits_earned, credits_attempted, completion_status, counts_toward_high_school_credit, verification_status")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId);
+
+    if (error) throw error;
+
+    const existing: MatchableRecord[] = (data ?? []) as MatchableRecord[];
+    const proposedRecord: MatchableRecord = {
+      id: excludeRecordId ?? "__proposed__",
+      student_id: studentId,
+      ...proposed,
+    };
+
+    const duplicates = findDuplicates(proposedRecord, existing);
+    const conflicts  = findConflictsWithVerified(proposedRecord, existing);
+
+    return { success: true, data: { duplicates, conflicts } };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+// ── Verified-record update (registrar+ only, with audit) ─────────────────────
+
+export async function updateVerifiedCourseRecord(
+  recordId: string,
+  studentId: string,
+  payload: UpdateCourseRecordPayload
+): Promise<ActionResult<void>> {
+  try {
+    const { user, orgId, supabase, role } = await assertStaff();
+
+    // Registrar or above required for verified records
+    if (getRoleLevel(role) < getRoleLevel("registrar")) {
+      return { success: false, error: "Editing verified records requires Registrar role or above." };
+    }
+
+    // Fetch existing for audit trail
+    const { data: existing, error: fetchErr } = await (supabase as any)
+      .from("student_course_records")
+      .select("*")
+      .eq("id", recordId)
+      .eq("organization_id", orgId)
+      .single();
+
+    if (fetchErr) throw fetchErr;
+    if (!existing) return { success: false, error: "Record not found." };
+
+    const updateData: Record<string, unknown> = { updated_by: user.id };
+    if (payload.schoolYear       !== undefined) updateData.school_year         = payload.schoolYear;
+    if (payload.gradeLevel       !== undefined) updateData.grade_level         = payload.gradeLevel;
+    if (payload.term             !== undefined) updateData.term                = payload.term;
+    if (payload.institutionName  !== undefined) updateData.institution_name    = payload.institutionName;
+    if (payload.institutionType  !== undefined) updateData.institution_type    = payload.institutionType;
+    if (payload.courseName       !== undefined) updateData.course_name         = payload.courseName;
+    if (payload.courseCode       !== undefined) updateData.course_code         = payload.courseCode;
+    if (payload.subjectArea      !== undefined) updateData.subject_area        = payload.subjectArea;
+    if (payload.courseLevel      !== undefined) updateData.course_level        = payload.courseLevel;
+    if (payload.semester1Grade   !== undefined) updateData.semester_1_grade    = payload.semester1Grade;
+    if (payload.semester2Grade   !== undefined) updateData.semester_2_grade    = payload.semester2Grade;
+    if (payload.finalGrade       !== undefined) updateData.final_grade         = payload.finalGrade;
+    if (payload.percentage       !== undefined) updateData.percentage          = payload.percentage;
+    if (payload.creditsAttempted !== undefined) updateData.credits_attempted   = payload.creditsAttempted;
+    if (payload.creditsEarned    !== undefined) updateData.credits_earned      = payload.creditsEarned;
+    if (payload.countsTowardHighSchoolCredit !== undefined) {
+      updateData.counts_toward_high_school_credit = payload.countsTowardHighSchoolCredit;
+    }
+    if (payload.sourceCreditsAttempted !== undefined) updateData.source_credits_attempted = payload.sourceCreditsAttempted;
+    if (payload.sourceCreditsEarned    !== undefined) updateData.source_credits_earned    = payload.sourceCreditsEarned;
+    if (payload.sourceCreditUnit       !== undefined) updateData.source_credit_unit       = payload.sourceCreditUnit;
+    if (payload.completionStatus !== undefined) updateData.completion_status   = payload.completionStatus;
+    if (payload.sourceDocumentId !== undefined) updateData.source_document_id  = payload.sourceDocumentId;
+    if (payload.sourceNotes      !== undefined) updateData.source_notes        = payload.sourceNotes;
+
+    const { error } = await (supabase as any)
+      .from("student_course_records")
+      .update(updateData)
+      .eq("id", recordId)
+      .eq("organization_id", orgId);
+
+    if (error) throw error;
+
+    // Audit trail for verified-record edits
+    await logAudit({
+      organization_id: orgId,
+      actor_id:        user.id,
+      action:          "course_record.verified_edited",
+      resource_type:   "student_course_record",
+      resource_id:     recordId,
+      previous_values: {
+        course_name:     existing.course_name,
+        final_grade:     existing.final_grade,
+        credits_earned:  existing.credits_earned,
+        completion_status: existing.completion_status,
+        verification_status: existing.verification_status,
+      },
+      new_values:      {
+        ...Object.fromEntries(
+          Object.entries(updateData).filter(([k]) => k !== "updated_by")
+        ),
+      },
+    });
+
     revalidatePath(`/dashboard/students/${studentId}`);
     return { success: true, data: undefined };
   } catch (e: unknown) {
