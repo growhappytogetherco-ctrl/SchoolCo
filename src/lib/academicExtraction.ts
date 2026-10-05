@@ -147,13 +147,14 @@ Do not include any text outside the JSON object.`;
 // ── Client factory (server-only) ──────────────────────────────────────────────
 
 function getClient(): Anthropic | null {
-  const key = process.env.ANTHROPIC_API_KEY;
+  // Bracket notation prevents any build-time static substitution
+  const key = process.env["ANTHROPIC_API_KEY"];
   if (!key) return null;
   return new Anthropic({ apiKey: key });
 }
 
 export function isExtractionConfigured(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY;
+  return !!process.env["ANTHROPIC_API_KEY"];
 }
 
 // ── Main extraction function ──────────────────────────────────────────────────

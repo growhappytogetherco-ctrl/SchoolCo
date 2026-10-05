@@ -1,37 +1,25 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { getUser } from "@/lib/supabase/server";
-import { isStaffRole } from "@/lib/constants";
 
 /**
- * Safe server-side diagnostic for Anthropic configuration.
- * Staff-only. Returns only "available" or "unavailable" — never the key value.
+ * Public-safe Anthropic configuration diagnostic.
+ * Returns ONLY "available" or "unavailable" — never the key value, length, or prefix.
+ * No other environment variables are exposed.
  *
  * GET /api/diagnostic/anthropic
  */
+export const dynamic = "force-dynamic";
+
 export async function GET() {
-  // Require authenticated staff
-  const user = await getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // Read at request time — dynamic prevents any build-time caching
+  const configured = !!process.env["ANTHROPIC_API_KEY"];
 
-  const supabase = await createClient();
-  const { data: members } = await (supabase as any)
-    .from("organization_members")
-    .select("role")
-    .eq("profile_id", user.id)
-    .eq("status", "active")
-    .limit(1);
-
-  const role = (members?.[0] as { role: string } | undefined)?.role ?? "";
-  if (!isStaffRole(role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-  }
-
-  const configured = !!process.env.ANTHROPIC_API_KEY;
-
-  return NextResponse.json({
-    anthropic: configured ? "available" : "unavailable",
-  });
+  return NextResponse.json(
+    { anthropic: configured ? "available" : "unavailable" },
+    {
+      headers: {
+        // Prevent caching — result must reflect runtime environment
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      },
+    }
+  );
 }
