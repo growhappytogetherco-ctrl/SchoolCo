@@ -34,6 +34,7 @@ import {
   findConflictsWithVerified,
   type MatchableRecord,
 } from "@/lib/courseRecordMatching";
+import { needsHeicConversion, convertHeicToJpeg } from "@/lib/heicConvert";
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
 
@@ -370,10 +371,32 @@ export async function requestAcademicImport(
       return { success: false, error: `Could not retrieve file from Google Drive: ${downloadResult.error}` };
     }
 
-    const { buffer, mimeType } = downloadResult.data;
+    let { buffer, mimeType } = downloadResult.data;
     const docLabel = doc.title
       ? doc.title
       : [doc.academic_school_year, doc.academic_record_type].filter(Boolean).join(" ") || "Academic Record";
+
+    // Convert HEIC/HEIF → JPEG server-side (original Drive file is never modified)
+    if (needsHeicConversion(mimeType)) {
+      const converted = await convertHeicToJpeg(buffer);
+      if (!converted.success) {
+        await (supabase as any)
+          .from("academic_record_imports")
+          .update({ status: "failed", error_message: converted.error, completed_at: new Date().toISOString() })
+          .eq("id", importId);
+        await logAudit({
+          organization_id: orgId,
+          actor_id:        user.id,
+          action:          "academic_import.failed",
+          resource_type:   "academic_record_import",
+          resource_id:     importId,
+          new_values:      { error: converted.error },
+        });
+        return { success: false, error: converted.error };
+      }
+      buffer   = converted.buffer;
+      mimeType = converted.mimeType;
+    }
 
     // Run AI extraction
     const extraction = await extractAcademicRecord(buffer, mimeType, docLabel);
