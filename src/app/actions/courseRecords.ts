@@ -61,6 +61,8 @@ export interface CourseRecord {
   import_id: string | null;
   source_notes: string | null;
   import_notes: string | null;
+  course_section_id: string | null;
+  curriculum_enrollment_id: string | null;
   verification_status: CourseVerificationStatus;
   verification_notes: string | null;
   verified_by: string | null;

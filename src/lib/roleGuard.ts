@@ -6,7 +6,7 @@
 
 import { redirect } from "next/navigation";
 import { getActiveRole } from "@/lib/supabase/org-context";
-import { isAdminRole, isStaffRole, getRoleLevel } from "@/lib/constants";
+import { isAdminRole, isFinalizationRole, isStaffRole, getRoleLevel } from "@/lib/constants";
 
 /**
  * Require a minimum role level. Redirects to /dashboard/home if not met.
@@ -32,6 +32,13 @@ export async function requireStaff(): Promise<string> {
 export async function requireAdmin(): Promise<string> {
   const role = await getActiveRole();
   if (!isAdminRole(role)) redirect("/dashboard/home");
+  return role!;
+}
+
+/** Require registrar-or-above access (for permanent academic record operations). */
+export async function requireRegistrar(): Promise<string> {
+  const role = await getActiveRole();
+  if (!isFinalizationRole(role)) redirect("/dashboard/home");
   return role!;
 }
 

@@ -54,6 +54,10 @@ export const ADMIN_ROLES: UserRole[] = [
   "admin", "full_admin", "platform_admin",
 ];
 
+export const FINALIZATION_ROLES: UserRole[] = [
+  "registrar", "admin", "full_admin", "platform_admin",
+];
+
 /** True if the role can view private student/family data (not volunteer/parent). */
 export function isStaffRole(role: string | null | undefined): boolean {
   return STAFF_ROLES.includes(role as UserRole);
@@ -62,6 +66,11 @@ export function isStaffRole(role: string | null | undefined): boolean {
 /** True if the role has admin-level access. */
 export function isAdminRole(role: string | null | undefined): boolean {
   return ADMIN_ROLES.includes(role as UserRole);
+}
+
+/** True if the role can finalize permanent academic records (registrar or above). */
+export function isFinalizationRole(role: string | null | undefined): boolean {
+  return FINALIZATION_ROLES.includes(role as UserRole);
 }
 
 /** Numeric level in the hierarchy (higher = more access). 0 = unknown/none. */

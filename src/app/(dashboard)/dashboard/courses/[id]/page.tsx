@@ -4,9 +4,14 @@ import Link from "next/link";
 import { ChevronLeft, BookOpen, Settings } from "lucide-react";
 import { getUser, getActiveOrgId } from "@/lib/supabase/server";
 import { requireStaff } from "@/lib/roleGuard";
+import { isFinalizationRole } from "@/lib/constants";
 import { getCourseDetail, getStaffForTeacherSelect } from "@/app/actions/courses";
+import { getSectionFinalizationRoster } from "@/app/actions/courseFinalization";
 import { CourseRoster } from "@/components/courses/CourseRoster";
 import { GradingSettingsEditor } from "@/components/gradebook/GradingSettingsEditor";
+import { CourseCreditConfig } from "@/components/courses/CourseCreditConfig";
+import { FinalizationPanel } from "@/components/courses/FinalizationPanel";
+import { getActiveRole } from "@/lib/supabase/org-context";
 
 export const metadata: Metadata = { title: "Course" };
 
@@ -41,6 +46,8 @@ export default async function CourseDetailPage({
   if (!orgId) redirect("/select-mission");
 
   const { id } = await params;
+  const currentRole = await getActiveRole();
+  const canFinalize = isFinalizationRole(currentRole);
 
   const [detailResult, staffResult] = await Promise.all([
     getCourseDetail(id),
@@ -50,6 +57,9 @@ export default async function CourseDetailPage({
   if (!detailResult.success) notFound();
   const { section, roster, gradeSettings } = detailResult.data;
   const staff = staffResult.success ? staffResult.data : [];
+
+  const rosterResult = canFinalize ? await getSectionFinalizationRoster(id) : null;
+  const finalizationRoster = rosterResult?.success ? rosterResult.data : [];
 
   const subjectLabel = SUBJECT_LABELS[section.subject] ?? section.subject;
 
@@ -113,6 +123,35 @@ export default async function CourseDetailPage({
           initialCategoryWeights={(gradeSettings?.weight_config as Record<string, number> | null) ?? null}
         />
       </div>
+
+      {/* Credit configuration — staff can configure; registrar+ can finalize */}
+      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6 space-y-4">
+        <div>
+          <h2 className="font-medium text-sc-navy">Credit & Level Configuration</h2>
+          <p className="text-label-sm text-sc-gray mt-0.5">
+            Configure whether this course counts toward high-school graduation credit.
+          </p>
+        </div>
+        <CourseCreditConfig
+          courseSectionId={section.id}
+          initial={{
+            countsTowardHighSchoolCredit: !!(section as any).counts_toward_high_school_credit,
+            creditsAttempted:             (section as any).credits_attempted ?? null,
+            courseLevel:                  (section as any).course_level ?? null,
+          }}
+          canEdit
+        />
+      </div>
+
+      {/* Finalization — registrar/admin only */}
+      {canFinalize && (
+        <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
+          <FinalizationPanel
+            courseSectionId={section.id}
+            initialRoster={finalizationRoster}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -221,7 +221,17 @@ function CourseRow({
   }
 
   const isRejected = record.verification_status === "rejected";
-  const grade = record.final_grade ?? record.semester_2_grade ?? record.semester_1_grade ?? null;
+  const letterGrade = record.final_grade ?? record.semester_2_grade ?? record.semester_1_grade ?? null;
+  // Percentage is primary when present. Format: "91.5% (A)" or "91% (A)" or "91.5%" or "A"
+  const gradeDisplay: string | null = (() => {
+    const pct = record.percentage;
+    if (pct !== null && pct !== undefined) {
+      // Suppress meaningless trailing zeros: 91.00 → "91%", 91.50 → "91.5%"
+      const pctStr = Number.isInteger(pct) ? `${pct}%` : `${parseFloat(String(pct))}%`;
+      return letterGrade ? `${pctStr} (${letterGrade})` : pctStr;
+    }
+    return letterGrade;
+  })();
 
   // Find linked source document label for compact display
   const linkedDoc = record.source_document_id
@@ -279,8 +289,8 @@ function CourseRow({
 
       {/* Center: grade + HS credit */}
       <div className="shrink-0 text-right min-w-[80px]">
-        {grade && (
-          <p className="font-semibold text-sc-navy text-label-md">{grade}</p>
+        {gradeDisplay && (
+          <p className="font-semibold text-sc-navy text-label-md">{gradeDisplay}</p>
         )}
         {record.counts_toward_high_school_credit && (
           <p className="text-label-sm text-sc-teal-700">
