@@ -60,6 +60,7 @@ export interface CourseRecord {
   source_document_id: string | null;
   import_id: string | null;
   source_notes: string | null;
+  import_notes: string | null;
   verification_status: CourseVerificationStatus;
   verification_notes: string | null;
   verified_by: string | null;
@@ -420,7 +421,7 @@ export async function getSourceDocumentsForStudent(
 
     const { data, error } = await (supabase as any)
       .from("student_documents")
-      .select("id, title, academic_record_type, academic_school_year, academic_reporting_period, google_drive_url, external_url")
+      .select("id, title, academic_record_type, academic_school_year, academic_reporting_period, google_drive_url, external_url, created_at")
       .eq("student_id", studentId)
       .eq("organization_id", orgId)
       .eq("document_type", "academic_record")
@@ -429,16 +430,29 @@ export async function getSourceDocumentsForStudent(
 
     if (error) throw error;
 
-    const options: SourceDocumentOption[] = (data ?? []).map((d: any) => {
-      const typeLabel = RECORD_TYPE_LABELS[d.academic_record_type] ?? d.academic_record_type ?? "Document";
-      const period    = d.academic_reporting_period ? ` (${d.academic_reporting_period})` : "";
-      const yearPart  = d.academic_school_year ? `${d.academic_school_year} ` : "";
-      const label     = d.title
+    // Detect duplicate titles so we can suffix them with upload date
+    const allDocs: any[] = data ?? [];
+    const titleCounts = new Map<string, number>();
+    for (const d of allDocs) {
+      const key = d.title ?? "";
+      titleCounts.set(key, (titleCounts.get(key) ?? 0) + 1);
+    }
+
+    const options: SourceDocumentOption[] = allDocs.map((d: any) => {
+      const typeLabel  = RECORD_TYPE_LABELS[d.academic_record_type] ?? d.academic_record_type ?? "Document";
+      const period     = d.academic_reporting_period ? ` (${d.academic_reporting_period})` : "";
+      const yearPart   = d.academic_school_year ? `${d.academic_school_year} ` : "";
+      const baseLabel  = d.title
         ? `${d.title}${period}`
         : `${yearPart}${typeLabel}${period}`;
+      // Append upload date when the same title appears more than once
+      const isDuplicate = (titleCounts.get(d.title ?? "") ?? 0) > 1;
+      const dateSuffix  = isDuplicate && d.created_at
+        ? ` · Uploaded ${new Date(d.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+        : "";
       return {
         id:             d.id,
-        label,
+        label:          baseLabel + dateSuffix,
         schoolYear:     d.academic_school_year ?? "",
         recordType:     d.academic_record_type ?? "",
         googleDriveUrl: d.google_drive_url ?? null,

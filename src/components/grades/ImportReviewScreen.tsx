@@ -323,11 +323,18 @@ function ProposedCourseRow({
             )}
           </div>
 
-          {/* Notes */}
+          {/* Source notes — official provenance from the source document */}
           {course.source_notes && (
             <div className="flex items-start gap-1 text-label-sm text-sc-gold-700">
               <Info className="size-3.5 mt-0.5 shrink-0" />
               <span>{course.source_notes}</span>
+            </div>
+          )}
+          {/* Import notes — AI interpretation/normalization notes (staff review only) */}
+          {course.import_notes && (
+            <div className="flex items-start gap-1 text-label-sm text-sc-gray">
+              <Info className="size-3.5 mt-0.5 shrink-0 opacity-60" />
+              <span className="opacity-75"><span className="font-medium">AI note:</span> {course.import_notes}</span>
             </div>
           )}
 

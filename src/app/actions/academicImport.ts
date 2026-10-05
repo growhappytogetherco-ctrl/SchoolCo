@@ -108,6 +108,7 @@ export interface ProposedCourse {
   verification_status:             string;
   source_document_id:              string | null;
   source_notes:                    string | null;
+  import_notes:                    string | null;
   needs_review_reason:             string | null;
   duplicate_level:                 "none" | "possible" | "strong" | "conflict" | null;
 }
@@ -170,7 +171,7 @@ export async function getImportJob(
 
       (supabase as any)
         .from("student_course_records")
-        .select("id, import_id, school_year, grade_level, institution_name, institution_type, course_name, course_code, subject_area, term, course_level, semester_1_grade, semester_2_grade, final_grade, percentage, credits_attempted, credits_earned, source_credits_attempted, source_credits_earned, source_credit_unit, counts_toward_high_school_credit, completion_status, verification_status, source_document_id, source_notes, source_type")
+        .select("id, import_id, school_year, grade_level, institution_name, institution_type, course_name, course_code, subject_area, term, course_level, semester_1_grade, semester_2_grade, final_grade, percentage, credits_attempted, credits_earned, source_credits_attempted, source_credits_earned, source_credit_unit, counts_toward_high_school_credit, completion_status, verification_status, source_document_id, source_notes, import_notes, source_type")
         .eq("import_id", importId)
         .eq("organization_id", orgId)
         .order("school_year", { ascending: false })
@@ -251,6 +252,7 @@ export async function getImportJob(
         verification_status:             row.verification_status,
         source_document_id:              row.source_document_id,
         source_notes:                    row.source_notes,
+        import_notes:                    row.import_notes,
         needs_review_reason:             null,
         duplicate_level:                 duplicateLevel,
       };
@@ -311,9 +313,9 @@ export async function requestAcademicImport(
 
     if (docErr || !doc) return { success: false, error: "Document not found." };
 
-    // Idempotency check — warn about prior completed import
+    // Idempotency check — warn about prior completed or reviewed import
     const priorCheck = await checkPriorImport(documentId, studentId);
-    if (priorCheck.success && priorCheck.data?.status === "completed") {
+    if (priorCheck.success && (priorCheck.data?.status === "completed" || priorCheck.data?.status === "reviewed")) {
       return {
         success: true,
         data: { importId: priorCheck.data.id, alreadyExists: priorCheck.data },
@@ -455,7 +457,8 @@ export async function requestAcademicImport(
       source_credit_unit:               c.source_credit_unit ?? null,
       counts_toward_high_school_credit: c.counts_toward_high_school_credit ?? false,
       completion_status:                c.completion_status ?? "unknown",
-      source_notes:                     [c.source_notes, c.needs_review_reason].filter(Boolean).join(" | ") || null,
+      source_notes:                     c.source_notes ?? null,
+      import_notes:                     [c.import_notes, c.needs_review_reason].filter(Boolean).join(" | ") || null,
     }));
 
     if (insertRecords.length > 0) {

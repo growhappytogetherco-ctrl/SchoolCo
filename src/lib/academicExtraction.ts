@@ -41,7 +41,8 @@ export interface ExtractedCourse {
   source_credit_unit:               string | null; // 'high_school_credit'|'college_semester_hours'|'college_quarter_hours'|'other'
   counts_toward_high_school_credit: boolean | null;
   completion_status:                string | null; // 'completed'|'failed'|'withdrawn'|'incomplete'|'unknown'
-  source_notes:                     string | null; // brief note if extraction uncertain
+  source_notes:                     string | null; // source-reported info that belongs with the official record
+  import_notes:                     string | null; // AI normalization/mapping notes for staff review only
   needs_review_reason:              string | null; // human-readable review flag
 }
 
@@ -55,7 +56,7 @@ export interface ExtractionResult {
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
-const EXTRACTION_PROMPT_VERSION = "1.0.0";
+const EXTRACTION_PROMPT_VERSION = "1.1.0";
 const EXTRACTION_VERSION = 1;
 
 export { EXTRACTION_PROMPT_VERSION, EXTRACTION_VERSION };
@@ -71,37 +72,60 @@ CRITICAL RULES — NEVER VIOLATE:
 5. NEVER infer completion status unless the document clearly states it.
 6. NEVER extract SSN, full address, phone numbers, medical information, or unrelated personal identifiers.
 
+GRADES — PRESERVE SOURCE EXACTLY, NEVER DERIVE:
+- Store ONLY the grade values the source document explicitly provides.
+- If the source shows BOTH a percentage (e.g. 79%) AND a letter grade (e.g. C): store both.
+- If the source shows ONLY a percentage: set percentage to that value and final_grade to null.
+- If the source shows ONLY a letter grade: set final_grade to that letter and percentage to null.
+- NEVER calculate or derive a letter grade from a percentage, or a percentage from a letter grade.
+- NEVER apply any school's grading scale to infer a missing grade value.
+- Preserve the source-reported grade exactly, even if it differs from any grading scale you know.
+
+SCHOOL YEAR — SOURCE-DRIVEN ONLY:
+- Use a school year ONLY if the transcript explicitly states it, either as a section label (e.g. "2025-2026") or as explicit assignment on the course row.
+- If a course falls within a clearly labeled academic-year section of the transcript, use that section's school year.
+- NEVER infer school year from completion date, month, or any calendar calculation (e.g. "July must mean next school year").
+- If the school year cannot be determined from an explicit source label, set school_year to null and set needs_review_reason to "School year was not explicitly identified on the source record."
+- Different institutions handle summer coursework differently — do not assume.
+
+TERM — SOURCE AND NORMALIZED:
+- In source_notes, always record the exact term wording from the source (e.g. "Term 1", "Fall Semester", "Q2").
+- In the term field, use the normalized value: "full_year", "semester_1", "semester_2", "quarter_1"–"quarter_4", "summer", "other".
+- In import_notes, record the mapping you made (e.g. "Term 1 mapped to semester_1").
+
+NEEDS REVIEW — SET FOR MATERIAL AMBIGUITY:
+- Set needs_review_reason when there is material uncertainty about: school year, institution, course identity, term, grade, high-school credit, completion status, or potential duplicate.
+- Missing grade_level alone does NOT require needs_review.
+- Use concise, factual language — e.g. "School year was not explicitly identified on the source record." or "Term label was ambiguous."
+
+TWO NOTES FIELDS:
+- source_notes: source-reported facts that belong with the academic record — e.g. enrollment status, completion date, servicing school, special designations noted on the transcript.
+- import_notes: AI interpretation notes for staff review — e.g. term mapping, abbreviation interpretation, uncertainty explanations. These are NEVER shown to parents.
+
 UNDERSTANDING DOCUMENT STRUCTURE:
-- Identify each school year section, institution, and grade level separately
-- Recognize semester column headers (S1, S2, Semester 1, Semester 2, Fall, Spring, etc.)
-- Recognize final grade columns (Final, Year, Annual, etc.)
+- Identify each school year section, institution, and grade level separately.
+- Recognize semester column headers (S1, S2, Semester 1, Semester 2, Fall, Spring, etc.).
+- Recognize final grade columns (Final, Year, Annual, etc.).
 - Credit columns may be labeled Credits, Credit Hours, Units, Hrs, etc.
-- Dual enrollment sections often show college course numbers and semester hours separately
-- Multi-page tables continue across pages — treat them as one record
+- Dual enrollment sections often show college course numbers and semester hours separately.
+- Multi-page tables continue across pages — treat them as one record.
 
 GRADE LEVELS:
-- Support grades K, 1–12, DE (dual enrollment), and pre-K
+- Support grades K, 1–12, DE (dual enrollment), and pre-K.
 - Grade 8 or below may legitimately earn high-school credit (e.g. Algebra I). Preserve grade level as stated.
 
 HIGH SCHOOL vs SOURCE CREDITS:
-- credits_attempted / credits_earned = high-school transcript credit units (typically 0.5 or 1.0)
-- source_credits_attempted / source_credits_earned = institution-reported credit (college semester hours, quarter hours, etc.)
-- source_credit_unit indicates the unit type
-- If the document shows "3 semester hours", set source_credits_earned=3, source_credit_unit="college_semester_hours", and leave credits_earned=null
+- credits_attempted / credits_earned = high-school transcript credit units (typically 0.5 or 1.0).
+- source_credits_attempted / source_credits_earned = institution-reported credit (college semester hours, quarter hours, etc.).
+- source_credit_unit indicates the unit type.
+- If the document shows "3 semester hours", set source_credits_earned=3, source_credit_unit="college_semester_hours", and leave credits_earned=null.
 
 COMPLETION STATUS:
-- "completed" only if the document clearly shows a passing final grade or explicit completion
-- "failed" only if explicitly stated or if a failing final grade is the only grade
-- "withdrawn" if the document shows W or Withdrawn
-- "incomplete" if explicitly incomplete
-- "unknown" if status cannot be determined
-
-TERM:
-- "full_year" if the course spans a full year or no term is specified for a year-long course
-- "semester_1" / "semester_2" for half-year courses
-- "quarter_1"–"quarter_4" for quarter courses
-- "summer" for summer courses
-- "other" for anything else
+- "completed" only if the document clearly shows a passing final grade or explicit completion.
+- "failed" only if explicitly stated or if a failing final grade is the only grade.
+- "withdrawn" if the document shows W or Withdrawn.
+- "incomplete" if explicitly incomplete.
+- "unknown" if status cannot be determined.
 
 Return ONLY a valid JSON object with this exact structure:
 {
@@ -128,7 +152,8 @@ Return ONLY a valid JSON object with this exact structure:
       "source_credit_unit": null,
       "counts_toward_high_school_credit": true,
       "completion_status": "completed",
-      "source_notes": null,
+      "source_notes": "Completion Date: 06/15/2024.",
+      "import_notes": "Full Year — no term breakdown on source.",
       "needs_review_reason": null
     }
   ]
