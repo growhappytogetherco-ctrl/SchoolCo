@@ -2,16 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Target, BookOpen, ClipboardList, Pin, ChevronDown, ChevronUp, StickyNote } from "lucide-react";
+import { AlertTriangle, Target, ClipboardList, Pin, ChevronDown, ChevronUp, StickyNote } from "lucide-react";
 import { getDashboardAlerts, type StudentAlert } from "@/app/actions/academics";
 import { getNoteAlerts, type NoteAlert } from "@/app/actions/staffNotes";
 import { cn } from "@/lib/utils";
 
 const ALERT_CFG: Record<string, { Icon: React.ElementType; cls: string; border: string; label: string }> = {
-  goal_overdue:      { Icon: Target,        cls: "text-sc-rose",    border: "border-l-sc-rose",    label: "Goal Overdue"       },
-  assessment_overdue:{ Icon: ClipboardList, cls: "text-sc-gold-600",border: "border-l-sc-gold-400",label: "Assessment Due"     },
-  curriculum_stale:  { Icon: BookOpen,      cls: "text-sc-gray",    border: "border-l-sc-gray-300",label: "Curriculum Stale"   },
-  flag_expiring:     { Icon: Pin,           cls: "text-sc-rose",    border: "border-l-sc-rose",    label: "Flag Expiring"      },
+  assessment_overdue:    { Icon: ClipboardList, cls: "text-sc-gold-600", border: "border-l-sc-gold-400", label: "No Recent Assessment" },
+  intervention_no_session: { Icon: Target,      cls: "text-sc-rose",    border: "border-l-sc-rose",     label: "1:1 Session Overdue"  },
+  flag_expiring:         { Icon: Pin,           cls: "text-sc-rose",    border: "border-l-sc-rose",     label: "Flag Expiring"        },
 };
 
 const SEVERITY_ORDER = { high: 0, normal: 1, low: 2 };
@@ -114,7 +113,7 @@ export function NoteAlertsPanel() {
 export function AlertsPanel() {
   const [alerts, setAlerts] = useState<StudentAlert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
     getDashboardAlerts().then((data) => {
@@ -162,10 +161,10 @@ export function AlertsPanel() {
           </div>
           <div className="text-left">
             <p className="text-label-md font-semibold text-sc-navy">
-              {alerts.length} Alert{alerts.length > 1 ? "s" : ""}
-              {highCount > 0 && <span className="ml-2 text-sc-rose">({highCount} urgent)</span>}
+              {alerts.length} Student Reminder{alerts.length > 1 ? "s" : ""}
+              {highCount > 0 && <span className="ml-2 text-sc-rose">({highCount} high priority)</span>}
             </p>
-            <p className="text-label-sm text-sc-gray">Student action items requiring attention</p>
+            <p className="text-label-sm text-sc-gray">1:1 sessions, expiring flags, and assessment reminders</p>
           </div>
         </div>
         {collapsed ? <ChevronDown className="size-4 text-sc-gray" /> : <ChevronUp className="size-4 text-sc-gray" />}

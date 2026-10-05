@@ -199,10 +199,6 @@ export async function getComplianceDashboardAlerts(): Promise<ComplianceDashboar
   if (!ctx) return [];
 
   const supabase = await createClient();
-  const today    = new Date().toISOString().split("T")[0];
-  const in30days = new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
-  const in7days  = new Date(Date.now() + 7  * 86400000).toISOString().split("T")[0];
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
 
   // Fetch all active staff
   const { data: staffRows } = await supabase
@@ -239,22 +235,8 @@ export async function getComplianceDashboardAlerts(): Promise<ComplianceDashboar
     for (const rt of required) {
       const rec = byType.get(rt);
 
-      if (!rec) {
-        // Missing required item
-        const urgency: "critical" | "high" | "normal" =
-          rt === "background_screening" ? "critical" : "normal";
-        alerts.push({
-          staff_id:      staff.id,
-          staff_name:    staff.full_name,
-          requirement_type: rt,
-          display_label: REQUIREMENT_LABELS[rt],
-          display_status: "not_started",
-          expiration_date: null,
-          urgency,
-          alert_type:    "missing",
-        });
-        continue;
-      }
+      // Missing records belong in the admin compliance onboarding view, not daily dashboard
+      if (!rec) continue;
 
       const ds = calcDisplayStatus({
         verification_status: rec.verification_status as VerificationStatus,
@@ -292,21 +274,6 @@ export async function getComplianceDashboardAlerts(): Promise<ComplianceDashboar
           urgency,
           alert_type: "expiring_soon",
         });
-      } else if (ds === "pending") {
-        // Pending > 7 days old
-        const createdAt = rec.created_at ? new Date(rec.created_at).toISOString() : "";
-        if (createdAt < sevenDaysAgo) {
-          alerts.push({
-            staff_id:      staff.id,
-            staff_name:    staff.full_name,
-            requirement_type: rt,
-            display_label: REQUIREMENT_LABELS[rt],
-            display_status: "pending",
-            expiration_date: rec.expiration_date ?? null,
-            urgency:       "normal",
-            alert_type:    "pending_overdue",
-          });
-        }
       }
     }
   }
@@ -314,9 +281,6 @@ export async function getComplianceDashboardAlerts(): Promise<ComplianceDashboar
   // Sort: critical first, then high, then normal
   const URGENCY_ORDER = { critical: 0, high: 1, normal: 2 };
   alerts.sort((a, b) => URGENCY_ORDER[a.urgency] - URGENCY_ORDER[b.urgency]);
-
-  // Suppress unused vars warnings — these are used above via closure
-  void today; void in30days; void in7days;
 
   return alerts;
 }
