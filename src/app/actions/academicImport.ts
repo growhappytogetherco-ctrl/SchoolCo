@@ -340,7 +340,7 @@ export async function requestAcademicImport(
         status:             "processing",
         started_at:         new Date().toISOString(),
         provider:           "anthropic",
-        model:              "claude-opus-4-5",
+        model:              "claude-sonnet-5-5",
         prompt_version:     EXTRACTION_PROMPT_VERSION,
         extraction_version: EXTRACTION_VERSION,
       })
@@ -460,7 +460,7 @@ export async function requestAcademicImport(
       action:          "academic_import.completed",
       resource_type:   "academic_record_import",
       resource_id:     importId,
-      new_values:      { course_count: insertRecords.length, model: "claude-opus-4-5" },
+      new_values:      { course_count: insertRecords.length, model: "claude-sonnet-5-5" },
     });
 
     revalidatePath(`/dashboard/students/${studentId}`);

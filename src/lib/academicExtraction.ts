@@ -191,11 +191,27 @@ export async function extractAcademicRecord(
     };
   }
 
+  // Enforce file size limits before sending to Anthropic
+  // PDF: 32 MB max; images: 5 MB max (Anthropic Messages API limits)
+  const MAX_PDF_BYTES   = 32 * 1024 * 1024;
+  const MAX_IMAGE_BYTES =  5 * 1024 * 1024;
+  const sizeLimit = mimeType === "application/pdf" ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
+  if (buffer.length > sizeLimit) {
+    const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
+    const limitMB = (sizeLimit / (1024 * 1024)).toFixed(0);
+    return {
+      success: false,
+      error: `This document is too large for AI analysis (${sizeMB} MB; limit is ${limitMB} MB). The original record is unchanged.`,
+      courses: [],
+      raw: {},
+    };
+  }
+
   const base64Data = buffer.toString("base64");
 
   try {
     const response = await client.messages.create({
-      model: "claude-opus-4-5",
+      model: "claude-sonnet-5-5",
       max_tokens: 8192,
       system: buildSystemPrompt(),
       messages: [
