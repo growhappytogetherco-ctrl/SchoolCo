@@ -53,7 +53,7 @@ returns table (
     and (ce.intervention_status = 'active' or ce.intervention_status is null)
     and not exists (
       select 1 from intervention_sessions ins
-      where ins.enrollment_id = ce.id
+      where ins.curriculum_enrollment_id = ce.id
         and ins.session_date >= current_date - 14
     )
 
