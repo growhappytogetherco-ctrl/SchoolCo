@@ -1,6 +1,51 @@
 "use client";
 
-import type { TranscriptData, HistoricalRecord, CurrentEnrollment } from "@/app/actions/transcript";
+import type {
+  TranscriptData,
+  HistoricalRecord,
+  CurrentEnrollment,
+  DepartmentCredit,
+  ServiceYearSummary,
+} from "@/app/actions/transcript";
+
+// ── Subject labels ────────────────────────────────────────────────────────────
+// Maps raw enum values from course_sections.subject / curriculum_enrollments.subject
+// to professionally capitalized display labels.
+
+const SUBJECT_LABEL: Record<string, string> = {
+  ela:             "English Language Arts",
+  english:         "English Language Arts",
+  english_ela:     "English Language Arts",
+  reading:         "Reading",
+  writing:         "Writing",
+  math:            "Mathematics",
+  mathematics:     "Mathematics",
+  science:         "Science",
+  history:         "History / Social Studies",
+  social_studies:  "History / Social Studies",
+  pe:              "Physical Education",
+  pe_health:       "Physical Education / Health",
+  bible:           "Bible",
+  leadership:      "Leadership",
+  entrepreneurship:"Entrepreneurship",
+  stem:            "STEM",
+  art:             "Fine Arts",
+  fine_arts:       "Fine Arts",
+  music:           "Music",
+  world_language:  "Foreign Language",
+  foreign_language:"Foreign Language",
+  career_technical:"Career & Technical Education",
+  elective:        "Elective",
+  other:           "Other",
+};
+
+export function formatSubject(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const key = raw.trim().toLowerCase();
+  if (key in SUBJECT_LABEL) return SUBJECT_LABEL[key];
+  // Fallback: title-case the raw value so at minimum it's capitalized
+  return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 // ── Term ordering ─────────────────────────────────────────────────────────────
 
@@ -39,9 +84,6 @@ function termLabel(term: string | null): string {
 }
 
 // ── S1/S2 display grouping ────────────────────────────────────────────────────
-// Groups only when: same courseName (normalized), same courseCode, same courseLevel,
-// and the two records are clearly semester_1 + semester_2.
-// Does NOT merge different courses, retakes, different institutions, ambiguous records.
 
 type PairedRow = {
   type: "paired";
@@ -61,10 +103,15 @@ type SingleRow = {
 type DisplayRow = PairedRow | SingleRow;
 
 export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
-  // Sort deterministically by academic term order before grouping
-  const sorted = [...records].sort(
-    (a, b) => getTermOrder(a.term) - getTermOrder(b.term),
-  );
+  // Sort by course name (numeric-aware) then term order — determines display sequence
+  const sorted = [...records].sort((a, b) => {
+    const nameCompare = a.courseName.localeCompare(b.courseName, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+    if (nameCompare !== 0) return nameCompare;
+    return getTermOrder(a.term) - getTermOrder(b.term);
+  });
 
   const rows: DisplayRow[] = [];
   const used = new Set<string>();
@@ -75,8 +122,8 @@ export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
     if (r.term === "semester_1") {
       const normalize = (s: string | null | undefined) =>
         (s ?? "").trim().toLowerCase();
-      const rName = normalize(r.courseName);
-      const rCode = normalize(r.courseCode);
+      const rName  = normalize(r.courseName);
+      const rCode  = normalize(r.courseCode);
       const rLevel = normalize(r.courseLevel);
 
       const partner = sorted.find(
@@ -90,16 +137,13 @@ export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
       );
 
       if (partner) {
-        // Only sum credits from records that actually have credits_earned set
         const hasS1Credit = r.creditsEarned != null;
         const hasS2Credit = partner.creditsEarned != null;
         const combinedCredits =
           hasS1Credit && hasS2Credit
             ? Math.round((r.creditsEarned! + partner.creditsEarned!) * 100) / 100
-            : hasS1Credit
-            ? r.creditsEarned
-            : hasS2Credit
-            ? partner.creditsEarned
+            : hasS1Credit ? r.creditsEarned
+            : hasS2Credit ? partner.creditsEarned
             : null;
 
         used.add(r.id);
@@ -124,13 +168,32 @@ export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
   return rows;
 }
 
-// ── Style helpers (inline — ensures identical print/screen rendering) ──────────
+// ── Style helpers ─────────────────────────────────────────────────────────────
 
-type CSSProps = { [key: string]: string | number | undefined };
+type CSSProps = Record<string, string | number | undefined>;
 
-const FONT_BODY = "Arial, Helvetica, sans-serif";
+const FONT_BODY    = "Arial, Helvetica, sans-serif";
 const FONT_HEADING = "Georgia, 'Palatino Linotype', Palatino, serif";
-const NAVY = "#1a1a2e";
+const NAVY         = "#1a1a2e";
+const TEXT_DARK    = "#111";
+const TEXT_MED     = "#444";
+const TEXT_DIM     = "#666";
+const RULE         = "#aaa";
+const RULE_LIGHT   = "#ddd";
+
+// Level abbreviations — Standard is assumed, only non-standard shown
+const LEVEL_ABBR: Record<string, string | null> = {
+  standard:        null,   // hidden — standard is assumed
+  honors:          "Honors",
+  ap:              "AP",
+  dual_enrollment: "DE",
+};
+
+function levelAbbr(level: string | null): string | null {
+  if (!level) return null;
+  const val = LEVEL_ABBR[level];
+  return val === undefined ? level : val; // unknown values shown as-is
+}
 
 function th(align: "left" | "right", width?: string): CSSProps {
   return {
@@ -139,16 +202,16 @@ function th(align: "left" | "right", width?: string): CSSProps {
     fontFamily: FONT_BODY,
     fontWeight: 700,
     fontSize: "0.8em",
-    color: "#555",
+    color: TEXT_DIM,
     textTransform: "uppercase",
     letterSpacing: "0.04em",
     padding: "2px 4px 3px",
-    borderBottom: "1px solid #888",
+    borderBottom: `1px solid ${RULE}`,
     whiteSpace: "nowrap",
   };
 }
 
-function td(align: "left" | "right", color = "#333"): CSSProps {
+function td(align: "left" | "right", color = TEXT_MED): CSSProps {
   return {
     textAlign: align,
     color,
@@ -156,22 +219,8 @@ function td(align: "left" | "right", color = "#333"): CSSProps {
     fontSize: "inherit",
     padding: "2px 4px 2px",
     verticalAlign: "top",
-    borderBottom: "1px solid #e8e8e8",
+    borderBottom: `1px solid ${RULE_LIGHT}`,
   };
-}
-
-// ── Level / course helpers ────────────────────────────────────────────────────
-
-const LEVEL_ABBR: Record<string, string> = {
-  standard:        "Std",
-  honors:          "Hon",
-  ap:              "AP",
-  dual_enrollment: "DE",
-};
-
-function levelAbbr(level: string | null): string | null {
-  if (!level) return null;
-  return LEVEL_ABBR[level] ?? level;
 }
 
 function fmtDate(iso: string): string {
@@ -190,12 +239,12 @@ function OrgContact({ org }: { org: TranscriptData["org"] }) {
       .filter(Boolean).join(", ");
     if (city) lines.push(city);
   }
-  if (org.phone) lines.push(org.phone);
-  if (org.email) lines.push(org.email);
+  if (org.phone)   lines.push(org.phone);
+  if (org.email)   lines.push(org.email);
   if (org.website) lines.push(org.website);
   if (!lines.length) return null;
   return (
-    <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: "#666", lineHeight: 1.5, textAlign: "right" }}>
+    <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: TEXT_DIM, lineHeight: 1.5, textAlign: "right" }}>
       {lines.map((l, i) => <div key={i}>{l}</div>)}
     </div>
   );
@@ -221,25 +270,25 @@ function InstitutionTable({ records }: { records: HistoricalRecord[] }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((row, idx) =>
+        {rows.map((row) =>
           row.type === "paired" ? (
             <tr key={`${row.s1.id}-${row.s2.id}`}>
               <td style={td("left")}>
-                <span style={{ fontWeight: 600, color: "#111" }}>{row.courseName}</span>
-                {row.courseLevel && (
-                  <span style={{ marginLeft: 4, color: "#888", fontSize: "0.85em" }}>
+                <span style={{ fontWeight: 600, color: TEXT_DARK }}>{row.courseName}</span>
+                {levelAbbr(row.courseLevel) && (
+                  <span style={{ marginLeft: 4, color: TEXT_DIM, fontSize: "0.85em" }}>
                     {levelAbbr(row.courseLevel)}
                   </span>
                 )}
               </td>
-              {hasCodes && <td style={td("left", "#666")}>{row.courseCode ?? "—"}</td>}
-              <td style={td("left", "#666")}>S1 / S2</td>
-              <td style={td("right", "#111")}>
+              {hasCodes && <td style={td("left")}>{row.courseCode ?? "—"}</td>}
+              <td style={td("left")}>S1 / S2</td>
+              <td style={td("right", TEXT_DARK)}>
                 <span style={{ fontWeight: 500 }}>{row.s1.gradeDisplay ?? "—"}</span>
                 <span style={{ color: "#bbb", margin: "0 2px" }}>/</span>
                 <span style={{ fontWeight: 500 }}>{row.s2.gradeDisplay ?? "—"}</span>
               </td>
-              <td style={td("right", "#444")}>
+              <td style={td("right")}>
                 {(row.s1.countsTowardHsCredit || row.s2.countsTowardHsCredit) &&
                 row.combinedCredits != null
                   ? `${row.combinedCredits} cr`
@@ -249,19 +298,19 @@ function InstitutionTable({ records }: { records: HistoricalRecord[] }) {
           ) : (
             <tr key={row.record.id}>
               <td style={td("left")}>
-                <span style={{ fontWeight: 600, color: "#111" }}>{row.record.courseName}</span>
-                {row.record.courseLevel && (
-                  <span style={{ marginLeft: 4, color: "#888", fontSize: "0.85em" }}>
+                <span style={{ fontWeight: 600, color: TEXT_DARK }}>{row.record.courseName}</span>
+                {levelAbbr(row.record.courseLevel) && (
+                  <span style={{ marginLeft: 4, color: TEXT_DIM, fontSize: "0.85em" }}>
                     {levelAbbr(row.record.courseLevel)}
                   </span>
                 )}
               </td>
-              {hasCodes && <td style={td("left", "#666")}>{row.record.courseCode ?? "—"}</td>}
-              <td style={td("left", "#666")}>{termLabel(row.record.term)}</td>
-              <td style={td("right", "#111")}>
+              {hasCodes && <td style={td("left")}>{row.record.courseCode ?? "—"}</td>}
+              <td style={td("left")}>{termLabel(row.record.term)}</td>
+              <td style={td("right", TEXT_DARK)}>
                 <span style={{ fontWeight: 500 }}>{row.record.gradeDisplay ?? "—"}</span>
               </td>
-              <td style={td("right", "#444")}>
+              <td style={td("right")}>
                 {row.record.countsTowardHsCredit && row.record.creditsEarned != null
                   ? `${row.record.creditsEarned} cr`
                   : "—"}
@@ -284,29 +333,32 @@ function CurrentTable({ enrollments }: { enrollments: CurrentEnrollment[] }) {
       <thead>
         <tr>
           <th style={th("left", hasHs ? "38%" : "50%")}>Course</th>
-          <th style={th("left", "25%")}>Subject / Level</th>
-          <th style={th("right", hasHs ? "22%" : "25%")}>Current Grade</th>
-          {hasHs && <th style={th("right", "15%")}>Credit Attempted</th>}
+          <th style={th("left", "24%")}>Subject</th>
+          <th style={th("right", hasHs ? "22%" : "26%")}>Current Grade</th>
+          {hasHs && <th style={th("right", "16%")}>Credit Attempted</th>}
         </tr>
       </thead>
       <tbody>
         {enrollments.map((e) => (
           <tr key={e.id}>
             <td style={td("left")}>
-              <span style={{ fontWeight: 600, color: "#111" }}>{e.courseName}</span>
+              <span style={{ fontWeight: 600, color: TEXT_DARK }}>{e.courseName}</span>
+              {levelAbbr(e.courseLevel) && (
+                <span style={{ marginLeft: 4, color: TEXT_DIM, fontSize: "0.85em" }}>
+                  {levelAbbr(e.courseLevel)}
+                </span>
+              )}
             </td>
-            <td style={td("left", "#666")}>
-              {[e.subject, levelAbbr(e.courseLevel)].filter(Boolean).join(" · ") || "—"}
-            </td>
+            <td style={td("left")}>{formatSubject(e.subject) ?? "—"}</td>
             <td style={td("right")}>
               {e.hasGrade && e.currentGradeDisplay ? (
-                <span style={{ fontWeight: 500, color: "#111" }}>{e.currentGradeDisplay}</span>
+                <span style={{ fontWeight: 500, color: TEXT_DARK }}>{e.currentGradeDisplay}</span>
               ) : (
-                <span style={{ color: "#888", fontStyle: "italic" }}>In Progress</span>
+                <span style={{ color: TEXT_DIM, fontStyle: "italic" }}>In Progress</span>
               )}
             </td>
             {hasHs && (
-              <td style={td("right", "#555")}>
+              <td style={td("right")}>
                 {e.countsTowardHsCredit && e.creditsAttempted != null
                   ? `${e.creditsAttempted} cr`
                   : "—"}
@@ -319,11 +371,104 @@ function CurrentTable({ enrollments }: { enrollments: CurrentEnrollment[] }) {
   );
 }
 
+// ── DepartmentCreditsSection ──────────────────────────────────────────────────
+
+function DepartmentCreditsSection({
+  departments,
+  unclassified,
+  totalEarned,
+}: {
+  departments: DepartmentCredit[];
+  unclassified: number;
+  totalEarned: number;
+}) {
+  const rows = [...departments];
+  if (unclassified > 0) rows.push({ department: "Unclassified", credits: unclassified });
+  if (!rows.length) return null;
+
+  return (
+    <section className="no-break" style={{ marginBottom: "10px" }}>
+      <div style={sectionHeadStyle()}>Credits Earned by Department</div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, fontSize: "inherit" }}>
+        <thead>
+          <tr>
+            <th style={th("left", "70%")}>Department</th>
+            <th style={th("right", "30%")}>Credits Earned</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((d) => (
+            <tr key={d.department}>
+              <td style={td("left", TEXT_MED)}>{d.department}</td>
+              <td style={td("right", TEXT_DARK)}>
+                <span style={{ fontWeight: 500 }}>{d.credits}</span>
+              </td>
+            </tr>
+          ))}
+          <tr style={{ borderTop: `1px solid ${RULE}` }}>
+            <td style={{ ...td("left"), fontWeight: 700, color: TEXT_DARK }}>Total</td>
+            <td style={{ ...td("right"), fontWeight: 700, color: TEXT_DARK }}>{totalEarned}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+// ── ServiceHoursSection ───────────────────────────────────────────────────────
+
+function ServiceHoursSection({
+  serviceHours,
+  total,
+}: {
+  serviceHours: ServiceYearSummary[];
+  total: number;
+}) {
+  if (!serviceHours.length) return null;
+
+  return (
+    <section className="no-break" style={{ marginBottom: "10px" }}>
+      <div style={sectionHeadStyle()}>Community Service Hours</div>
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "baseline" }}>
+        {serviceHours.map((s) => (
+          <div key={s.schoolYear} style={{ fontFamily: FONT_BODY, fontSize: "inherit" }}>
+            <span style={{ color: TEXT_DIM, fontSize: "0.85em" }}>{s.schoolYear}: </span>
+            <span style={{ fontWeight: 600, color: TEXT_DARK }}>{s.hours}</span>
+          </div>
+        ))}
+        <div style={{ marginLeft: "auto", fontFamily: FONT_BODY, fontSize: "inherit" }}>
+          <span style={{ color: TEXT_DIM, fontSize: "0.85em" }}>Total: </span>
+          <span style={{ fontWeight: 700, color: TEXT_DARK }}>{total}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Shared section heading style ──────────────────────────────────────────────
+
+function sectionHeadStyle(): CSSProps {
+  return {
+    fontSize: "7.5px",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    color: TEXT_DIM,
+    borderBottom: `1px solid ${RULE}`,
+    paddingBottom: "2px",
+    marginBottom: "4px",
+    fontFamily: FONT_BODY,
+  };
+}
+
 // ── TranscriptDocument ────────────────────────────────────────────────────────
 
 export function TranscriptDocument({ data }: { data: TranscriptData }) {
   const hasCredits =
     data.earnedHsCredits > 0 || data.currentHsCreditsAttempted > 0;
+  const hasDepartments =
+    data.departmentCredits.length > 0 || data.unclassifiedHsCredits > 0;
+  const hasService = data.serviceHours.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-100 print:bg-white">
@@ -378,16 +523,14 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
           className="transcript-page mx-auto bg-white shadow-md print:shadow-none"
           style={{ maxWidth: "816px" }}
         >
-          {/* tp-root: base font size that print CSS overrides to 8.5pt */}
           <div
             className="px-10 py-8 print:px-0 print:py-0 tp-root"
-            style={{ fontFamily: FONT_BODY, fontSize: "11px", lineHeight: 1.45, color: "#222" }}
+            style={{ fontFamily: FONT_BODY, fontSize: "11px", lineHeight: 1.45, color: TEXT_MED }}
           >
 
-            {/* ── Document header ─────────────────────────────────────────── */}
+            {/* ── Header ────────────────────────────────────────────────── */}
             <header className="no-break" style={{ marginBottom: "10px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
-                {/* Left: Logo + org name + document type */}
                 <div>
                   {data.org.logoUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -397,32 +540,16 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
                       style={{ height: "34px", width: "auto", marginBottom: "4px", display: "block", objectFit: "contain" }}
                     />
                   )}
-                  <div style={{
-                    fontFamily: FONT_HEADING,
-                    fontWeight: 700,
-                    fontSize: "17px",
-                    color: NAVY,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    lineHeight: 1.2,
-                  }}>
+                  <div style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "17px", color: NAVY, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.2 }}>
                     {data.org.name}
                   </div>
-                  <div style={{
-                    fontFamily: FONT_HEADING,
-                    fontSize: "12px",
-                    color: "#444",
-                    letterSpacing: "0.05em",
-                    marginTop: "2px",
-                    lineHeight: 1.3,
-                  }}>
+                  <div style={{ fontFamily: FONT_HEADING, fontSize: "12px", color: TEXT_MED, letterSpacing: "0.05em", marginTop: "2px", lineHeight: 1.3 }}>
                     Academic Achievement Record
                   </div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: "#888", marginTop: "1px" }}>
-                    Current Academic Transcript
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: TEXT_DIM, marginTop: "1px" }}>
+                    Current Academic Transcript — Homeschool Co-op
                   </div>
                 </div>
-                {/* Right: contact + generated date */}
                 <div style={{ textAlign: "right" }}>
                   <OrgContact org={data.org} />
                   <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: "#999", marginTop: "4px" }}>
@@ -432,73 +559,34 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
               </div>
 
               {/* Student info strip */}
-              <div style={{
-                borderTop: `2px solid ${NAVY}`,
-                borderBottom: "1px solid #bbb",
-                padding: "5px 0 4px",
-                display: "grid",
-                gridTemplateColumns: "2fr 1fr 1fr",
-                gap: "12px",
-              }}>
+              <div style={{ borderTop: `2px solid ${NAVY}`, borderBottom: `1px solid ${RULE}`, padding: "5px 0 4px", display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "12px" }}>
                 <div>
-                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#777" }}>Student</div>
-                  <div style={{ fontFamily: FONT_HEADING, fontSize: "13px", fontWeight: 700, color: "#111", marginTop: "1px" }}>
-                    {data.studentName}
-                  </div>
+                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Student</div>
+                  <div style={{ fontFamily: FONT_HEADING, fontSize: "13px", fontWeight: 700, color: TEXT_DARK, marginTop: "1px" }}>{data.studentName}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#777" }}>Grade Level</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: "11px", fontWeight: 600, color: "#111", marginTop: "1px" }}>
-                    {data.gradeLevel ?? "—"}
-                  </div>
+                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Grade Level</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "11px", fontWeight: 600, color: TEXT_DARK, marginTop: "1px" }}>{data.gradeLevel ?? "—"}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#777" }}>Academic Year</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: "11px", fontWeight: 600, color: "#111", marginTop: "1px" }}>
-                    {data.currentSchoolYear || "—"}
-                  </div>
+                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Academic Year</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "11px", fontWeight: 600, color: TEXT_DARK, marginTop: "1px" }}>{data.currentSchoolYear || "—"}</div>
                 </div>
               </div>
             </header>
 
-            {/* ── Completed coursework ─────────────────────────────────────── */}
+            {/* ── Completed coursework ──────────────────────────────────── */}
             {data.historicalGroups.length > 0 && (
               <section style={{ marginBottom: "10px" }}>
-                <div style={{
-                  fontSize: "7.5px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  color: "#555",
-                  borderBottom: "1px solid #999",
-                  paddingBottom: "2px",
-                  marginBottom: "6px",
-                  fontFamily: FONT_BODY,
-                }}>
-                  Completed Coursework
-                </div>
+                <div style={sectionHeadStyle()}>Completed Coursework</div>
                 {data.historicalGroups.map((g) => (
                   <div key={g.schoolYear} style={{ marginBottom: "8px" }}>
-                    <div style={{
-                      fontFamily: FONT_HEADING,
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      color: NAVY,
-                      marginBottom: "3px",
-                    }}>
+                    <div style={{ fontFamily: FONT_HEADING, fontSize: "10px", fontWeight: 700, color: NAVY, marginBottom: "3px" }}>
                       {g.schoolYear}
                     </div>
                     {g.institutions.map((inst) => (
                       <div key={inst.institutionName} className="no-break" style={{ paddingLeft: "8px", marginBottom: "6px" }}>
-                        <div style={{
-                          fontSize: "7.5px",
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                          color: "#888",
-                          marginBottom: "2px",
-                          fontFamily: FONT_BODY,
-                        }}>
+                        <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#999", marginBottom: "2px", fontFamily: FONT_BODY }}>
                           {inst.institutionName}
                         </div>
                         <InstitutionTable records={inst.records} />
@@ -509,87 +597,88 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
               </section>
             )}
 
-            {/* ── Current coursework ───────────────────────────────────────── */}
+            {/* ── Current coursework ────────────────────────────────────── */}
             {data.currentEnrollments.length > 0 && (
               <section className="no-break" style={{ marginBottom: "10px" }}>
-                <div style={{
-                  fontSize: "7.5px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  color: "#555",
-                  borderBottom: "1px solid #999",
-                  paddingBottom: "2px",
-                  marginBottom: "4px",
-                  fontFamily: FONT_BODY,
-                }}>
+                <div style={sectionHeadStyle()}>
                   {data.currentSchoolYear
                     ? `${data.currentSchoolYear} — Rising Leaders Academy`
                     : "Current Coursework"}
-                  <span style={{ fontWeight: 400, marginLeft: "6px", color: "#aaa" }}>
-                    · In Progress
-                  </span>
+                  <span style={{ fontWeight: 400, marginLeft: "6px", color: "#aaa" }}>· In Progress</span>
                 </div>
                 <CurrentTable enrollments={data.currentEnrollments} />
               </section>
             )}
 
-            {/* ── Credit summary ───────────────────────────────────────────── */}
+            {/* ── High School Summary ───────────────────────────────────── */}
             {hasCredits && (
-              <div className="no-break" style={{
-                border: "1px solid #ccc",
-                padding: "5px 10px",
-                marginBottom: "10px",
-                display: "flex",
-                alignItems: "center",
-                gap: "20px",
-                backgroundColor: "#fafafa",
-              }}>
-                <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#555", fontFamily: FONT_BODY }}>
-                  High School Credit Summary
+              <div className="no-break" style={{ border: `1px solid ${RULE}`, padding: "6px 10px", marginBottom: "10px", backgroundColor: "#fafafa" }}>
+                <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM, fontFamily: FONT_BODY, marginBottom: "4px" }}>
+                  High School Summary
                 </div>
-                <div style={{ display: "flex", gap: "20px", marginLeft: "4px" }}>
+                <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "baseline" }}>
                   <div>
-                    <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: "#777" }}>Earned Credits: </span>
-                    <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "12px", color: "#111" }}>
-                      {data.earnedHsCredits}
-                    </span>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM }}>Earned Credits: </span>
+                    <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "12px", color: TEXT_DARK }}>{data.earnedHsCredits}</span>
                   </div>
                   {data.currentHsCreditsAttempted > 0 && (
                     <div>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: "#888" }}>Currently Attempted: </span>
-                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 600, fontSize: "12px", color: "#888" }}>
-                        {data.currentHsCreditsAttempted}
-                      </span>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM }}>Current Credits Attempted: </span>
+                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 600, fontSize: "12px", color: TEXT_MED }}>{data.currentHsCreditsAttempted}</span>
                     </div>
                   )}
-                </div>
-                <div style={{ marginLeft: "auto", fontSize: "7.5px", color: "#bbb", fontStyle: "italic", fontFamily: FONT_BODY }}>
-                  No GPA calculated
+                  {data.cumulativeGpa !== null ? (
+                    <div>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM }}>Cumulative GPA (Unweighted): </span>
+                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "12px", color: TEXT_DARK }}>{data.cumulativeGpa.toFixed(2)}</span>
+                    </div>
+                  ) : (
+                    <div style={{ marginLeft: "auto", fontSize: "7.5px", color: "#bbb", fontStyle: "italic", fontFamily: FONT_BODY }}>
+                      GPA pending — no letter grades on file
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* ── Signature ────────────────────────────────────────────────── */}
-            <div className="no-break" style={{ borderTop: "1px solid #ccc", paddingTop: "7px", marginBottom: "7px" }}>
-              <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#666", marginBottom: "6px", fontFamily: FONT_BODY }}>
+            {/* ── Credits by Department ─────────────────────────────────── */}
+            {hasDepartments && (
+              <DepartmentCreditsSection
+                departments={data.departmentCredits}
+                unclassified={data.unclassifiedHsCredits}
+                totalEarned={data.earnedHsCredits}
+              />
+            )}
+
+            {/* ── Community Service ─────────────────────────────────────── */}
+            {hasService && (
+              <ServiceHoursSection
+                serviceHours={data.serviceHours}
+                total={data.totalServiceHours}
+              />
+            )}
+
+            {/* ── Signature ─────────────────────────────────────────────── */}
+            <div className="no-break" style={{ borderTop: `1px solid ${RULE}`, paddingTop: "7px", marginBottom: "7px" }}>
+              <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM, marginBottom: "6px", fontFamily: FONT_BODY }}>
                 Authorized Academic Administrator
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "14px" }}>
                 {(["Printed Name", "Title", "Date"] as const).map((label) => (
                   <div key={label}>
-                    <div style={{ borderBottom: "1px solid #999", height: "18px", marginBottom: "2px" }} />
+                    <div style={{ borderBottom: `1px solid ${RULE}`, height: "18px", marginBottom: "2px" }} />
                     <div style={{ fontSize: "7.5px", color: "#999", fontFamily: FONT_BODY }}>{label}</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* ── Footer ───────────────────────────────────────────────────── */}
-            <footer style={{ borderTop: "1px solid #e5e5e5", paddingTop: "4px" }}>
+            {/* ── Footer ────────────────────────────────────────────────── */}
+            <footer style={{ borderTop: `1px solid ${RULE_LIGHT}`, paddingTop: "4px" }}>
               <p style={{ fontSize: "7px", color: "#aaa", textAlign: "center", fontFamily: FONT_BODY, margin: 0, lineHeight: 1.4 }}>
                 This record reflects academic history and current enrollment maintained by {data.org.name} as of{" "}
                 {fmtDate(data.generatedAt)}. Courses marked In Progress have not yet been awarded final credit.
+                GPA is unweighted and based on verified completed coursework only.
               </p>
             </footer>
 

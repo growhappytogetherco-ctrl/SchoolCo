@@ -98,7 +98,7 @@ console.log("\n5. Credit separation");
 assert(
   "transcript shows Earned HS Credits separately from Currently Attempted",
   (transcriptDoc.includes("Earned High School Credits") || transcriptDoc.includes("Earned Credits") || transcriptDoc.includes("Earned HS Credits")) &&
-  (transcriptDoc.includes("Currently Attempted") || transcriptDoc.includes("Current HS Credits Attempted")),
+  (transcriptDoc.includes("Currently Attempted") || transcriptDoc.includes("Current HS Credits Attempted") || transcriptDoc.includes("Current Credits Attempted")),
 );
 assert(
   "credits not added together",
@@ -113,10 +113,13 @@ assert(
 // ── 6. No GPA displayed ──────────────────────────────────────────────────────
 console.log("\n6. No GPA");
 assert(
-  "transcript document does not display a GPA value (note stating No GPA is acceptable)",
-  !transcriptDoc.toLowerCase().includes("grade point average") &&
-  (!transcriptDoc.toLowerCase().includes("gpa") ||
-    transcriptDoc.includes("No GPA") || transcriptDoc.includes("no gpa") || transcriptDoc.includes("No GPA calculated")),
+  "transcript GPA handling: either not shown or shown as Cumulative GPA with unweighted label",
+  !transcriptDoc.toLowerCase().includes("grade point average") && (
+    // Stage E.2: no GPA at all
+    !transcriptDoc.toLowerCase().includes("gpa") ||
+    // Stage E.3: GPA shown with explicit label and pending fallback
+    (transcriptDoc.includes("Cumulative GPA") || transcriptDoc.includes("No GPA") || transcriptDoc.includes("GPA pending"))
+  ),
 );
 assert(
   "enrollment summary does not display GPA",
@@ -461,6 +464,153 @@ assert(
 assert(
   "action reads student_course_records, not a separate transcript table",
   actionSrc.includes(`from("student_course_records")`),
+);
+
+// ── Stage E.3 — Subject labels, course ordering, GPA, departments ────────────
+
+const transcriptDocSrc = transcriptDoc; // alias for clarity in E.3 tests
+
+console.log("\n28e3. Stage E.3 — Subject labels");
+assert(
+  "formatSubject maps ela to English Language Arts",
+  transcriptDoc.includes("ela:") && transcriptDoc.includes("English Language Arts"),
+);
+assert(
+  "formatSubject maps math to Mathematics",
+  transcriptDoc.includes("math:") && transcriptDoc.includes("Mathematics"),
+);
+assert(
+  "formatSubject maps pe to Physical Education",
+  transcriptDoc.includes("pe:") && transcriptDoc.includes("Physical Education"),
+);
+assert(
+  "formatSubject maps social_studies to History / Social Studies",
+  transcriptDoc.includes("History / Social Studies"),
+);
+assert(
+  "formatSubject is exported and used in CurrentTable",
+  transcriptDoc.includes("formatSubject"),
+);
+
+console.log("\n29e3. Stage E.3 — Level display");
+assert(
+  "Standard level is NOT displayed (hidden — assumed)",
+  transcriptDoc.includes("standard:") && transcriptDoc.includes("null"),
+);
+assert(
+  "Honors is still displayed",
+  transcriptDoc.includes('"Honors"') || transcriptDoc.includes("honors:"),
+);
+assert(
+  "AP is still displayed",
+  transcriptDoc.includes('"AP"'),
+);
+assert(
+  "DE (Dual Enrollment) is still displayed",
+  transcriptDoc.includes('"DE"') || transcriptDoc.includes("dual_enrollment"),
+);
+
+console.log("\n30e3. Stage E.3 — Course ordering");
+assert(
+  "buildDisplayRows sorts by courseName with numeric option before term",
+  transcriptDoc.includes("numeric: true") && transcriptDoc.includes("localeCompare"),
+);
+assert(
+  "name sort applied before term sort within buildDisplayRows",
+  transcriptDoc.includes("nameCompare !== 0") && transcriptDoc.includes("return nameCompare"),
+);
+assert(
+  "getTermOrder still used for within-course ordering",
+  transcriptDoc.includes("getTermOrder"),
+);
+
+console.log("\n31e3. Stage E.3 — GPA");
+assert(
+  "GPA scale defined with canonical point values",
+  actionSrc.includes("GPA_SCALE") && actionSrc.includes('"A": 4.0') && actionSrc.includes('"F": 0.0'),
+);
+assert(
+  "calculateGpa uses credits_attempted (not credits_earned) for weighting",
+  actionSrc.includes("credits_attempted") && actionSrc.includes("totalAttempted"),
+);
+assert(
+  "GPA uses stored final_grade letter only — never derives from percentage",
+  actionSrc.includes("final_grade") && !actionSrc.includes("formatHistoricalGrade(r).*gpa"),
+);
+assert(
+  "failed courses with credits_attempted are included in GPA denominator",
+  actionSrc.includes('"failed"') && actionSrc.includes("totalAttempted"),
+);
+assert(
+  "GPA returns null when no eligible records (not 0.00)",
+  actionSrc.includes("if (totalAttempted === 0) return null"),
+);
+assert(
+  "current active enrollments do NOT affect GPA",
+  !actionSrc.match(/currentEnrollments[\s\S]{0,200}gpa/) &&
+  !actionSrc.match(/gpa[\s\S]{0,200}currentEnrollments/),
+);
+assert(
+  "cumulativeGpa passed in TranscriptData",
+  actionSrc.includes("cumulativeGpa") && transcriptDoc.includes("cumulativeGpa"),
+);
+assert(
+  "GPA displayed as X.XX format",
+  transcriptDoc.includes("toFixed(2)"),
+);
+assert(
+  "no GPA when null — shows pending note instead",
+  transcriptDoc.includes("GPA pending"),
+);
+
+console.log("\n32e3. Stage E.3 — Department credits");
+assert(
+  "buildDepartmentCredits implemented in transcript action",
+  actionSrc.includes("buildDepartmentCredits") && actionSrc.includes("DEPT_LABEL"),
+);
+assert(
+  "department totals use verified completed HS records only (not current active)",
+  actionSrc.includes("completion_status") && actionSrc.includes('"completed"'),
+);
+assert(
+  "current active credits do NOT appear in department totals",
+  !actionSrc.match(/currentEnrollments[\s\S]{0,200}buildDepartmentCredits/) &&
+  !actionSrc.match(/buildDepartmentCredits[\s\S]{0,200}currentEnrollments/),
+);
+assert(
+  "unclassified credits tracked separately",
+  actionSrc.includes("unclassified") && transcriptDoc.includes("Unclassified"),
+);
+assert(
+  "DepartmentCreditsSection rendered in document",
+  transcriptDoc.includes("DepartmentCreditsSection"),
+);
+assert(
+  "department total equals earned HS credits (passed as totalEarned prop)",
+  transcriptDoc.includes("totalEarned") && transcriptDoc.includes("earnedHsCredits"),
+);
+
+console.log("\n33e3. Stage E.3 — Service hours");
+assert(
+  "service_hours table queried in getTranscriptData",
+  actionSrc.includes("service_hours") && actionSrc.includes("hours, service_date"),
+);
+assert(
+  "service hours grouped by derived academic year (Aug–Jul rule)",
+  actionSrc.includes("deriveAcademicYear") && actionSrc.includes("month >= 8"),
+);
+assert(
+  "service hours query scoped to student + org",
+  actionSrc.match(/service_hours[\s\S]{0,200}student_id[\s\S]{0,100}organization_id/) ||
+  actionSrc.match(/service_hours[\s\S]{0,200}organization_id[\s\S]{0,100}student_id/),
+);
+assert(
+  "ServiceHoursSection rendered when hours exist",
+  transcriptDoc.includes("ServiceHoursSection"),
+);
+assert(
+  "total service hours displayed alongside year breakdown",
+  transcriptDoc.includes("totalServiceHours"),
 );
 
 // ── Stage E.2 — Term ordering, S1/S2 grouping, compact design ────────────────

@@ -26,6 +26,16 @@ export type HistoricalRecord = {
   countsTowardHsCredit: boolean;
 };
 
+export type DepartmentCredit = {
+  department: string;
+  credits: number;
+};
+
+export type ServiceYearSummary = {
+  schoolYear: string;
+  hours: number;
+};
+
 export type HistoricalGroup = {
   schoolYear: string;
   institutions: Array<{
@@ -58,6 +68,11 @@ export type TranscriptData = {
   currentEnrollments: CurrentEnrollment[];
   earnedHsCredits: number;
   currentHsCreditsAttempted: number;
+  cumulativeGpa: number | null;
+  departmentCredits: DepartmentCredit[];
+  unclassifiedHsCredits: number;
+  serviceHours: ServiceYearSummary[];
+  totalServiceHours: number;
   missingOrgFields: string[];
 };
 
@@ -158,6 +173,105 @@ function buildMissingOrgFields(org: {
   return missing;
 }
 
+// ── GPA ──────────────────────────────────────────────────────────────────────
+// Canonical unweighted GPA scale from grade_scales (migration 00060).
+// P / W / other non-standard letters → excluded from GPA (null returned).
+
+const GPA_SCALE: Record<string, number> = {
+  "A+": 4.0, "A": 4.0, "A-": 3.7,
+  "B+": 3.3, "B": 3.0, "B-": 2.7,
+  "C+": 2.3, "C": 2.0, "C-": 1.7,
+  "D+": 1.3, "D": 1.0, "D-": 0.7,
+  "F": 0.0,
+};
+
+function getGpaPoints(letter: string | null): number | null {
+  if (!letter) return null;
+  const n = letter.trim().toUpperCase();
+  return n in GPA_SCALE ? GPA_SCALE[n] : null;
+}
+
+function calculateGpa(records: any[]): number | null {
+  let weightedSum = 0;
+  let totalAttempted = 0;
+  for (const r of records) {
+    if (!r.counts_toward_high_school_credit) continue;
+    if (!["completed", "failed"].includes(r.completion_status ?? "")) continue;
+    // Use stored letter grade only — never derive from percentage
+    const letter = r.final_grade ?? r.semester_2_grade ?? r.semester_1_grade ?? null;
+    const pts = getGpaPoints(letter);
+    if (pts === null) continue; // no usable grade or pass/fail
+    const attempted = r.credits_attempted;
+    if (!attempted || attempted <= 0) continue;
+    weightedSum += pts * attempted;
+    totalAttempted += attempted;
+  }
+  if (totalAttempted === 0) return null;
+  return Math.round((weightedSum / totalAttempted) * 100) / 100;
+}
+
+// ── Department credits ─────────────────────────────────────────────────────────
+// Maps subject_area enum values → display department label for transcript summary.
+// These match the values documented in migration 00071 comments.
+
+const DEPT_LABEL: Record<string, string> = {
+  english_ela:       "English / ELA",
+  mathematics:       "Mathematics",
+  science:           "Science",
+  social_studies:    "History / Social Studies",
+  world_language:    "Foreign Language",
+  fine_arts:         "Fine Arts",
+  pe_health:         "Physical Education / Health",
+  career_technical:  "Career & Technical Education",
+  leadership:        "Leadership",
+  entrepreneurship:  "Entrepreneurship",
+  stem:              "STEM",
+  bible:             "Bible",
+  elective:          "Elective / Other",
+  other:             "Elective / Other",
+};
+
+function buildDepartmentCredits(
+  records: any[],
+): { departments: DepartmentCredit[]; unclassified: number } {
+  const map = new Map<string, number>();
+  let unclassified = 0;
+
+  for (const r of records) {
+    if (!r.counts_toward_high_school_credit) continue;
+    if (r.completion_status !== "completed") continue;
+    const earned = r.credits_earned ?? 0;
+    if (earned <= 0) continue;
+
+    const area = (r.subject_area ?? "").trim().toLowerCase();
+    const label = DEPT_LABEL[area];
+    if (!label) {
+      unclassified = Math.round((unclassified + earned) * 100) / 100;
+      continue;
+    }
+    map.set(label, Math.round(((map.get(label) ?? 0) + earned) * 100) / 100);
+  }
+
+  const departments: DepartmentCredit[] = [];
+  for (const [dept, credits] of Array.from(map.entries())) {
+    departments.push({ department: dept, credits });
+  }
+  // Sort by dept name alphabetically for consistent display
+  departments.sort((a, b) => a.department.localeCompare(b.department));
+  return { departments, unclassified };
+}
+
+// ── Service hours ─────────────────────────────────────────────────────────────
+// service_hours table has no school_year field; derive from service_date (Aug–Jul).
+
+function deriveAcademicYear(dateStr: string): string {
+  const d = new Date(dateStr);
+  const month = d.getMonth() + 1; // 1–12
+  const year = d.getFullYear();
+  const startYear = month >= 8 ? year : year - 1;
+  return `${startYear}–${startYear + 1}`;
+}
+
 async function resolveCurrentSchoolYear(supabase: any, orgId: string): Promise<string> {
   try {
     const { data: currentYear } = await supabase
@@ -244,7 +358,8 @@ export async function getTranscriptData(
       .select(`
         id, course_name, course_code, institution_name, school_year, term,
         course_level, percentage, final_grade, semester_1_grade, semester_2_grade,
-        credits_earned, counts_toward_high_school_credit, completion_status
+        credits_earned, credits_attempted, counts_toward_high_school_credit,
+        completion_status, subject_area
       `)
       .eq("student_id", studentId)
       .eq("organization_id", orgId)
@@ -366,6 +481,32 @@ export async function getTranscriptData(
       .filter((e) => e.countsTowardHsCredit && (e.creditsAttempted ?? 0) > 0)
       .reduce((sum, e) => sum + (e.creditsAttempted ?? 0), 0);
 
+    // Cumulative GPA — verified completed/failed HS courses with letter grade + credits_attempted
+    const cumulativeGpa = calculateGpa(records ?? []);
+
+    // Department totals — verified completed HS courses with credits_earned > 0
+    const { departments: departmentCredits, unclassified: unclassifiedHsCredits } =
+      buildDepartmentCredits(records ?? []);
+
+    // Service hours — grouped by derived academic year
+    const { data: serviceRows } = await (supabase as any)
+      .from("service_hours")
+      .select("hours, service_date")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .order("service_date", { ascending: true });
+
+    const serviceYearMap = new Map<string, number>();
+    let totalServiceHours = 0;
+    for (const row of (serviceRows ?? []) as any[]) {
+      const yr = deriveAcademicYear(row.service_date);
+      serviceYearMap.set(yr, Math.round(((serviceYearMap.get(yr) ?? 0) + (row.hours ?? 0)) * 100) / 100);
+      totalServiceHours = Math.round((totalServiceHours + (row.hours ?? 0)) * 100) / 100;
+    }
+    const serviceHours: ServiceYearSummary[] = Array.from(serviceYearMap.entries())
+      .map(([schoolYear, hours]) => ({ schoolYear, hours }))
+      .sort((a, b) => a.schoolYear.localeCompare(b.schoolYear));
+
     return {
       success: true,
       data: {
@@ -385,6 +526,11 @@ export async function getTranscriptData(
         currentEnrollments,
         earnedHsCredits: Math.round(earnedHsCredits * 100) / 100,
         currentHsCreditsAttempted: Math.round(currentHsCreditsAttempted * 100) / 100,
+        cumulativeGpa,
+        departmentCredits,
+        unclassifiedHsCredits,
+        serviceHours,
+        totalServiceHours,
         missingOrgFields: buildMissingOrgFields(org),
       },
     };
