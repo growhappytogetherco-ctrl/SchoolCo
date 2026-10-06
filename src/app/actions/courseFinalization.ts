@@ -21,6 +21,7 @@ import type { ActionResult } from "@/types/actions";
 import { lookupLetterGrade } from "@/lib/grading/calculator";
 import type { GradeScaleLevel } from "@/lib/grading/types";
 import { logAudit } from "@/lib/audit";
+import { resolveEffectiveCredit } from "@/lib/enrollmentCredit";
 import {
   getStudentYTDGrade,
   getStudentSemesterGrade,
@@ -201,7 +202,7 @@ export async function getFinalizationPreview(
     const supabase = await createClient();
     const scale = await loadGradeScale(supabase, orgId);
 
-    // Load enrollment + linked section + school year
+    // Load enrollment + linked section + school year (includes enrollment-level credit overrides)
     const { data: enrollment, error: eErr } = await supabase
       .from("curriculum_enrollments")
       .select(`
@@ -213,6 +214,11 @@ export async function getFinalizationPreview(
         finalized_at,
         finalized_record_id,
         course_section_id,
+        counts_toward_high_school_credit,
+        credits_attempted,
+        course_level,
+        grading_period_id,
+        grading_periods ( name ),
         students ( first_name, last_name ),
         course_sections (
           course_name,
@@ -270,11 +276,24 @@ export async function getFinalizationPreview(
       warnings.push("No gradebook data found. Percentage will be null unless overridden.");
     }
 
-    const countsTowardHsCredit = !!section?.counts_toward_high_school_credit;
-    const creditsAttempted     = section?.credits_attempted ?? null;
+    // Effective credit values: enrollment override ?? section default
+    const effective = resolveEffectiveCredit(
+      {
+        counts_toward_high_school_credit: e.counts_toward_high_school_credit ?? null,
+        credits_attempted:                e.credits_attempted ?? null,
+        course_level:                     e.course_level ?? null,
+        grading_period_id:                e.grading_period_id ?? null,
+        grading_period_name:              (e.grading_periods as any)?.name ?? null,
+      },
+      {
+        counts_toward_high_school_credit: section?.counts_toward_high_school_credit,
+        credits_attempted:                section?.credits_attempted,
+        course_level:                     section?.course_level,
+      },
+    );
 
-    if (countsTowardHsCredit && creditsAttempted === null) {
-      warnings.push("Course is marked as HS-credit-bearing but credits_attempted is not configured. Set it on the course before finalizing.");
+    if (effective.countsTowardHsCredit && effective.creditsAttempted === null) {
+      warnings.push("This enrollment is marked as HS-credit-bearing but credits_attempted is not configured. Set it on the enrollment or course before finalizing.");
     }
 
     // Suggest completion status
@@ -296,16 +315,17 @@ export async function getFinalizationPreview(
         subject:                   e.subject ?? "",
         schoolYear:                schoolYearLabel,
         schoolYearId:              section?.school_year_id ?? "",
-        term:                      null,   // future: derive from grading period
+        // termLabel from enrollment grading_period_id; null = not specified (never "Full Year")
+        term:                      effective.termLabel,
         institution:               "Rising Leaders Academy",
         calculatedPercentage,
         calculatedLetterGrade,
-        officialPercentage:        calculatedPercentage,   // pre-filled; staff may override
-        officialLetterGrade:       calculatedLetterGrade,  // recalculated from official %
-        countsTowardHsCredit,
-        creditsAttempted,
-        creditsEarned:             null,   // requires explicit staff entry
-        courseLevel:               section?.course_level ?? null,
+        officialPercentage:        calculatedPercentage,
+        officialLetterGrade:       calculatedLetterGrade,
+        countsTowardHsCredit:      effective.countsTowardHsCredit,
+        creditsAttempted:          effective.creditsAttempted,
+        creditsEarned:             null,
+        courseLevel:               effective.courseLevel,
         suggestedCompletionStatus,
         warnings,
         blockers,
@@ -315,6 +335,21 @@ export async function getFinalizationPreview(
   } catch (err) {
     return { success: false, error: String(err) };
   }
+}
+
+// Maps grading_periods.name to student_course_records.term enum value.
+// Returns null when grading_period_id is null (never auto-infers "full_year").
+function gpNameToTermEnum(name: string | null): string | null {
+  if (!name) return null;
+  const n = name.trim().toLowerCase();
+  if (n === "semester 1") return "semester_1";
+  if (n === "semester 2") return "semester_2";
+  if (n === "quarter 1" || n === "q1") return "quarter_1";
+  if (n === "quarter 2" || n === "q2") return "quarter_2";
+  if (n === "quarter 3" || n === "q3") return "quarter_3";
+  if (n === "quarter 4" || n === "q4") return "quarter_4";
+  if (n === "summer") return "summer";
+  return null; // unrecognized period name → no term
 }
 
 // ── FINALIZE COURSE ENROLLMENT (commit) ───────────────────────────────────────
@@ -342,6 +377,11 @@ export async function finalizeCourseEnrollment(
         status,
         finalized_at,
         course_section_id,
+        counts_toward_high_school_credit,
+        credits_attempted,
+        course_level,
+        grading_period_id,
+        grading_periods ( name ),
         course_sections (
           id,
           course_name,
@@ -377,8 +417,22 @@ export async function finalizeCourseEnrollment(
       return { success: false, error: "Invalid completion status." };
     }
 
-    // --- 4. Credits validation ---
-    const countsTowardHsCredit = !!section?.counts_toward_high_school_credit;
+    // --- 4. Credits validation (use effective values: enrollment override ?? section default) ---
+    const effectiveFinal = resolveEffectiveCredit(
+      {
+        counts_toward_high_school_credit: e.counts_toward_high_school_credit ?? null,
+        credits_attempted:                e.credits_attempted ?? null,
+        course_level:                     e.course_level ?? null,
+        grading_period_id:                e.grading_period_id ?? null,
+        grading_period_name:              (e.grading_periods as any)?.name ?? null,
+      },
+      {
+        counts_toward_high_school_credit: section?.counts_toward_high_school_credit,
+        credits_attempted:                section?.credits_attempted,
+        course_level:                     section?.course_level,
+      },
+    );
+    const countsTowardHsCredit = effectiveFinal.countsTowardHsCredit;
     if (countsTowardHsCredit && payload.creditsEarned === undefined) {
       return {
         success: false,
@@ -438,9 +492,12 @@ export async function finalizeCourseEnrollment(
         percentage:                   payload.officialPercentage,
         final_grade:                  officialLetterGrade,
         counts_toward_high_school_credit: countsTowardHsCredit,
-        credits_attempted:            countsTowardHsCredit ? (section?.credits_attempted ?? null) : null,
+        credits_attempted:            countsTowardHsCredit ? (effectiveFinal.creditsAttempted ?? null) : null,
         credits_earned:               countsTowardHsCredit ? (payload.creditsEarned ?? null) : null,
-        course_level:                 section?.course_level ?? null,
+        course_level:                 effectiveFinal.courseLevel,
+        // term: map grading_period name to student_course_records.term enum
+        // null grading_period_id → term left null (never auto-infer "full_year")
+        term:                         gpNameToTermEnum(effectiveFinal.termLabel),
         course_section_id:            e.course_section_id,
         curriculum_enrollment_id:     e.id,
         created_by:                   profileId,

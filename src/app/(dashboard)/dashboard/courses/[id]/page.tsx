@@ -7,9 +7,11 @@ import { requireStaff } from "@/lib/roleGuard";
 import { isFinalizationRole } from "@/lib/constants";
 import { getCourseDetail, getStaffForTeacherSelect } from "@/app/actions/courses";
 import { getSectionFinalizationRoster } from "@/app/actions/courseFinalization";
+import { getSectionGradingPeriods } from "@/app/actions/enrollmentCredit";
 import { CourseRoster } from "@/components/courses/CourseRoster";
 import { GradingSettingsEditor } from "@/components/gradebook/GradingSettingsEditor";
 import { CourseCreditConfig } from "@/components/courses/CourseCreditConfig";
+import { EnrollmentCreditPanel } from "@/components/courses/EnrollmentCreditPanel";
 import { FinalizationPanel } from "@/components/courses/FinalizationPanel";
 import { getActiveRole } from "@/lib/supabase/org-context";
 
@@ -49,14 +51,16 @@ export default async function CourseDetailPage({
   const currentRole = await getActiveRole();
   const canFinalize = isFinalizationRole(currentRole);
 
-  const [detailResult, staffResult] = await Promise.all([
+  const [detailResult, staffResult, periodsResult] = await Promise.all([
     getCourseDetail(id),
     getStaffForTeacherSelect(),
+    getSectionGradingPeriods(id),
   ]);
 
   if (!detailResult.success) notFound();
   const { section, roster, gradeSettings } = detailResult.data;
   const staff = staffResult.success ? staffResult.data : [];
+  const gradingPeriods = periodsResult.success ? periodsResult.data : [];
 
   const rosterResult = canFinalize ? await getSectionFinalizationRoster(id) : null;
   const finalizationRoster = rosterResult?.success ? rosterResult.data : [];
@@ -124,12 +128,12 @@ export default async function CourseDetailPage({
         />
       </div>
 
-      {/* Credit configuration — staff can configure; registrar+ can finalize */}
+      {/* Section-level credit defaults */}
       <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6 space-y-4">
         <div>
-          <h2 className="font-medium text-sc-navy">Credit & Level Configuration</h2>
+          <h2 className="font-medium text-sc-navy">Course-Level Credit Defaults</h2>
           <p className="text-label-sm text-sc-gray mt-0.5">
-            Configure whether this course counts toward high-school graduation credit.
+            Default credit configuration applied when individual enrollment overrides are not set.
           </p>
         </div>
         <CourseCreditConfig
@@ -139,6 +143,27 @@ export default async function CourseDetailPage({
             creditsAttempted:             (section as any).credits_attempted ?? null,
             courseLevel:                  (section as any).course_level ?? null,
           }}
+          canEdit
+        />
+      </div>
+
+      {/* Per-enrollment HS credit configuration */}
+      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6 space-y-4">
+        <div>
+          <h2 className="font-medium text-sc-navy">High School Credit by Student</h2>
+          <p className="text-label-sm text-sc-gray mt-0.5">
+            Configure HS credit individually per student. Inherited values (shown as "default") come from the course-level defaults above.
+          </p>
+        </div>
+        <EnrollmentCreditPanel
+          sectionId={section.id}
+          sectionDefaults={{
+            countsTowardHighSchoolCredit: !!(section as any).counts_toward_high_school_credit,
+            creditsAttempted:             (section as any).credits_attempted ?? null,
+            courseLevel:                  (section as any).course_level ?? null,
+          }}
+          roster={roster}
+          gradingPeriods={gradingPeriods}
           canEdit
         />
       </div>

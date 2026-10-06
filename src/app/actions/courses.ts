@@ -42,6 +42,13 @@ export interface CourseStudent {
   student_name: string;
   grade_level: string | null;
   curriculum_name: string | null;
+  // Enrollment-level HS credit overrides (null = inherit from section)
+  enr_counts_toward_hs_credit: boolean | null;
+  enr_credits_attempted:       number | null;
+  enr_course_level:            string | null;
+  enr_grading_period_id:       string | null;
+  enr_grading_period_name:     string | null;
+  finalized_at:                string | null;
 }
 
 // Students available to add to a course (by subject)
@@ -150,7 +157,12 @@ export async function getCourseDetail(sectionId: string): Promise<ActionResult<{
 
     const { data: enrollments } = await supabase
       .from("curriculum_enrollments")
-      .select("id, student_id, curriculum_name")
+      .select(`
+        id, student_id, curriculum_name, finalized_at,
+        counts_toward_high_school_credit, credits_attempted, course_level,
+        grading_period_id,
+        grading_periods ( name )
+      `)
       .eq("course_section_id", sectionId)
       .eq("status", "active");
 
@@ -166,7 +178,7 @@ export async function getCourseDetail(sectionId: string): Promise<ActionResult<{
       }
     }
 
-    const roster: CourseStudent[] = (enrollments ?? []).map(e => ({
+    const roster: CourseStudent[] = ((enrollments ?? []) as any[]).map((e: any) => ({
       enrollment_id: e.id,
       student_id: e.student_id,
       student_name: studentMap[e.student_id]
@@ -174,6 +186,12 @@ export async function getCourseDetail(sectionId: string): Promise<ActionResult<{
         : e.student_id,
       grade_level: studentMap[e.student_id]?.grade_level ?? null,
       curriculum_name: e.curriculum_name,
+      enr_counts_toward_hs_credit: e.counts_toward_high_school_credit ?? null,
+      enr_credits_attempted:       e.credits_attempted ?? null,
+      enr_course_level:            e.course_level ?? null,
+      enr_grading_period_id:       e.grading_period_id ?? null,
+      enr_grading_period_name:     (e.grading_periods as any)?.name ?? null,
+      finalized_at:                e.finalized_at ?? null,
     }));
 
     roster.sort((a, b) => a.student_name.localeCompare(b.student_name));

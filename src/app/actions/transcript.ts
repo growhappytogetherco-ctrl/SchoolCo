@@ -2,6 +2,7 @@
 
 import { getUser, getActiveOrgId, createClient } from "@/lib/supabase/server";
 import { getStudentYTDGrade } from "@/app/actions/grading";
+import { resolveEffectiveCredit } from "@/lib/enrollmentCredit";
 import type { ActionResult } from "@/types/actions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -397,15 +398,18 @@ export async function getTranscriptData(
     }
     historicalGroups.sort((a, b) => b.schoolYear.localeCompare(a.schoolYear));
 
-    // Active enrollments
-    // course_sections columns: id, subject, course_name, teacher_name,
-    //   school_year_id, counts_toward_high_school_credit, credits_attempted, course_level
-    // NOTE: course_sections has NO course_code or subject_area columns
+    // Active enrollments — include enrollment-level credit overrides (Stage E.4.1)
+    // course_sections has no course_code or subject_area columns
     const { data: enrollments, error: enrErr } = await supabase
       .from("curriculum_enrollments")
       .select(`
         id, curriculum_name, subject, status,
         course_section_id,
+        counts_toward_high_school_credit,
+        credits_attempted,
+        course_level,
+        grading_period_id,
+        grading_periods ( name ),
         course_sections (
           id, course_name, subject, course_level,
           credits_attempted, counts_toward_high_school_credit, school_year_id,
@@ -424,6 +428,22 @@ export async function getTranscriptData(
       const sy = cs?.school_years ?? null;
       const courseSectionId: string | null = cs?.id ?? null;
       const schoolYearId: string | null = sy?.id ?? null;
+
+      // Resolve effective credit values using nullish inheritance (enrollment ?? section ?? fallback)
+      const effective = resolveEffectiveCredit(
+        {
+          counts_toward_high_school_credit: enr.counts_toward_high_school_credit ?? null,
+          credits_attempted:                enr.credits_attempted ?? null,
+          course_level:                     enr.course_level ?? null,
+          grading_period_id:                enr.grading_period_id ?? null,
+          grading_period_name:              (enr.grading_periods as any)?.name ?? null,
+        },
+        {
+          counts_toward_high_school_credit: cs?.counts_toward_high_school_credit,
+          credits_attempted:                cs?.credits_attempted,
+          course_level:                     cs?.course_level,
+        },
+      );
 
       let currentGradeDisplay: string | null = null;
       let hasGrade = false;
@@ -447,21 +467,20 @@ export async function getTranscriptData(
           // no_grade → hasGrade stays false → UI renders "In Progress"
         } catch {
           // Grade calculation unavailable for this course — degrade to "In Progress"
-          // Real infrastructure errors are already logged inside getStudentYTDGrade
         }
       }
 
       currentEnrollments.push({
         id: enr.id,
-        // course_name from course_section; fall back to curriculum_name on enrollment
         courseName: cs?.course_name ?? enr.curriculum_name ?? "Unnamed Course",
-        courseCode: null, // course_sections has no course_code column
+        courseCode: null,
         subject: cs?.subject ?? enr.subject ?? null,
-        courseLevel: cs?.course_level ?? null,
-        term: null,
+        courseLevel: effective.courseLevel,
+        // termLabel is null when grading_period_id is null — never print "Full Year" for null
+        term: effective.termLabel,
         schoolYear: sy?.label ?? schoolYearLabel,
-        countsTowardHsCredit: cs?.counts_toward_high_school_credit ?? false,
-        creditsAttempted: cs?.credits_attempted ?? null,
+        countsTowardHsCredit: effective.countsTowardHsCredit,
+        creditsAttempted: effective.creditsAttempted,
         currentGradeDisplay,
         hasGrade,
       });
@@ -563,12 +582,14 @@ export async function getEnrollmentSummaryData(
 
     const schoolYearLabel = await resolveCurrentSchoolYear(supabase, orgId);
 
-    // Active enrollments
-    // course_sections: subject (not subject_area), no course_code
+    // Active enrollments — include enrollment-level credit overrides (Stage E.4.1)
     const { data: enrollments, error: enrErr } = await supabase
       .from("curriculum_enrollments")
       .select(`
         id, curriculum_name, subject, status,
+        counts_toward_high_school_credit, credits_attempted, course_level,
+        grading_period_id,
+        grading_periods ( name ),
         course_sections (
           id, course_name, subject, course_level,
           credits_attempted, counts_toward_high_school_credit,
@@ -583,18 +604,31 @@ export async function getEnrollmentSummaryData(
     let hasHsCredit = false;
     const enrollmentRows = ((enrollments ?? []) as any[]).map((enr: any) => {
       const cs = enr.course_sections ?? null;
-      const hs = cs?.counts_toward_high_school_credit ?? false;
-      if (hs) hasHsCredit = true;
+      const effective = resolveEffectiveCredit(
+        {
+          counts_toward_high_school_credit: enr.counts_toward_high_school_credit ?? null,
+          credits_attempted:                enr.credits_attempted ?? null,
+          course_level:                     enr.course_level ?? null,
+          grading_period_id:                enr.grading_period_id ?? null,
+          grading_period_name:              (enr.grading_periods as any)?.name ?? null,
+        },
+        {
+          counts_toward_high_school_credit: cs?.counts_toward_high_school_credit,
+          credits_attempted:                cs?.credits_attempted,
+          course_level:                     cs?.course_level,
+        },
+      );
+      if (effective.countsTowardHsCredit) hasHsCredit = true;
       return {
         id: enr.id,
         courseName: cs?.course_name ?? enr.curriculum_name ?? "Unnamed Course",
-        courseCode: null, // course_sections has no course_code column
+        courseCode: null,
         subject: cs?.subject ?? enr.subject ?? null,
-        term: null,
-        courseLevel: cs?.course_level ?? null,
+        term: effective.termLabel,
+        courseLevel: effective.courseLevel,
         teacherName: cs?.teacher_name ?? null,
-        countsTowardHsCredit: hs,
-        creditsAttempted: cs?.credits_attempted ?? null,
+        countsTowardHsCredit: effective.countsTowardHsCredit,
+        creditsAttempted: effective.creditsAttempted,
       };
     });
 
