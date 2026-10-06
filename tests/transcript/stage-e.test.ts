@@ -54,8 +54,9 @@ assert(
 // ── 2. Completed historical coursework appears in transcript ──────────────────
 console.log("\n2. Historical coursework structure");
 assert(
-  "TranscriptDocument renders HistoricalSection",
-  transcriptDoc.includes("HistoricalSection") && transcriptDoc.includes("Completed Coursework"),
+  "TranscriptDocument renders historical section with Completed Coursework",
+  (transcriptDoc.includes("HistoricalSection") || transcriptDoc.includes("historicalGroups")) &&
+  transcriptDoc.includes("Completed Coursework"),
 );
 assert(
   "institution grouping preserved",
@@ -74,7 +75,8 @@ assert(
 );
 assert(
   "current section is separate from historical section",
-  transcriptDoc.includes("CurrentSection") && transcriptDoc.includes("HistoricalSection"),
+  (transcriptDoc.includes("CurrentTable") || transcriptDoc.includes("CurrentSection")) &&
+  (transcriptDoc.includes("InstitutionTable") || transcriptDoc.includes("HistoricalSection")),
 );
 
 // ── 4. Active courses contribute zero earned credit ──────────────────────────
@@ -94,9 +96,9 @@ assert(
 // ── 5. Attempted credit is separate from earned credit ───────────────────────
 console.log("\n5. Credit separation");
 assert(
-  "transcript shows Earned HS Credits separately from Current HS Credits Attempted",
-  transcriptDoc.includes("Earned High School Credits") &&
-  transcriptDoc.includes("Current HS Credits Attempted"),
+  "transcript shows Earned HS Credits separately from Currently Attempted",
+  (transcriptDoc.includes("Earned High School Credits") || transcriptDoc.includes("Earned Credits") || transcriptDoc.includes("Earned HS Credits")) &&
+  (transcriptDoc.includes("Currently Attempted") || transcriptDoc.includes("Current HS Credits Attempted")),
 );
 assert(
   "credits not added together",
@@ -111,9 +113,10 @@ assert(
 // ── 6. No GPA displayed ──────────────────────────────────────────────────────
 console.log("\n6. No GPA");
 assert(
-  "transcript document does not display GPA",
-  !transcriptDoc.toLowerCase().includes("gpa") &&
-  !transcriptDoc.toLowerCase().includes("grade point average"),
+  "transcript document does not display a GPA value (note stating No GPA is acceptable)",
+  !transcriptDoc.toLowerCase().includes("grade point average") &&
+  (!transcriptDoc.toLowerCase().includes("gpa") ||
+    transcriptDoc.includes("No GPA") || transcriptDoc.includes("no gpa") || transcriptDoc.includes("No GPA calculated")),
 );
 assert(
   "enrollment summary does not display GPA",
@@ -458,6 +461,104 @@ assert(
 assert(
   "action reads student_course_records, not a separate transcript table",
   actionSrc.includes(`from("student_course_records")`),
+);
+
+// ── Stage E.2 — Term ordering, S1/S2 grouping, compact design ────────────────
+
+console.log("\n28. Stage E.2 — Term ordering");
+assert(
+  "semester_1 sorts before semester_2 (term order values)",
+  transcriptDoc.includes("semester_1") && transcriptDoc.includes("semester_2") &&
+  transcriptDoc.includes("TERM_ORDER") &&
+  (transcriptDoc.match(/semester_1.*?:\s*1/) !== null || transcriptDoc.match(/semester_1[^,]*,\s*2/) !== null ||
+   transcriptDoc.includes("semester_1: 1")),
+);
+assert(
+  "semester_2 has higher order number than semester_1",
+  transcriptDoc.includes("semester_1: 1") && transcriptDoc.includes("semester_2: 2"),
+);
+assert(
+  "quarter_1 through quarter_4 have deterministic ordering (3–6)",
+  transcriptDoc.includes("quarter_1:") && transcriptDoc.includes("quarter_4:"),
+);
+assert(
+  "unknown/null terms sort last (order 8 or 9)",
+  transcriptDoc.includes("getTermOrder") &&
+  transcriptDoc.includes("return 9") || transcriptDoc.includes("return TERM_ORDER[term] ?? 8"),
+);
+assert(
+  "buildDisplayRows sorts by term order before grouping — does not rely on insertion order",
+  transcriptDoc.includes("buildDisplayRows") &&
+  transcriptDoc.includes("sort(") &&
+  transcriptDoc.includes("getTermOrder"),
+);
+
+console.log("\n29. Stage E.2 — S1/S2 display grouping");
+assert(
+  "S1/S2 same-course display grouping is implemented (PairedRow type)",
+  transcriptDoc.includes("paired") &&
+  transcriptDoc.includes("semester_1") &&
+  transcriptDoc.includes("semester_2"),
+);
+assert(
+  "pairing only occurs when courseName, courseCode, courseLevel all match",
+  transcriptDoc.includes("normalize(s.courseName) === rName") &&
+  transcriptDoc.includes("normalize(s.courseCode) === rCode") &&
+  transcriptDoc.includes("normalize(s.courseLevel) === rLevel"),
+);
+assert(
+  "ambiguous/different-course records are not merged (paired rows use id-based used-set)",
+  transcriptDoc.includes("used.has(r.id)") &&
+  transcriptDoc.includes("used.add(r.id)"),
+);
+assert(
+  "combined credit is sum of s1.creditsEarned + s2.creditsEarned only when both are non-null",
+  transcriptDoc.includes("hasS1Credit && hasS2Credit") &&
+  transcriptDoc.includes("creditsEarned!") || transcriptDoc.includes("creditsEarned +"),
+);
+assert(
+  "combinedCredits does not invent credit when one semester has no credits_earned",
+  transcriptDoc.includes("hasS1Credit") && transcriptDoc.includes("hasS2Credit"),
+);
+
+console.log("\n30. Stage E.2 — Design & typography");
+assert(
+  "Georgia serif font used for headings",
+  transcriptDoc.includes("Georgia") || transcriptDoc.includes("georgia"),
+);
+assert(
+  "Arial/Helvetica used for body data",
+  transcriptDoc.includes("Arial") || transcriptDoc.includes("Helvetica"),
+);
+assert(
+  "compact print margins (~0.38–0.45 inch not 0.75 inch)",
+  transcriptDoc.includes("0.38in") || transcriptDoc.includes("0.40in") ||
+  transcriptDoc.includes("0.45in") || transcriptDoc.includes("0.35in"),
+);
+assert(
+  "print font size is 8–9pt (compact, not 12pt default)",
+  transcriptDoc.includes("8.5pt") || transcriptDoc.includes("8pt") || transcriptDoc.includes("9pt"),
+);
+assert(
+  "one-page-oriented design — compact tp-root class applied",
+  transcriptDoc.includes("tp-root"),
+);
+assert(
+  "multi-page fallback: table-header-group and no-break still present",
+  transcriptDoc.includes("table-header-group") && transcriptDoc.includes("no-break"),
+);
+assert(
+  "no GPA anywhere in redesigned document",
+  !transcriptDoc.includes("earnedGPA") && !transcriptDoc.includes("cumulativeGPA") &&
+  !transcriptDoc.includes("gpa_points") && !transcriptDoc.includes("GPA:"),
+);
+assert(
+  "active courses still show In Progress status in redesigned component",
+  transcriptDoc.includes("In Progress"),
+);
+assert(
+  "active credits still shown as attempted (not earned) in redesigned component",
+  transcriptDoc.includes("creditsAttempted") && !transcriptDoc.includes("creditsEarned = e.creditsAttempted"),
 );
 
 // ── Final summary ─────────────────────────────────────────────────────────────

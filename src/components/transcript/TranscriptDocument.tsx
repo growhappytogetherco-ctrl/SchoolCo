@@ -1,303 +1,595 @@
 "use client";
 
-import type { TranscriptData, HistoricalGroup, CurrentEnrollment } from "@/app/actions/transcript";
+import type { TranscriptData, HistoricalRecord, CurrentEnrollment } from "@/app/actions/transcript";
 
-const COURSE_LEVEL_LABELS: Record<string, string> = {
-  standard:        "Standard",
-  honors:          "Honors",
-  ap:              "AP",
-  dual_enrollment: "Dual Enrollment",
+// ── Term ordering ─────────────────────────────────────────────────────────────
+
+const TERM_ORDER: Record<string, number> = {
+  full_year:  0,
+  semester_1: 1,
+  semester_2: 2,
+  quarter_1:  3,
+  quarter_2:  4,
+  quarter_3:  5,
+  quarter_4:  6,
+  summer:     7,
+  other:      8,
 };
+
+const TERM_LABELS: Record<string, string> = {
+  full_year:  "Full Year",
+  semester_1: "Semester 1",
+  semester_2: "Semester 2",
+  quarter_1:  "Quarter 1",
+  quarter_2:  "Quarter 2",
+  quarter_3:  "Quarter 3",
+  quarter_4:  "Quarter 4",
+  summer:     "Summer",
+  other:      "Other",
+};
+
+export function getTermOrder(term: string | null): number {
+  if (!term) return 9;
+  return TERM_ORDER[term] ?? 8;
+}
+
+function termLabel(term: string | null): string {
+  if (!term) return "—";
+  return TERM_LABELS[term] ?? term;
+}
+
+// ── S1/S2 display grouping ────────────────────────────────────────────────────
+// Groups only when: same courseName (normalized), same courseCode, same courseLevel,
+// and the two records are clearly semester_1 + semester_2.
+// Does NOT merge different courses, retakes, different institutions, ambiguous records.
+
+type PairedRow = {
+  type: "paired";
+  courseName: string;
+  courseCode: string | null;
+  courseLevel: string | null;
+  s1: HistoricalRecord;
+  s2: HistoricalRecord;
+  combinedCredits: number | null;
+};
+
+type SingleRow = {
+  type: "single";
+  record: HistoricalRecord;
+};
+
+type DisplayRow = PairedRow | SingleRow;
+
+export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
+  // Sort deterministically by academic term order before grouping
+  const sorted = [...records].sort(
+    (a, b) => getTermOrder(a.term) - getTermOrder(b.term),
+  );
+
+  const rows: DisplayRow[] = [];
+  const used = new Set<string>();
+
+  for (const r of sorted) {
+    if (used.has(r.id)) continue;
+
+    if (r.term === "semester_1") {
+      const normalize = (s: string | null | undefined) =>
+        (s ?? "").trim().toLowerCase();
+      const rName = normalize(r.courseName);
+      const rCode = normalize(r.courseCode);
+      const rLevel = normalize(r.courseLevel);
+
+      const partner = sorted.find(
+        (s) =>
+          !used.has(s.id) &&
+          s.id !== r.id &&
+          s.term === "semester_2" &&
+          normalize(s.courseName) === rName &&
+          normalize(s.courseCode) === rCode &&
+          normalize(s.courseLevel) === rLevel,
+      );
+
+      if (partner) {
+        // Only sum credits from records that actually have credits_earned set
+        const hasS1Credit = r.creditsEarned != null;
+        const hasS2Credit = partner.creditsEarned != null;
+        const combinedCredits =
+          hasS1Credit && hasS2Credit
+            ? Math.round((r.creditsEarned! + partner.creditsEarned!) * 100) / 100
+            : hasS1Credit
+            ? r.creditsEarned
+            : hasS2Credit
+            ? partner.creditsEarned
+            : null;
+
+        used.add(r.id);
+        used.add(partner.id);
+        rows.push({
+          type: "paired",
+          courseName: r.courseName,
+          courseCode: r.courseCode,
+          courseLevel: r.courseLevel,
+          s1: r,
+          s2: partner,
+          combinedCredits,
+        });
+        continue;
+      }
+    }
+
+    used.add(r.id);
+    rows.push({ type: "single", record: r });
+  }
+
+  return rows;
+}
+
+// ── Style helpers (inline — ensures identical print/screen rendering) ──────────
+
+type CSSProps = { [key: string]: string | number | undefined };
+
+const FONT_BODY = "Arial, Helvetica, sans-serif";
+const FONT_HEADING = "Georgia, 'Palatino Linotype', Palatino, serif";
+const NAVY = "#1a1a2e";
+
+function th(align: "left" | "right", width?: string): CSSProps {
+  return {
+    textAlign: align,
+    width,
+    fontFamily: FONT_BODY,
+    fontWeight: 700,
+    fontSize: "0.8em",
+    color: "#555",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    padding: "2px 4px 3px",
+    borderBottom: "1px solid #888",
+    whiteSpace: "nowrap",
+  };
+}
+
+function td(align: "left" | "right", color = "#333"): CSSProps {
+  return {
+    textAlign: align,
+    color,
+    fontFamily: FONT_BODY,
+    fontSize: "inherit",
+    padding: "2px 4px 2px",
+    verticalAlign: "top",
+    borderBottom: "1px solid #e8e8e8",
+  };
+}
+
+// ── Level / course helpers ────────────────────────────────────────────────────
+
+const LEVEL_ABBR: Record<string, string> = {
+  standard:        "Std",
+  honors:          "Hon",
+  ap:              "AP",
+  dual_enrollment: "DE",
+};
+
+function levelAbbr(level: string | null): string | null {
+  if (!level) return null;
+  return LEVEL_ABBR[level] ?? level;
+}
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
+    year: "numeric", month: "short", day: "numeric",
   });
 }
 
-function OrgAddress({ address }: { address: TranscriptData["org"]["address"] }) {
-  if (!address) return null;
-  const parts = [
-    address.street1,
-    [address.city, address.state, address.zip].filter(Boolean).join(", "),
-  ].filter(Boolean);
-  if (!parts.length) return null;
+// ── OrgContact ────────────────────────────────────────────────────────────────
+
+function OrgContact({ org }: { org: TranscriptData["org"] }) {
+  const lines: string[] = [];
+  if (org.address) {
+    if (org.address.street1) lines.push(org.address.street1);
+    const city = [org.address.city, org.address.state, org.address.zip]
+      .filter(Boolean).join(", ");
+    if (city) lines.push(city);
+  }
+  if (org.phone) lines.push(org.phone);
+  if (org.email) lines.push(org.email);
+  if (org.website) lines.push(org.website);
+  if (!lines.length) return null;
   return (
-    <div className="text-xs text-gray-600">
-      {parts.map((p, i) => <div key={i}>{p}</div>)}
+    <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: "#666", lineHeight: 1.5, textAlign: "right" }}>
+      {lines.map((l, i) => <div key={i}>{l}</div>)}
     </div>
   );
 }
 
-function HistoricalSection({ groups }: { groups: HistoricalGroup[] }) {
-  if (!groups.length) return null;
+// ── InstitutionTable ──────────────────────────────────────────────────────────
+
+function InstitutionTable({ records }: { records: HistoricalRecord[] }) {
+  const rows = buildDisplayRows(records);
+  const hasCodes = rows.some((row) =>
+    row.type === "paired" ? !!row.courseCode : !!row.record.courseCode,
+  );
+
   return (
-    <section className="space-y-5">
-      <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 border-b border-gray-300 pb-1">
-        Completed Coursework
-      </h2>
-      {groups.map((g) => (
-        <div key={g.schoolYear} className="space-y-3">
-          <p className="text-sm font-semibold text-gray-800">{g.schoolYear}</p>
-          {g.institutions.map((inst) => (
-            <div key={inst.institutionName} className="no-break pl-4 space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                {inst.institutionName}
-              </p>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-gray-500 border-b border-gray-200">
-                    <th className="text-left font-medium py-1 w-1/2">Course</th>
-                    <th className="text-left font-medium py-1">Level / Term</th>
-                    <th className="text-right font-medium py-1">Grade</th>
-                    <th className="text-right font-medium py-1">Credit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inst.records.map((r) => (
-                    <tr key={r.id} className="border-b border-gray-100 last:border-0">
-                      <td className="py-1.5 pr-2">
-                        <span className="font-medium text-gray-900">{r.courseName}</span>
-                        {r.courseCode && (
-                          <span className="ml-2 text-xs text-gray-400">{r.courseCode}</span>
-                        )}
-                      </td>
-                      <td className="py-1.5 text-xs text-gray-600">
-                        {[
-                          r.courseLevel ? COURSE_LEVEL_LABELS[r.courseLevel] ?? r.courseLevel : null,
-                          r.term,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ") || "—"}
-                      </td>
-                      <td className="py-1.5 text-right font-medium text-gray-900">
-                        {r.gradeDisplay ?? "—"}
-                      </td>
-                      <td className="py-1.5 text-right text-gray-700">
-                        {r.countsTowardHsCredit && r.creditsEarned != null
-                          ? `${r.creditsEarned} cr`
-                          : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
-        </div>
-      ))}
-    </section>
+    <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, fontSize: "inherit" }}>
+      <thead>
+        <tr>
+          <th style={th("left", "38%")}>Course</th>
+          {hasCodes && <th style={th("left", "12%")}>Code</th>}
+          <th style={th("left", "16%")}>Term</th>
+          <th style={th("right", "18%")}>Grade</th>
+          <th style={th("right", "16%")}>Credit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, idx) =>
+          row.type === "paired" ? (
+            <tr key={`${row.s1.id}-${row.s2.id}`}>
+              <td style={td("left")}>
+                <span style={{ fontWeight: 600, color: "#111" }}>{row.courseName}</span>
+                {row.courseLevel && (
+                  <span style={{ marginLeft: 4, color: "#888", fontSize: "0.85em" }}>
+                    {levelAbbr(row.courseLevel)}
+                  </span>
+                )}
+              </td>
+              {hasCodes && <td style={td("left", "#666")}>{row.courseCode ?? "—"}</td>}
+              <td style={td("left", "#666")}>S1 / S2</td>
+              <td style={td("right", "#111")}>
+                <span style={{ fontWeight: 500 }}>{row.s1.gradeDisplay ?? "—"}</span>
+                <span style={{ color: "#bbb", margin: "0 2px" }}>/</span>
+                <span style={{ fontWeight: 500 }}>{row.s2.gradeDisplay ?? "—"}</span>
+              </td>
+              <td style={td("right", "#444")}>
+                {(row.s1.countsTowardHsCredit || row.s2.countsTowardHsCredit) &&
+                row.combinedCredits != null
+                  ? `${row.combinedCredits} cr`
+                  : "—"}
+              </td>
+            </tr>
+          ) : (
+            <tr key={row.record.id}>
+              <td style={td("left")}>
+                <span style={{ fontWeight: 600, color: "#111" }}>{row.record.courseName}</span>
+                {row.record.courseLevel && (
+                  <span style={{ marginLeft: 4, color: "#888", fontSize: "0.85em" }}>
+                    {levelAbbr(row.record.courseLevel)}
+                  </span>
+                )}
+              </td>
+              {hasCodes && <td style={td("left", "#666")}>{row.record.courseCode ?? "—"}</td>}
+              <td style={td("left", "#666")}>{termLabel(row.record.term)}</td>
+              <td style={td("right", "#111")}>
+                <span style={{ fontWeight: 500 }}>{row.record.gradeDisplay ?? "—"}</span>
+              </td>
+              <td style={td("right", "#444")}>
+                {row.record.countsTowardHsCredit && row.record.creditsEarned != null
+                  ? `${row.record.creditsEarned} cr`
+                  : "—"}
+              </td>
+            </tr>
+          ),
+        )}
+      </tbody>
+    </table>
   );
 }
 
-function CurrentSection({ enrollments }: { enrollments: CurrentEnrollment[] }) {
-  if (!enrollments.length) return null;
+// ── CurrentTable ──────────────────────────────────────────────────────────────
+
+function CurrentTable({ enrollments }: { enrollments: CurrentEnrollment[] }) {
+  const hasHs = enrollments.some((e) => e.countsTowardHsCredit);
+
   return (
-    <section className="no-break space-y-3">
-      <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 border-b border-gray-300 pb-1">
-        Current Coursework — In Progress
-      </h2>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-xs text-gray-500 border-b border-gray-200">
-            <th className="text-left font-medium py-1 w-2/5">Course</th>
-            <th className="text-left font-medium py-1">Subject / Level</th>
-            <th className="text-right font-medium py-1">Current Grade</th>
-            <th className="text-right font-medium py-1">Credit Attempted</th>
-          </tr>
-        </thead>
-        <tbody>
-          {enrollments.map((e) => (
-            <tr key={e.id} className="border-b border-gray-100 last:border-0">
-              <td className="py-1.5 pr-2">
-                <span className="font-medium text-gray-900">{e.courseName}</span>
-                {e.courseCode && (
-                  <span className="ml-2 text-xs text-gray-400">{e.courseCode}</span>
-                )}
-              </td>
-              <td className="py-1.5 text-xs text-gray-600">
-                {[
-                  e.subject,
-                  e.courseLevel ? COURSE_LEVEL_LABELS[e.courseLevel] ?? e.courseLevel : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || "—"}
-              </td>
-              <td className="py-1.5 text-right">
-                {e.hasGrade && e.currentGradeDisplay ? (
-                  <span className="font-medium text-gray-900">{e.currentGradeDisplay}</span>
-                ) : (
-                  <span className="text-gray-500 italic">In Progress</span>
-                )}
-              </td>
-              <td className="py-1.5 text-right text-gray-700">
+    <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, fontSize: "inherit" }}>
+      <thead>
+        <tr>
+          <th style={th("left", hasHs ? "38%" : "50%")}>Course</th>
+          <th style={th("left", "25%")}>Subject / Level</th>
+          <th style={th("right", hasHs ? "22%" : "25%")}>Current Grade</th>
+          {hasHs && <th style={th("right", "15%")}>Credit Attempted</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {enrollments.map((e) => (
+          <tr key={e.id}>
+            <td style={td("left")}>
+              <span style={{ fontWeight: 600, color: "#111" }}>{e.courseName}</span>
+            </td>
+            <td style={td("left", "#666")}>
+              {[e.subject, levelAbbr(e.courseLevel)].filter(Boolean).join(" · ") || "—"}
+            </td>
+            <td style={td("right")}>
+              {e.hasGrade && e.currentGradeDisplay ? (
+                <span style={{ fontWeight: 500, color: "#111" }}>{e.currentGradeDisplay}</span>
+              ) : (
+                <span style={{ color: "#888", fontStyle: "italic" }}>In Progress</span>
+              )}
+            </td>
+            {hasHs && (
+              <td style={td("right", "#555")}>
                 {e.countsTowardHsCredit && e.creditsAttempted != null
                   ? `${e.creditsAttempted} cr`
                   : "—"}
               </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="text-xs text-gray-500 italic">
-        Courses marked In Progress have not yet been awarded final credit.
-        Current grades, if shown, reflect work completed to date and are not final.
-      </p>
-    </section>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
+// ── TranscriptDocument ────────────────────────────────────────────────────────
+
 export function TranscriptDocument({ data }: { data: TranscriptData }) {
+  const hasCredits =
+    data.earnedHsCredits > 0 || data.currentHsCreditsAttempted > 0;
+
   return (
     <div className="min-h-screen bg-gray-100 print:bg-white">
 
-      {/* ── Toolbar (screen only) ──────────────────────────────────── */}
+      {/* ── Toolbar (screen only) ─────────────────────────────────────────── */}
       <div className="print:hidden sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shadow-sm">
         <div>
-          <p className="font-semibold text-gray-900">Current Academic Transcript</p>
-          <p className="text-sm text-gray-500">{data.studentName} · {data.currentSchoolYear}</p>
+          <p className="font-semibold text-gray-900 text-sm">Academic Achievement Record</p>
+          <p className="text-xs text-gray-500">{data.studentName} · {data.currentSchoolYear}</p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => window.history.back()}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
           >
             Back
           </button>
           <button
             onClick={() => window.print()}
-            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors"
+            className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 transition-colors"
           >
             Print / Save PDF
           </button>
         </div>
       </div>
 
+      {/* ── Print CSS ─────────────────────────────────────────────────────── */}
       <style>{`
         @media print {
-          @page { size: letter portrait; margin: 0.75in 0.75in 0.75in 0.75in; }
+          @page {
+            size: letter portrait;
+            margin: 0.38in 0.45in 0.38in 0.45in;
+          }
           body { background: white !important; }
-          .print-hide { display: none !important; }
-          .transcript-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; }
+          .transcript-page {
+            box-shadow: none !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+          }
+          .tp-root { font-size: 8.5pt !important; }
           table { page-break-inside: auto; }
-          tr { page-break-inside: avoid; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
           thead { display: table-header-group; }
           .no-break { page-break-inside: avoid; }
+          .print-hide { display: none !important; }
         }
       `}</style>
 
+      {/* ── Paper ─────────────────────────────────────────────────────────── */}
       <div className="py-8 px-4 print:py-0 print:px-0">
         <div
-          className="transcript-page mx-auto bg-white shadow-md rounded-sm print:shadow-none"
+          className="transcript-page mx-auto bg-white shadow-md print:shadow-none"
           style={{ maxWidth: "816px" }}
         >
-          <div className="px-12 py-10 print:px-0 print:py-0 space-y-7">
+          {/* tp-root: base font size that print CSS overrides to 8.5pt */}
+          <div
+            className="px-10 py-8 print:px-0 print:py-0 tp-root"
+            style={{ fontFamily: FONT_BODY, fontSize: "11px", lineHeight: 1.45, color: "#222" }}
+          >
 
-            {/* ── Document header ──────────────────────────────── */}
-            <header className="space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="space-y-0.5">
+            {/* ── Document header ─────────────────────────────────────────── */}
+            <header className="no-break" style={{ marginBottom: "10px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+                {/* Left: Logo + org name + document type */}
+                <div>
                   {data.org.logoUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={data.org.logoUrl}
                       alt={`${data.org.name} logo`}
-                      className="h-12 w-auto mb-2 object-contain"
+                      style={{ height: "34px", width: "auto", marginBottom: "4px", display: "block", objectFit: "contain" }}
                     />
                   )}
-                  <h1 className="text-xl font-bold tracking-tight text-gray-900">
+                  <div style={{
+                    fontFamily: FONT_HEADING,
+                    fontWeight: 700,
+                    fontSize: "17px",
+                    color: NAVY,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    lineHeight: 1.2,
+                  }}>
                     {data.org.name}
-                  </h1>
-                  <OrgAddress address={data.org.address} />
-                  {(data.org.phone || data.org.email || data.org.website) && (
-                    <div className="text-xs text-gray-500 space-x-3">
-                      {data.org.phone && <span>{data.org.phone}</span>}
-                      {data.org.email && <span>{data.org.email}</span>}
-                      {data.org.website && <span>{data.org.website}</span>}
-                    </div>
-                  )}
-                </div>
-                <div className="text-right text-xs text-gray-500 space-y-0.5">
-                  <p className="text-sm font-semibold uppercase tracking-widest text-gray-700">
+                  </div>
+                  <div style={{
+                    fontFamily: FONT_HEADING,
+                    fontSize: "12px",
+                    color: "#444",
+                    letterSpacing: "0.05em",
+                    marginTop: "2px",
+                    lineHeight: 1.3,
+                  }}>
+                    Academic Achievement Record
+                  </div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: "#888", marginTop: "1px" }}>
                     Current Academic Transcript
-                  </p>
-                  <p>Generated: {fmtDate(data.generatedAt)}</p>
+                  </div>
+                </div>
+                {/* Right: contact + generated date */}
+                <div style={{ textAlign: "right" }}>
+                  <OrgContact org={data.org} />
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: "#999", marginTop: "4px" }}>
+                    Generated: {fmtDate(data.generatedAt)}
+                  </div>
                 </div>
               </div>
 
-              <div className="border-t border-b border-gray-300 py-3 grid grid-cols-3 gap-4 text-sm">
+              {/* Student info strip */}
+              <div style={{
+                borderTop: `2px solid ${NAVY}`,
+                borderBottom: "1px solid #bbb",
+                padding: "5px 0 4px",
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr 1fr",
+                gap: "12px",
+              }}>
                 <div>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Student</span>
-                  <p className="font-semibold text-gray-900">{data.studentName}</p>
+                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#777" }}>Student</div>
+                  <div style={{ fontFamily: FONT_HEADING, fontSize: "13px", fontWeight: 700, color: "#111", marginTop: "1px" }}>
+                    {data.studentName}
+                  </div>
                 </div>
                 <div>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Current Grade</span>
-                  <p className="font-semibold text-gray-900">{data.gradeLevel ?? "—"}</p>
+                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#777" }}>Grade Level</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "11px", fontWeight: 600, color: "#111", marginTop: "1px" }}>
+                    {data.gradeLevel ?? "—"}
+                  </div>
                 </div>
                 <div>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Academic Year</span>
-                  <p className="font-semibold text-gray-900">{data.currentSchoolYear || "—"}</p>
+                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#777" }}>Academic Year</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "11px", fontWeight: 600, color: "#111", marginTop: "1px" }}>
+                    {data.currentSchoolYear || "—"}
+                  </div>
                 </div>
               </div>
             </header>
 
-            {/* ── Completed coursework ─────────────────────────── */}
-            <HistoricalSection groups={data.historicalGroups} />
-
-            {/* ── Current coursework ───────────────────────────── */}
-            <CurrentSection enrollments={data.currentEnrollments} />
-
-            {/* ── Credit summary ───────────────────────────────── */}
-            {(data.earnedHsCredits > 0 || data.currentHsCreditsAttempted > 0) && (
-              <section className="no-break border-t border-gray-300 pt-4 grid grid-cols-2 gap-6 text-sm">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                    Earned High School Credits
-                  </p>
-                  <p className="text-2xl font-bold text-gray-900">{data.earnedHsCredits}</p>
-                  <p className="text-xs text-gray-500">Finalized / verified completed courses</p>
+            {/* ── Completed coursework ─────────────────────────────────────── */}
+            {data.historicalGroups.length > 0 && (
+              <section style={{ marginBottom: "10px" }}>
+                <div style={{
+                  fontSize: "7.5px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "#555",
+                  borderBottom: "1px solid #999",
+                  paddingBottom: "2px",
+                  marginBottom: "6px",
+                  fontFamily: FONT_BODY,
+                }}>
+                  Completed Coursework
                 </div>
-                {data.currentHsCreditsAttempted > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                      Current HS Credits Attempted
-                    </p>
-                    <p className="text-2xl font-bold text-gray-500">{data.currentHsCreditsAttempted}</p>
-                    <p className="text-xs text-gray-500">Active courses — not yet earned</p>
+                {data.historicalGroups.map((g) => (
+                  <div key={g.schoolYear} style={{ marginBottom: "8px" }}>
+                    <div style={{
+                      fontFamily: FONT_HEADING,
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      color: NAVY,
+                      marginBottom: "3px",
+                    }}>
+                      {g.schoolYear}
+                    </div>
+                    {g.institutions.map((inst) => (
+                      <div key={inst.institutionName} className="no-break" style={{ paddingLeft: "8px", marginBottom: "6px" }}>
+                        <div style={{
+                          fontSize: "7.5px",
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          color: "#888",
+                          marginBottom: "2px",
+                          fontFamily: FONT_BODY,
+                        }}>
+                          {inst.institutionName}
+                        </div>
+                        <InstitutionTable records={inst.records} />
+                      </div>
+                    ))}
                   </div>
-                )}
+                ))}
               </section>
             )}
 
-            {/* ── Signature ────────────────────────────────────── */}
-            <section className="no-break border-t border-gray-200 pt-6 mt-8">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-4">
-                Authorized Academic Administrator
-              </p>
-              <div className="grid grid-cols-3 gap-8 text-sm">
-                <div>
-                  <div className="border-b border-gray-400 pb-1 mb-1 h-8" />
-                  <p className="text-xs text-gray-500">Printed Name</p>
+            {/* ── Current coursework ───────────────────────────────────────── */}
+            {data.currentEnrollments.length > 0 && (
+              <section className="no-break" style={{ marginBottom: "10px" }}>
+                <div style={{
+                  fontSize: "7.5px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "#555",
+                  borderBottom: "1px solid #999",
+                  paddingBottom: "2px",
+                  marginBottom: "4px",
+                  fontFamily: FONT_BODY,
+                }}>
+                  {data.currentSchoolYear
+                    ? `${data.currentSchoolYear} — Rising Leaders Academy`
+                    : "Current Coursework"}
+                  <span style={{ fontWeight: 400, marginLeft: "6px", color: "#aaa" }}>
+                    · In Progress
+                  </span>
                 </div>
-                <div>
-                  <div className="border-b border-gray-400 pb-1 mb-1 h-8" />
-                  <p className="text-xs text-gray-500">Title</p>
+                <CurrentTable enrollments={data.currentEnrollments} />
+              </section>
+            )}
+
+            {/* ── Credit summary ───────────────────────────────────────────── */}
+            {hasCredits && (
+              <div className="no-break" style={{
+                border: "1px solid #ccc",
+                padding: "5px 10px",
+                marginBottom: "10px",
+                display: "flex",
+                alignItems: "center",
+                gap: "20px",
+                backgroundColor: "#fafafa",
+              }}>
+                <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#555", fontFamily: FONT_BODY }}>
+                  High School Credit Summary
                 </div>
-                <div>
-                  <div className="border-b border-gray-400 pb-1 mb-1 h-8" />
-                  <p className="text-xs text-gray-500">Date</p>
+                <div style={{ display: "flex", gap: "20px", marginLeft: "4px" }}>
+                  <div>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: "#777" }}>Earned Credits: </span>
+                    <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "12px", color: "#111" }}>
+                      {data.earnedHsCredits}
+                    </span>
+                  </div>
+                  {data.currentHsCreditsAttempted > 0 && (
+                    <div>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: "#888" }}>Currently Attempted: </span>
+                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 600, fontSize: "12px", color: "#888" }}>
+                        {data.currentHsCreditsAttempted}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div style={{ marginLeft: "auto", fontSize: "7.5px", color: "#bbb", fontStyle: "italic", fontFamily: FONT_BODY }}>
+                  No GPA calculated
                 </div>
               </div>
-            </section>
+            )}
 
-            {/* ── Footer ───────────────────────────────────────── */}
-            <footer className="border-t border-gray-200 pt-4 text-xs text-gray-500 text-center">
-              <p>
-                This transcript reflects academic records and current enrollment information maintained by{" "}
-                {data.org.name} as of {fmtDate(data.generatedAt)}.
-                Courses marked In Progress have not yet been awarded final credit.
+            {/* ── Signature ────────────────────────────────────────────────── */}
+            <div className="no-break" style={{ borderTop: "1px solid #ccc", paddingTop: "7px", marginBottom: "7px" }}>
+              <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#666", marginBottom: "6px", fontFamily: FONT_BODY }}>
+                Authorized Academic Administrator
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "14px" }}>
+                {(["Printed Name", "Title", "Date"] as const).map((label) => (
+                  <div key={label}>
+                    <div style={{ borderBottom: "1px solid #999", height: "18px", marginBottom: "2px" }} />
+                    <div style={{ fontSize: "7.5px", color: "#999", fontFamily: FONT_BODY }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Footer ───────────────────────────────────────────────────── */}
+            <footer style={{ borderTop: "1px solid #e5e5e5", paddingTop: "4px" }}>
+              <p style={{ fontSize: "7px", color: "#aaa", textAlign: "center", fontFamily: FONT_BODY, margin: 0, lineHeight: 1.4 }}>
+                This record reflects academic history and current enrollment maintained by {data.org.name} as of{" "}
+                {fmtDate(data.generatedAt)}. Courses marked In Progress have not yet been awarded final credit.
               </p>
             </footer>
 
