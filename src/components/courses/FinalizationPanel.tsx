@@ -311,6 +311,12 @@ function FinalizationPreviewDialog({ enrollmentId, onClose, onFinalized }: Previ
         </div>
       )}
 
+      <div className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 p-3">
+        <p className="text-label-sm text-sc-rose-700">
+          Finalize only when this student&apos;s course is complete. Finalization creates the permanent academic record and ends active grading for this enrollment.
+        </p>
+      </div>
+
       {confirmError && (
         <p className="text-label-sm text-sc-rose-700">{confirmError}</p>
       )}
