@@ -406,7 +406,29 @@ export function GradesTab({ studentId, isAdmin = false, isStaff = false }: Props
 
       {/* Academic Achievement Record — structured historical course records */}
       {(isStaff || isAdmin) && (
-        <AcademicAchievementRecord studentId={studentId} canManage={isAdmin || isStaff} />
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <a
+              href={`/enrollment-summary/${studentId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sc-gray-200 bg-white px-3 py-1.5 text-label-sm font-medium text-sc-navy hover:bg-sc-gray-100 transition-colors shadow-sm"
+            >
+              Course Enrollment Summary ↗
+            </a>
+            {isAdmin && (
+              <a
+                href={`/transcript/${studentId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-sc-gray-200 bg-white px-3 py-1.5 text-label-sm font-medium text-sc-navy hover:bg-sc-gray-100 transition-colors shadow-sm"
+              >
+                Print Transcript ↗
+              </a>
+            )}
+          </div>
+          <AcademicAchievementRecord studentId={studentId} canManage={isAdmin || isStaff} />
+        </div>
       )}
 
       {/* Academic History — legacy docs + issued reports */}
