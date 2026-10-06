@@ -399,6 +399,55 @@ assert(
   enrollPage.includes('force-dynamic'),
 );
 
+// ── 27b. Root-cause regression: course_sections schema correctness ────────────
+console.log("\n27b. Schema correctness (root-cause regression)");
+assert(
+  "course_sections join does NOT select course_code (column does not exist on course_sections)",
+  !actionSrc.match(/course_sections\s*\([^)]*course_code/),
+);
+assert(
+  "course_sections join does NOT select subject_area (column does not exist; correct name is subject)",
+  !actionSrc.match(/course_sections\s*\([^)]*subject_area/),
+);
+assert(
+  "course_sections join selects subject (correct column name)",
+  actionSrc.match(/course_sections\s*\([^)]*subject[^_]/),
+);
+assert(
+  "current enrollment courseCode is set to null (no course_code on course_sections)",
+  actionSrc.includes("courseCode: null,"),
+);
+assert(
+  "safeErrorMessage handles non-Error objects (prevents [object Object])",
+  actionSrc.includes("safeErrorMessage") &&
+  actionSrc.includes("typeof obj.message === \"string\""),
+);
+assert(
+  "error messages returned to client are safe strings, never raw error objects",
+  actionSrc.includes('"Unable to generate transcript. Please try again') &&
+  actionSrc.includes('"Unable to generate enrollment summary. Please try again'),
+);
+assert(
+  "per-enrollment grade calculation is wrapped in try/catch for resilience",
+  actionSrc.includes("try {") && actionSrc.includes("// Grade calculation unavailable"),
+);
+assert(
+  "safeAddress handles null, string, and object address shapes",
+  actionSrc.includes("safeAddress") &&
+  actionSrc.includes("typeof raw === \"string\"") &&
+  actionSrc.includes("typeof raw === \"object\""),
+);
+assert(
+  "school year lookup is wrapped in try/catch (missing year does not crash transcript)",
+  actionSrc.includes("async function resolveCurrentSchoolYear") &&
+  actionSrc.includes("} catch {"),
+);
+assert(
+  "enrollment summary also uses safeErrorMessage pattern",
+  // safeErrorMessage appears in both catch blocks
+  (actionSrc.match(/safeErrorMessage/g) ?? []).length >= 2,
+);
+
 // ── 27. No parallel academic-record system ───────────────────────────────────
 console.log("\n27. No parallel transcript database");
 assert(

@@ -23,9 +23,12 @@ export default async function TranscriptPage({
   if (!result.success) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-3">
           <p className="text-xl font-semibold text-gray-800">Transcript Unavailable</p>
           <p className="text-sm text-gray-500">{result.error}</p>
+          <a href="javascript:history.back()" className="text-sm text-blue-600 hover:underline">
+            ← Go Back
+          </a>
         </div>
       </div>
     );
