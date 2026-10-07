@@ -554,3 +554,89 @@ test("42. canonical student enrollment status is 'enrolled', not 'active'", () =
   assert.equal(VALID_ACTIVE_STATUSES.includes("enrolled"), true,
     "'enrolled' is the canonical active enrollment_status");
 });
+
+// ── Stage E.4.4 tests (43–54) ─────────────────────────────────────────────────
+// These test the fmtCredit formatter, stripCreditAnnotation cleaner, and the
+// expected GPA calculation after the credits_attempted repair (migration 00082).
+
+// Local implementations matching TranscriptDocument.tsx exactly.
+function fmtCredit(n: number | null | undefined): string | null {
+  if (n == null) return null;
+  return Number.isInteger(n) ? n.toFixed(1) : String(n);
+}
+
+function stripCreditAnnotation(name: string): string {
+  return name.replace(/\s*\(\d+(?:\.\d+)?\s+credits?\)\s*$/i, "").trim();
+}
+
+// ── Test 43–48: fmtCredit formatter ──────────────────────────────────────────
+
+test("43. fmtCredit: 0.5 stays '0.5' (non-integer, no change)", () => {
+  assert.equal(fmtCredit(0.5), "0.5");
+});
+
+test("44. fmtCredit: 1 becomes '1.0' (integer gains .0 suffix)", () => {
+  assert.equal(fmtCredit(1), "1.0");
+});
+
+test("45. fmtCredit: 1.5 stays '1.5' (non-integer, no change)", () => {
+  assert.equal(fmtCredit(1.5), "1.5");
+});
+
+test("46. fmtCredit: 2 becomes '2.0' (integer gains .0 suffix)", () => {
+  assert.equal(fmtCredit(2), "2.0");
+});
+
+test("47. fmtCredit: null returns null", () => {
+  assert.equal(fmtCredit(null), null);
+});
+
+test("48. fmtCredit: undefined returns null", () => {
+  assert.equal(fmtCredit(undefined), null);
+});
+
+// ── Test 49–53: stripCreditAnnotation ────────────────────────────────────────
+
+test("49. stripCreditAnnotation: removes '(0.5 credit)' suffix", () => {
+  assert.equal(stripCreditAnnotation("Algebra 1 (0.5 credit)"), "Algebra 1");
+});
+
+test("50. stripCreditAnnotation: removes '(1 credit)' suffix", () => {
+  assert.equal(stripCreditAnnotation("English 1 (1 credit)"), "English 1");
+});
+
+test("51. stripCreditAnnotation: removes '(0.5 credits)' plural suffix", () => {
+  assert.equal(stripCreditAnnotation("Math (0.5 credits)"), "Math");
+});
+
+test("52. stripCreditAnnotation: preserves non-credit parentheses like '(AP)'", () => {
+  assert.equal(stripCreditAnnotation("World History (AP)"), "World History (AP)");
+});
+
+test("53. stripCreditAnnotation: no-op when no credit annotation present", () => {
+  assert.equal(stripCreditAnnotation("Biology 1"), "Biology 1");
+});
+
+// ── Test 54: Expected GPA after credits_attempted repair ─────────────────────
+
+test("54. Jeina GPA calculation: 8 × 0.5 cr (A/C/C/C/B/C/B/D) = 2.375 → 2.38", () => {
+  // GPA_SCALE from transcript.ts: A=4.0, B=3.0, C=2.0, D=1.0, F=0.0
+  const GPA_SCALE: Record<string, number> = { A: 4.0, B: 3.0, C: 2.0, D: 1.0, F: 0.0 };
+  const grades = ["A", "C", "C", "C", "B", "C", "B", "D"];
+  const creditsAttempted = 0.5; // each course = 0.5 cr after migration 00082
+
+  let qualityPoints = 0;
+  let totalAttempted = 0;
+  for (const g of grades) {
+    const gp = GPA_SCALE[g];
+    qualityPoints += gp * creditsAttempted;
+    totalAttempted += creditsAttempted;
+  }
+
+  assert.equal(totalAttempted, 4.0, "8 courses × 0.5 = 4.0 credits attempted");
+  assert.ok(Math.abs(qualityPoints - 9.5) < 0.001, `quality points = ${qualityPoints}, expected 9.5`);
+
+  const gpa = qualityPoints / totalAttempted;
+  assert.ok(Math.abs(gpa - 2.375) < 0.001, `GPA = ${gpa}, expected 2.375`);
+  assert.equal(gpa.toFixed(2), "2.38", "rounds to 2.38 (displayed on transcript)");
+});

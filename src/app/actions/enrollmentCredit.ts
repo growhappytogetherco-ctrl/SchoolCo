@@ -70,8 +70,8 @@ export async function updateEnrollmentCredit(
 
       if (gpErr || !gp) return { success: false, error: "Grading period not found" };
       if (gp.organization_id !== orgId) return { success: false, error: "Grading period does not belong to this organization" };
-      if (gp.period_type !== "semester") {
-        return { success: false, error: "grading_period_id must point to a semester-level period, not a quarter" };
+      if (gp.period_type !== "semester" && gp.period_type !== "full_year") {
+        return { success: false, error: "grading_period_id must point to a semester or full-year grading period" };
       }
     }
 

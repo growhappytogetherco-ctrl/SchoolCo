@@ -229,6 +229,15 @@ function fmtDate(iso: string): string {
   });
 }
 
+export function fmtCredit(n: number | null | undefined): string | null {
+  if (n == null) return null;
+  return Number.isInteger(n) ? n.toFixed(1) : String(n);
+}
+
+export function stripCreditAnnotation(name: string): string {
+  return name.replace(/\s*\(\d+(?:\.\d+)?\s+credits?\)\s*$/i, "").trim();
+}
+
 // ── OrgContact ────────────────────────────────────────────────────────────────
 
 function OrgContact({ org }: { org: TranscriptData["org"] }) {
@@ -274,7 +283,7 @@ function InstitutionTable({ records }: { records: HistoricalRecord[] }) {
           row.type === "paired" ? (
             <tr key={`${row.s1.id}-${row.s2.id}`}>
               <td style={td("left")}>
-                <span style={{ fontWeight: 600, color: TEXT_DARK }}>{row.courseName}</span>
+                <span style={{ fontWeight: 600, color: TEXT_DARK }}>{stripCreditAnnotation(row.courseName)}</span>
                 {levelAbbr(row.courseLevel) && (
                   <span style={{ marginLeft: 4, color: TEXT_DIM, fontSize: "0.85em" }}>
                     {levelAbbr(row.courseLevel)}
@@ -291,14 +300,14 @@ function InstitutionTable({ records }: { records: HistoricalRecord[] }) {
               <td style={td("right")}>
                 {(row.s1.countsTowardHsCredit || row.s2.countsTowardHsCredit) &&
                 row.combinedCredits != null
-                  ? `${row.combinedCredits} cr`
+                  ? `${fmtCredit(row.combinedCredits)} cr`
                   : "—"}
               </td>
             </tr>
           ) : (
             <tr key={row.record.id}>
               <td style={td("left")}>
-                <span style={{ fontWeight: 600, color: TEXT_DARK }}>{row.record.courseName}</span>
+                <span style={{ fontWeight: 600, color: TEXT_DARK }}>{stripCreditAnnotation(row.record.courseName)}</span>
                 {levelAbbr(row.record.courseLevel) && (
                   <span style={{ marginLeft: 4, color: TEXT_DIM, fontSize: "0.85em" }}>
                     {levelAbbr(row.record.courseLevel)}
@@ -312,7 +321,7 @@ function InstitutionTable({ records }: { records: HistoricalRecord[] }) {
               </td>
               <td style={td("right")}>
                 {row.record.countsTowardHsCredit && row.record.creditsEarned != null
-                  ? `${row.record.creditsEarned} cr`
+                  ? `${fmtCredit(row.record.creditsEarned)} cr`
                   : "—"}
               </td>
             </tr>
@@ -342,7 +351,7 @@ function CurrentTable({ enrollments }: { enrollments: CurrentEnrollment[] }) {
         {enrollments.map((e) => (
           <tr key={e.id}>
             <td style={td("left")}>
-              <span style={{ fontWeight: 600, color: TEXT_DARK }}>{e.courseName}</span>
+              <span style={{ fontWeight: 600, color: TEXT_DARK }}>{stripCreditAnnotation(e.courseName)}</span>
               {levelAbbr(e.courseLevel) && (
                 <span style={{ marginLeft: 4, color: TEXT_DIM, fontSize: "0.85em" }}>
                   {levelAbbr(e.courseLevel)}
@@ -360,7 +369,7 @@ function CurrentTable({ enrollments }: { enrollments: CurrentEnrollment[] }) {
             {hasHs && (
               <td style={td("right")}>
                 {e.countsTowardHsCredit && e.creditsAttempted != null
-                  ? `${e.creditsAttempted} cr`
+                  ? `${fmtCredit(e.creditsAttempted)} cr`
                   : "—"}
               </td>
             )}
@@ -401,13 +410,13 @@ function DepartmentCreditsSection({
             <tr key={d.department}>
               <td style={td("left", TEXT_MED)}>{d.department}</td>
               <td style={td("right", TEXT_DARK)}>
-                <span style={{ fontWeight: 500 }}>{d.credits}</span>
+                <span style={{ fontWeight: 500 }}>{fmtCredit(d.credits)}</span>
               </td>
             </tr>
           ))}
           <tr style={{ borderTop: `1px solid ${RULE}` }}>
             <td style={{ ...td("left"), fontWeight: 700, color: TEXT_DARK }}>Total</td>
-            <td style={{ ...td("right"), fontWeight: 700, color: TEXT_DARK }}>{totalEarned}</td>
+            <td style={{ ...td("right"), fontWeight: 700, color: TEXT_DARK }}>{fmtCredit(totalEarned)}</td>
           </tr>
         </tbody>
       </table>
@@ -619,12 +628,12 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
                 <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "baseline" }}>
                   <div>
                     <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM }}>Earned Credits: </span>
-                    <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "12px", color: TEXT_DARK }}>{data.earnedHsCredits}</span>
+                    <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "12px", color: TEXT_DARK }}>{fmtCredit(data.earnedHsCredits)}</span>
                   </div>
                   {data.currentHsCreditsAttempted > 0 && (
                     <div>
                       <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM }}>Current Credits Attempted: </span>
-                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 600, fontSize: "12px", color: TEXT_MED }}>{data.currentHsCreditsAttempted}</span>
+                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 600, fontSize: "12px", color: TEXT_MED }}>{fmtCredit(data.currentHsCreditsAttempted)}</span>
                     </div>
                   )}
                   {data.cumulativeGpa !== null ? (
@@ -634,7 +643,7 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
                     </div>
                   ) : (
                     <div style={{ marginLeft: "auto", fontSize: "7.5px", color: "#bbb", fontStyle: "italic", fontFamily: FONT_BODY }}>
-                      GPA pending — no letter grades on file
+                      GPA not available
                     </div>
                   )}
                 </div>
