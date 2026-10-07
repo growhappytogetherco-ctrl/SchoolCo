@@ -62,6 +62,8 @@ export type CurrentEnrollment = {
 export type TranscriptData = {
   org: OrgInfo;
   studentName: string;
+  studentDisplayId: string | null;
+  studentDob: string | null;         // ISO date string YYYY-MM-DD, or null
   gradeLevel: string | null;
   currentSchoolYear: string;
   generatedAt: string;
@@ -324,7 +326,7 @@ async function assertStaffAndStudent(studentId: string) {
   // Cross-org security: verify student belongs to this org
   const { data: student, error: studentErr } = await (supabase as any)
     .from("students")
-    .select("id, first_name, last_name, preferred_name, grade_level, enrollment_status")
+    .select("id, first_name, last_name, preferred_name, grade_level, enrollment_status, date_of_birth, student_display_id")
     .eq("id", studentId)
     .eq("organization_id", orgId)
     .single();
@@ -396,7 +398,7 @@ export async function getTranscriptData(
       }
       historicalGroups.push({ schoolYear, institutions });
     }
-    historicalGroups.sort((a, b) => b.schoolYear.localeCompare(a.schoolYear));
+    historicalGroups.sort((a, b) => a.schoolYear.localeCompare(b.schoolYear));
 
     // Active enrollments — include enrollment-level credit overrides (Stage E.4.1)
     // course_sections has no course_code or subject_area columns
@@ -538,6 +540,8 @@ export async function getTranscriptData(
           website: org.website ?? null,
         },
         studentName: `${student.first_name} ${student.last_name}`,
+        studentDisplayId: student.student_display_id ?? null,
+        studentDob: student.date_of_birth ?? null,
         gradeLevel: student.grade_level ?? null,
         currentSchoolYear: schoolYearLabel,
         generatedAt: new Date().toISOString(),

@@ -9,8 +9,6 @@ import type {
 } from "@/app/actions/transcript";
 
 // ── Subject labels ────────────────────────────────────────────────────────────
-// Maps raw enum values from course_sections.subject / curriculum_enrollments.subject
-// to professionally capitalized display labels.
 
 const SUBJECT_LABEL: Record<string, string> = {
   ela:             "English Language Arts",
@@ -43,7 +41,6 @@ export function formatSubject(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const key = raw.trim().toLowerCase();
   if (key in SUBJECT_LABEL) return SUBJECT_LABEL[key];
-  // Fallback: title-case the raw value so at minimum it's capitalized
   return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -103,7 +100,6 @@ type SingleRow = {
 type DisplayRow = PairedRow | SingleRow;
 
 export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
-  // Sort by course name (numeric-aware) then term order — determines display sequence
   const sorted = [...records].sort((a, b) => {
     const nameCompare = a.courseName.localeCompare(b.courseName, undefined, {
       numeric: true,
@@ -168,6 +164,35 @@ export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
   return rows;
 }
 
+// ── Credit formatter ──────────────────────────────────────────────────────────
+
+export function fmtCredit(n: number | null | undefined): string | null {
+  if (n == null) return null;
+  return Number.isInteger(n) ? n.toFixed(1) : String(n);
+}
+
+// ── Course name cleaner ───────────────────────────────────────────────────────
+// Strips trailing "(0.5 credit)" / "(1 credit)" annotations from course names.
+// Preserves other parentheses such as "(AP)" or "(Term 1)".
+
+export function stripCreditAnnotation(name: string): string {
+  return name.replace(/\s*\(\d+(?:\.\d+)?\s+credits?\)\s*$/i, "").trim();
+}
+
+// ── DOB formatter ─────────────────────────────────────────────────────────────
+// Input: ISO date string "YYYY-MM-DD" (date column, no time component)
+// Output: "MM/DD/YYYY"  |  "—" if null/invalid
+
+export function fmtDob(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  // Parse as local date to avoid UTC offset shifting the date
+  const parts = iso.split("-");
+  if (parts.length !== 3) return "—";
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return "—";
+  return `${m}/${d}/${y}`;
+}
+
 // ── Style helpers ─────────────────────────────────────────────────────────────
 
 type CSSProps = Record<string, string | number | undefined>;
@@ -183,7 +208,7 @@ const RULE_LIGHT   = "#ddd";
 
 // Level abbreviations — Standard is assumed, only non-standard shown
 const LEVEL_ABBR: Record<string, string | null> = {
-  standard:        null,   // hidden — standard is assumed
+  standard:        null,
   honors:          "Honors",
   ap:              "AP",
   dual_enrollment: "DE",
@@ -192,7 +217,7 @@ const LEVEL_ABBR: Record<string, string | null> = {
 function levelAbbr(level: string | null): string | null {
   if (!level) return null;
   const val = LEVEL_ABBR[level];
-  return val === undefined ? level : val; // unknown values shown as-is
+  return val === undefined ? level : val;
 }
 
 function th(align: "left" | "right", width?: string): CSSProps {
@@ -205,7 +230,7 @@ function th(align: "left" | "right", width?: string): CSSProps {
     color: TEXT_DIM,
     textTransform: "uppercase",
     letterSpacing: "0.04em",
-    padding: "2px 4px 3px",
+    padding: "1px 4px 2px",
     borderBottom: `1px solid ${RULE}`,
     whiteSpace: "nowrap",
   };
@@ -217,7 +242,7 @@ function td(align: "left" | "right", color = TEXT_MED): CSSProps {
     color,
     fontFamily: FONT_BODY,
     fontSize: "inherit",
-    padding: "2px 4px 2px",
+    padding: "1px 4px 1px",
     verticalAlign: "top",
     borderBottom: `1px solid ${RULE_LIGHT}`,
   };
@@ -229,13 +254,18 @@ function fmtDate(iso: string): string {
   });
 }
 
-export function fmtCredit(n: number | null | undefined): string | null {
-  if (n == null) return null;
-  return Number.isInteger(n) ? n.toFixed(1) : String(n);
-}
-
-export function stripCreditAnnotation(name: string): string {
-  return name.replace(/\s*\(\d+(?:\.\d+)?\s+credits?\)\s*$/i, "").trim();
+function sectionHeadStyle(): CSSProps {
+  return {
+    fontSize: "7px",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    color: TEXT_DIM,
+    borderBottom: `1px solid ${RULE}`,
+    paddingBottom: "2px",
+    marginBottom: "3px",
+    fontFamily: FONT_BODY,
+  };
 }
 
 // ── OrgContact ────────────────────────────────────────────────────────────────
@@ -253,7 +283,7 @@ function OrgContact({ org }: { org: TranscriptData["org"] }) {
   if (org.website) lines.push(org.website);
   if (!lines.length) return null;
   return (
-    <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: TEXT_DIM, lineHeight: 1.5, textAlign: "right" }}>
+    <div style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM, lineHeight: 1.4, textAlign: "right" }}>
       {lines.map((l, i) => <div key={i}>{l}</div>)}
     </div>
   );
@@ -341,10 +371,11 @@ function CurrentTable({ enrollments }: { enrollments: CurrentEnrollment[] }) {
     <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, fontSize: "inherit" }}>
       <thead>
         <tr>
-          <th style={th("left", hasHs ? "38%" : "50%")}>Course</th>
-          <th style={th("left", "24%")}>Subject</th>
-          <th style={th("right", hasHs ? "22%" : "26%")}>Current Grade</th>
-          {hasHs && <th style={th("right", "16%")}>Credit Attempted</th>}
+          <th style={th("left", hasHs ? "34%" : "46%")}>Course</th>
+          <th style={th("left", "18%")}>Subject</th>
+          <th style={th("left", "14%")}>Term</th>
+          <th style={th("right", hasHs ? "20%" : "22%")}>Current Grade</th>
+          {hasHs && <th style={th("right", "14%")}>Cr. Attempted</th>}
         </tr>
       </thead>
       <tbody>
@@ -359,6 +390,7 @@ function CurrentTable({ enrollments }: { enrollments: CurrentEnrollment[] }) {
               )}
             </td>
             <td style={td("left")}>{formatSubject(e.subject) ?? "—"}</td>
+            <td style={td("left")}>{e.term ? termLabel(e.term) : "—"}</td>
             <td style={td("right")}>
               {e.hasGrade && e.currentGradeDisplay ? (
                 <span style={{ fontWeight: 500, color: TEXT_DARK }}>{e.currentGradeDisplay}</span>
@@ -396,7 +428,7 @@ function DepartmentCreditsSection({
   if (!rows.length) return null;
 
   return (
-    <section className="no-break" style={{ marginBottom: "10px" }}>
+    <section style={{ marginBottom: "6px" }}>
       <div style={sectionHeadStyle()}>Credits Earned by Department</div>
       <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, fontSize: "inherit" }}>
         <thead>
@@ -436,7 +468,7 @@ function ServiceHoursSection({
   if (!serviceHours.length) return null;
 
   return (
-    <section className="no-break" style={{ marginBottom: "10px" }}>
+    <section style={{ marginBottom: "6px" }}>
       <div style={sectionHeadStyle()}>Community Service Hours</div>
       <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "baseline" }}>
         {serviceHours.map((s) => (
@@ -452,22 +484,6 @@ function ServiceHoursSection({
       </div>
     </section>
   );
-}
-
-// ── Shared section heading style ──────────────────────────────────────────────
-
-function sectionHeadStyle(): CSSProps {
-  return {
-    fontSize: "7.5px",
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    color: TEXT_DIM,
-    borderBottom: `1px solid ${RULE}`,
-    paddingBottom: "2px",
-    marginBottom: "4px",
-    fontFamily: FONT_BODY,
-  };
 }
 
 // ── TranscriptDocument ────────────────────────────────────────────────────────
@@ -509,7 +525,7 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
         @media print {
           @page {
             size: letter portrait;
-            margin: 0.38in 0.45in 0.38in 0.45in;
+            margin: 0.30in 0.40in 0.30in 0.40in;
           }
           body { background: white !important; }
           .transcript-page {
@@ -517,85 +533,100 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
             margin: 0 !important;
             border-radius: 0 !important;
           }
-          .tp-root { font-size: 8.5pt !important; }
+          .tp-root { font-size: 8pt !important; }
           table { page-break-inside: auto; }
           tr { page-break-inside: avoid; page-break-after: auto; }
           thead { display: table-header-group; }
-          .no-break { page-break-inside: avoid; }
+          .print-break-avoid { page-break-inside: avoid; }
           .print-hide { display: none !important; }
+          .screen-spacer { display: none !important; }
         }
       `}</style>
 
       {/* ── Paper ─────────────────────────────────────────────────────────── */}
-      <div className="py-8 px-4 print:py-0 print:px-0">
+      <div className="py-6 px-4 print:py-0 print:px-0">
         <div
           className="transcript-page mx-auto bg-white shadow-md print:shadow-none"
           style={{ maxWidth: "816px" }}
         >
           <div
-            className="px-10 py-8 print:px-0 print:py-0 tp-root"
-            style={{ fontFamily: FONT_BODY, fontSize: "11px", lineHeight: 1.45, color: TEXT_MED }}
+            className="px-10 py-6 print:px-0 print:py-0 tp-root"
+            style={{ fontFamily: FONT_BODY, fontSize: "10.5px", lineHeight: 1.4, color: TEXT_MED }}
           >
 
             {/* ── Header ────────────────────────────────────────────────── */}
-            <header className="no-break" style={{ marginBottom: "10px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+            <header className="print-break-avoid" style={{ marginBottom: "6px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "5px" }}>
                 <div>
                   {data.org.logoUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={data.org.logoUrl}
                       alt={`${data.org.name} logo`}
-                      style={{ height: "34px", width: "auto", marginBottom: "4px", display: "block", objectFit: "contain" }}
+                      style={{ height: "28px", width: "auto", marginBottom: "3px", display: "block", objectFit: "contain" }}
                     />
                   )}
-                  <div style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "17px", color: NAVY, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.2 }}>
+                  <div style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "15px", color: NAVY, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.15 }}>
                     {data.org.name}
                   </div>
-                  <div style={{ fontFamily: FONT_HEADING, fontSize: "12px", color: TEXT_MED, letterSpacing: "0.05em", marginTop: "2px", lineHeight: 1.3 }}>
+                  <div style={{ fontFamily: FONT_HEADING, fontSize: "11px", color: TEXT_MED, letterSpacing: "0.04em", marginTop: "1px", lineHeight: 1.2 }}>
                     Academic Achievement Record
                   </div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: TEXT_DIM, marginTop: "1px" }}>
-                    Current Academic Transcript — Homeschool Co-op
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM, marginTop: "1px" }}>
+                    Current Academic Transcript • Homeschool Co-op
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <OrgContact org={data.org} />
-                  <div style={{ fontFamily: FONT_BODY, fontSize: "9px", color: "#999", marginTop: "4px" }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: "8px", color: "#999", marginTop: "3px" }}>
                     Generated: {fmtDate(data.generatedAt)}
                   </div>
                 </div>
               </div>
 
-              {/* Student info strip */}
-              <div style={{ borderTop: `2px solid ${NAVY}`, borderBottom: `1px solid ${RULE}`, padding: "5px 0 4px", display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "12px" }}>
-                <div>
-                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Student</div>
-                  <div style={{ fontFamily: FONT_HEADING, fontSize: "13px", fontWeight: 700, color: TEXT_DARK, marginTop: "1px" }}>{data.studentName}</div>
+              {/* Student identification block — compact 2-row grid */}
+              <div style={{ borderTop: `2px solid ${NAVY}`, borderBottom: `1px solid ${RULE}`, padding: "4px 0 3px" }}>
+                {/* Row 1: Name, Student ID, DOB */}
+                <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr", gap: "10px", marginBottom: "3px" }}>
+                  <div>
+                    <div style={{ fontSize: "6.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Student</div>
+                    <div style={{ fontFamily: FONT_HEADING, fontSize: "12px", fontWeight: 700, color: TEXT_DARK, marginTop: "1px" }}>{data.studentName}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "6.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Student ID</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: "10px", fontWeight: 600, color: TEXT_DARK, marginTop: "1px" }}>{data.studentDisplayId ?? "—"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "6.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Date of Birth</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: "10px", fontWeight: 600, color: TEXT_DARK, marginTop: "1px" }}>{fmtDob(data.studentDob)}</div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Grade Level</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: "11px", fontWeight: 600, color: TEXT_DARK, marginTop: "1px" }}>{data.gradeLevel ?? "—"}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Academic Year</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: "11px", fontWeight: 600, color: TEXT_DARK, marginTop: "1px" }}>{data.currentSchoolYear || "—"}</div>
+                {/* Row 2: Grade Level, Academic Year */}
+                <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr", gap: "10px" }}>
+                  <div>
+                    <div style={{ fontSize: "6.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Grade Level</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: "10px", fontWeight: 600, color: TEXT_DARK, marginTop: "1px" }}>{data.gradeLevel ?? "—"}</div>
+                  </div>
+                  <div style={{ gridColumn: "span 2" }}>
+                    <div style={{ fontSize: "6.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM }}>Academic Year</div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: "10px", fontWeight: 600, color: TEXT_DARK, marginTop: "1px" }}>{data.currentSchoolYear || "—"}</div>
+                  </div>
                 </div>
               </div>
             </header>
 
             {/* ── Completed coursework ──────────────────────────────────── */}
             {data.historicalGroups.length > 0 && (
-              <section style={{ marginBottom: "10px" }}>
+              <section style={{ marginBottom: "6px" }}>
                 <div style={sectionHeadStyle()}>Completed Coursework</div>
                 {data.historicalGroups.map((g) => (
-                  <div key={g.schoolYear} style={{ marginBottom: "8px" }}>
-                    <div style={{ fontFamily: FONT_HEADING, fontSize: "10px", fontWeight: 700, color: NAVY, marginBottom: "3px" }}>
+                  <div key={g.schoolYear} style={{ marginBottom: "5px" }}>
+                    <div style={{ fontFamily: FONT_HEADING, fontSize: "9px", fontWeight: 700, color: NAVY, marginBottom: "2px" }}>
                       {g.schoolYear}
                     </div>
                     {g.institutions.map((inst) => (
-                      <div key={inst.institutionName} className="no-break" style={{ paddingLeft: "8px", marginBottom: "6px" }}>
-                        <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#999", marginBottom: "2px", fontFamily: FONT_BODY }}>
+                      <div key={inst.institutionName} style={{ paddingLeft: "6px", marginBottom: "4px" }}>
+                        <div style={{ fontSize: "7px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#999", marginBottom: "1px", fontFamily: FONT_BODY }}>
                           {inst.institutionName}
                         </div>
                         <InstitutionTable records={inst.records} />
@@ -608,7 +639,7 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
 
             {/* ── Current coursework ────────────────────────────────────── */}
             {data.currentEnrollments.length > 0 && (
-              <section className="no-break" style={{ marginBottom: "10px" }}>
+              <section style={{ marginBottom: "6px" }}>
                 <div style={sectionHeadStyle()}>
                   {data.currentSchoolYear
                     ? `${data.currentSchoolYear} — Rising Leaders Academy`
@@ -621,28 +652,28 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
 
             {/* ── High School Summary ───────────────────────────────────── */}
             {hasCredits && (
-              <div className="no-break" style={{ border: `1px solid ${RULE}`, padding: "6px 10px", marginBottom: "10px", backgroundColor: "#fafafa" }}>
-                <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM, fontFamily: FONT_BODY, marginBottom: "4px" }}>
+              <div className="print-break-avoid" style={{ border: `1px solid ${RULE}`, padding: "4px 8px", marginBottom: "6px", backgroundColor: "#fafafa" }}>
+                <div style={{ fontSize: "6.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM, fontFamily: FONT_BODY, marginBottom: "3px" }}>
                   High School Summary
                 </div>
-                <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "baseline" }}>
+                <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", alignItems: "baseline" }}>
                   <div>
-                    <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM }}>Earned Credits: </span>
-                    <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "12px", color: TEXT_DARK }}>{fmtCredit(data.earnedHsCredits)}</span>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: "7.5px", color: TEXT_DIM }}>Earned Credits: </span>
+                    <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "11px", color: TEXT_DARK }}>{fmtCredit(data.earnedHsCredits)}</span>
                   </div>
                   {data.currentHsCreditsAttempted > 0 && (
                     <div>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM }}>Current Credits Attempted: </span>
-                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 600, fontSize: "12px", color: TEXT_MED }}>{fmtCredit(data.currentHsCreditsAttempted)}</span>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: "7.5px", color: TEXT_DIM }}>Current Credits Attempted: </span>
+                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 600, fontSize: "11px", color: TEXT_MED }}>{fmtCredit(data.currentHsCreditsAttempted)}</span>
                     </div>
                   )}
                   {data.cumulativeGpa !== null ? (
                     <div>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM }}>Cumulative GPA (Unweighted): </span>
-                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "12px", color: TEXT_DARK }}>{data.cumulativeGpa.toFixed(2)}</span>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: "7.5px", color: TEXT_DIM }}>Cumulative GPA (Unweighted): </span>
+                      <span style={{ fontFamily: FONT_HEADING, fontWeight: 700, fontSize: "11px", color: TEXT_DARK }}>{data.cumulativeGpa.toFixed(2)}</span>
                     </div>
                   ) : (
-                    <div style={{ marginLeft: "auto", fontSize: "7.5px", color: "#bbb", fontStyle: "italic", fontFamily: FONT_BODY }}>
+                    <div style={{ marginLeft: "auto", fontSize: "7px", color: "#bbb", fontStyle: "italic", fontFamily: FONT_BODY }}>
                       GPA not available
                     </div>
                   )}
@@ -668,25 +699,25 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
             )}
 
             {/* ── Signature ─────────────────────────────────────────────── */}
-            <div className="no-break" style={{ borderTop: `1px solid ${RULE}`, paddingTop: "7px", marginBottom: "7px" }}>
-              <div style={{ fontSize: "7.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM, marginBottom: "6px", fontFamily: FONT_BODY }}>
+            <div className="print-break-avoid" style={{ borderTop: `1px solid ${RULE}`, paddingTop: "5px", marginBottom: "5px" }}>
+              <div style={{ fontSize: "6.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: TEXT_DIM, marginBottom: "4px", fontFamily: FONT_BODY }}>
                 Authorized Academic Administrator
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "14px" }}>
-                {(["Printed Name", "Title", "Date"] as const).map((label) => (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px" }}>
+                {(["Printed Name", "Title", "Signature", "Date"] as const).map((label) => (
                   <div key={label}>
-                    <div style={{ borderBottom: `1px solid ${RULE}`, height: "18px", marginBottom: "2px" }} />
-                    <div style={{ fontSize: "7.5px", color: "#999", fontFamily: FONT_BODY }}>{label}</div>
+                    <div style={{ borderBottom: `1px solid ${RULE}`, height: "14px", marginBottom: "2px" }} />
+                    <div style={{ fontSize: "6.5px", color: "#999", fontFamily: FONT_BODY }}>{label}</div>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* ── Footer ────────────────────────────────────────────────── */}
-            <footer style={{ borderTop: `1px solid ${RULE_LIGHT}`, paddingTop: "4px" }}>
-              <p style={{ fontSize: "7px", color: "#aaa", textAlign: "center", fontFamily: FONT_BODY, margin: 0, lineHeight: 1.4 }}>
-                This record reflects academic history and current enrollment maintained by {data.org.name} as of{" "}
-                {fmtDate(data.generatedAt)}. Courses marked In Progress have not yet been awarded final credit.
+            <footer style={{ borderTop: `1px solid ${RULE_LIGHT}`, paddingTop: "3px" }}>
+              <p style={{ fontSize: "6.5px", color: "#aaa", textAlign: "center", fontFamily: FONT_BODY, margin: 0, lineHeight: 1.35 }}>
+                This record includes academic history and current {data.org.name} enrollment as of {fmtDate(data.generatedAt)}.
+                In Progress courses have not yet been awarded final credit.
                 GPA is unweighted and based on verified completed coursework only.
               </p>
             </footer>
