@@ -348,6 +348,7 @@ function gpNameToTermEnum(name: string | null): string | null {
   if (n === "quarter 2" || n === "q2") return "quarter_2";
   if (n === "quarter 3" || n === "q3") return "quarter_3";
   if (n === "quarter 4" || n === "q4") return "quarter_4";
+  if (n === "full year") return "full_year";
   if (n === "summer") return "summer";
   return null; // unrecognized period name → no term
 }

@@ -106,12 +106,12 @@ export async function updateEnrollmentCredit(
     }
 
     await logAudit({
-      orgId,
-      actorId: user.id,
-      action: "enrollment_credit_updated",
-      targetType: "curriculum_enrollment",
-      targetId: payload.enrollmentId,
-      details: {
+      organization_id: orgId,
+      actor_id:        user.id,
+      action:          "enrollment_credit_updated",
+      resource_type:   "curriculum_enrollment",
+      resource_id:     payload.enrollmentId,
+      new_values: {
         counts_toward_high_school_credit: payload.countsTowardHighSchoolCredit,
         credits_attempted:                payload.creditsAttempted,
         course_level:                     payload.courseLevel,
