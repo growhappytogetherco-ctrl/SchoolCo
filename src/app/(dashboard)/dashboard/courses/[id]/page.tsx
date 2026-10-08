@@ -142,7 +142,9 @@ export default async function CourseDetailPage({
             countsTowardHighSchoolCredit: !!(section as any).counts_toward_high_school_credit,
             creditsAttempted:             (section as any).credits_attempted ?? null,
             courseLevel:                  (section as any).course_level ?? null,
+            gradingPeriodId:              (section as any).grading_period_id ?? null,
           }}
+          gradingPeriods={gradingPeriods}
           canEdit={canFinalize}
         />
       </div>
@@ -161,6 +163,7 @@ export default async function CourseDetailPage({
             countsTowardHighSchoolCredit: !!(section as any).counts_toward_high_school_credit,
             creditsAttempted:             (section as any).credits_attempted ?? null,
             courseLevel:                  (section as any).course_level ?? null,
+            gradingPeriodId:              (section as any).grading_period_id ?? null,
           }}
           roster={roster}
           gradingPeriods={gradingPeriods}

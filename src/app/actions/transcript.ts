@@ -415,6 +415,8 @@ export async function getTranscriptData(
         course_sections (
           id, course_name, subject, course_level,
           credits_attempted, counts_toward_high_school_credit, school_year_id,
+          grading_period_id,
+          grading_periods ( name ),
           school_years ( id, label )
         )
       `)
@@ -444,6 +446,8 @@ export async function getTranscriptData(
           counts_toward_high_school_credit: cs?.counts_toward_high_school_credit,
           credits_attempted:                cs?.credits_attempted,
           course_level:                     cs?.course_level,
+          grading_period_id:                cs?.grading_period_id ?? null,
+          grading_period_name:              (cs?.grading_periods as any)?.name ?? null,
         },
       );
 
@@ -597,6 +601,8 @@ export async function getEnrollmentSummaryData(
         course_sections (
           id, course_name, subject, course_level,
           credits_attempted, counts_toward_high_school_credit,
+          grading_period_id,
+          grading_periods ( name ),
           teacher_name
         )
       `)
@@ -620,6 +626,8 @@ export async function getEnrollmentSummaryData(
           counts_toward_high_school_credit: cs?.counts_toward_high_school_credit,
           credits_attempted:                cs?.credits_attempted,
           course_level:                     cs?.course_level,
+          grading_period_id:                cs?.grading_period_id ?? null,
+          grading_period_name:              (cs?.grading_periods as any)?.name ?? null,
         },
       );
       if (effective.countsTowardHsCredit) hasHsCredit = true;

@@ -226,6 +226,8 @@ export async function getFinalizationPreview(
           counts_toward_high_school_credit,
           credits_attempted,
           course_level,
+          grading_period_id,
+          grading_periods ( name ),
           school_years ( label )
         )
       `)
@@ -289,6 +291,8 @@ export async function getFinalizationPreview(
         counts_toward_high_school_credit: section?.counts_toward_high_school_credit,
         credits_attempted:                section?.credits_attempted,
         course_level:                     section?.course_level,
+        grading_period_id:                section?.grading_period_id ?? null,
+        grading_period_name:              (section?.grading_periods as any)?.name ?? null,
       },
     );
 
@@ -390,6 +394,8 @@ export async function finalizeCourseEnrollment(
           counts_toward_high_school_credit,
           credits_attempted,
           course_level,
+          grading_period_id,
+          grading_periods ( name ),
           school_years ( label )
         )
       `)
@@ -431,6 +437,8 @@ export async function finalizeCourseEnrollment(
         counts_toward_high_school_credit: section?.counts_toward_high_school_credit,
         credits_attempted:                section?.credits_attempted,
         course_level:                     section?.course_level,
+        grading_period_id:                section?.grading_period_id ?? null,
+        grading_period_name:              (section?.grading_periods as any)?.name ?? null,
       },
     );
     const countsTowardHsCredit = effectiveFinal.countsTowardHsCredit;
@@ -702,6 +710,8 @@ export async function updateCourseCreditConfig(
     countsTowardHighSchoolCredit: boolean;
     creditsAttempted:             number | null;
     courseLevel:                  string | null;
+    /** null = term not specified at section level */
+    gradingPeriodId:              string | null;
   },
 ): Promise<ActionResult<void>> {
   try {
@@ -735,12 +745,28 @@ export async function updateCourseCreditConfig(
       return { success: false, error: "Invalid course level." };
     }
 
+    // Validate grading_period_id belongs to this org and is semester or full_year
+    if (payload.gradingPeriodId !== null) {
+      const { data: gp, error: gpErr } = await (supabase as any)
+        .from("grading_periods")
+        .select("id, period_type, organization_id")
+        .eq("id", payload.gradingPeriodId)
+        .single();
+
+      if (gpErr || !gp) return { success: false, error: "Grading period not found." };
+      if (gp.organization_id !== orgId) return { success: false, error: "Grading period does not belong to this organization." };
+      if (gp.period_type !== "semester" && gp.period_type !== "full_year") {
+        return { success: false, error: "Course term must be a semester or full-year grading period." };
+      }
+    }
+
     const { error } = await (supabase as any)
       .from("course_sections")
       .update({
         counts_toward_high_school_credit: payload.countsTowardHighSchoolCredit,
         credits_attempted:                payload.creditsAttempted,
         course_level:                     payload.courseLevel,
+        grading_period_id:                payload.gradingPeriodId,
       })
       .eq("id", courseSectionId)
       .eq("organization_id", orgId);

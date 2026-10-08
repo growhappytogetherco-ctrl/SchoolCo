@@ -17,22 +17,33 @@ const COURSE_LEVEL_OPTIONS = [
 
 const PRESET_CREDITS = [0.25, 0.5, 1.0] as const;
 
+interface GradingPeriod {
+  id:              string;
+  name:            string;
+  period_type:     string;
+  semester_number: number | null;
+}
+
 interface Props {
   courseSectionId: string;
   initial: {
     countsTowardHighSchoolCredit: boolean;
     creditsAttempted:             number | null;
     courseLevel:                  string | null;
+    /** Section-level term default. Null = not specified. */
+    gradingPeriodId:              string | null;
   };
+  gradingPeriods: GradingPeriod[];
   canEdit: boolean;
 }
 
-export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props) {
-  const [hs, setHs]               = useState(initial.countsTowardHighSchoolCredit);
-  const [credits, setCredits]     = useState<string>(initial.creditsAttempted?.toString() ?? "");
-  const [level, setLevel]         = useState<string>(initial.courseLevel ?? "");
-  const [isPending, startTransition] = useTransition();
-  const [message, setMessage]     = useState<string | null>(null);
+export function CourseCreditConfig({ courseSectionId, initial, gradingPeriods, canEdit }: Props) {
+  const [hs, setHs]                     = useState(initial.countsTowardHighSchoolCredit);
+  const [credits, setCredits]           = useState<string>(initial.creditsAttempted?.toString() ?? "");
+  const [level, setLevel]               = useState<string>(initial.courseLevel ?? "");
+  const [gradingPeriodId, setGradingPeriodId] = useState<string>(initial.gradingPeriodId ?? "");
+  const [isPending, startTransition]    = useTransition();
+  const [message, setMessage]           = useState<string | null>(null);
 
   function handleSave() {
     setMessage(null);
@@ -50,6 +61,7 @@ export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props)
         countsTowardHighSchoolCredit: hs,
         creditsAttempted:             parsedCredits,
         courseLevel:                  level || null,
+        gradingPeriodId:              gradingPeriodId || null,
       });
       if (result.success) {
         setMessage("Saved.");
@@ -82,7 +94,8 @@ export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props)
       </div>
 
       {hs && (
-        <div className="grid grid-cols-2 gap-4 pl-9">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 pl-9">
+          {/* Course Credit */}
           <div className="space-y-2">
             <Label className="text-label-sm text-sc-gray">Course Credit</Label>
             <p className="text-xs text-sc-gray-400 leading-snug">
@@ -134,6 +147,30 @@ export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props)
             />
           </div>
 
+          {/* Course Term */}
+          <div className="space-y-1.5">
+            <Label className="text-label-sm text-sc-gray">Course Term</Label>
+            <Select
+              value={gradingPeriodId}
+              onChange={(e) => setGradingPeriodId(e.target.value)}
+              disabled={!canEdit || isPending || gradingPeriods.length === 0}
+              className="w-48"
+            >
+              <option value="">Not specified</option>
+              {gradingPeriods.map((gp) => (
+                <option key={gp.id} value={gp.id}>
+                  {gp.name}
+                </option>
+              ))}
+            </Select>
+            {gradingPeriods.length === 0 && (
+              <p className="text-xs text-sc-gray-400">
+                No grading periods configured for this school year.
+              </p>
+            )}
+          </div>
+
+          {/* Course Level */}
           <div className="space-y-1.5">
             <Label className="text-label-sm text-sc-gray">Course Level</Label>
             <Select
@@ -141,7 +178,6 @@ export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props)
               onChange={(e) => setLevel(e.target.value)}
               disabled={!canEdit || isPending}
               className="w-44"
-              placeholder="Not specified"
             >
               <option value="">Not specified</option>
               {COURSE_LEVEL_OPTIONS.map((o) => (
@@ -150,6 +186,15 @@ export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props)
                 </option>
               ))}
             </Select>
+          </div>
+
+          {/* Explanation */}
+          <div className="col-span-2">
+            <p className="text-xs text-sc-gray-400 leading-snug">
+              Credit is not earned until the course is completed and finalized.
+              For mixed-age sections, individual student credit settings can be adjusted
+              in the course roster below.
+            </p>
           </div>
         </div>
       )}

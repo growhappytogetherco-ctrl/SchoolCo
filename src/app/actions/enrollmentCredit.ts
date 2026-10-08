@@ -128,7 +128,7 @@ export async function updateEnrollmentCredit(
 
 export async function getSectionGradingPeriods(
   courseSectionId: string,
-): Promise<ActionResult<Array<{ id: string; name: string; semester_number: number }>>> {
+): Promise<ActionResult<Array<{ id: string; name: string; period_type: string; semester_number: number | null }>>> {
   try {
     const orgId = await getActiveOrgId();
     if (!orgId) return { success: false, error: "No active org" };
@@ -144,13 +144,14 @@ export async function getSectionGradingPeriods(
 
     if (!section?.school_year_id) return { success: true, data: [] };
 
+    // Return semester AND full_year periods — both are valid for course term config
     const { data: periods, error } = await (supabase as any)
       .from("grading_periods")
-      .select("id, name, semester_number")
+      .select("id, name, period_type, semester_number")
       .eq("organization_id", orgId)
       .eq("school_year_id", section.school_year_id)
-      .eq("period_type", "semester")
-      .order("semester_number");
+      .in("period_type", ["semester", "full_year"])
+      .order("semester_number", { ascending: true, nullsFirst: false });
 
     if (error) return { success: false, error: error.message };
     return { success: true, data: periods ?? [] };

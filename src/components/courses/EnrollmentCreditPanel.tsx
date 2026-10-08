@@ -9,12 +9,14 @@ import { resolveEffectiveCredit } from "@/lib/enrollmentCredit";
 import { updateEnrollmentCredit } from "@/app/actions/enrollmentCredit";
 import type { CourseStudent } from "@/app/actions/courses";
 
-type GradingPeriod = { id: string; name: string; semester_number: number };
+type GradingPeriod = { id: string; name: string; period_type: string; semester_number: number | null };
 
 type SectionDefaults = {
   countsTowardHighSchoolCredit: boolean;
-  creditsAttempted: number | null;
-  courseLevel: string | null;
+  creditsAttempted:  number | null;
+  courseLevel:       string | null;
+  /** Section-level term default. Null = not specified. */
+  gradingPeriodId?:  string | null;
 };
 
 type Props = {
@@ -139,6 +141,8 @@ export function EnrollmentCreditPanel({
                 counts_toward_high_school_credit: sectionDefaults.countsTowardHighSchoolCredit,
                 credits_attempted:                sectionDefaults.creditsAttempted,
                 course_level:                     sectionDefaults.courseLevel,
+                grading_period_id:                sectionDefaults.gradingPeriodId ?? null,
+                grading_period_name:              gradingPeriods.find(g => g.id === (sectionDefaults.gradingPeriodId ?? ""))?.name ?? null,
               },
             );
 
