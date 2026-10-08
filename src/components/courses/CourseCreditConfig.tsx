@@ -15,6 +15,8 @@ const COURSE_LEVEL_OPTIONS = [
   { value: "dual_enrollment", label: "Dual Enrollment" },
 ] as const;
 
+const PRESET_CREDITS = [0.25, 0.5, 1.0] as const;
+
 interface Props {
   courseSectionId: string;
   initial: {
@@ -36,8 +38,12 @@ export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props)
     setMessage(null);
     startTransition(async () => {
       const parsedCredits = credits.trim() ? parseFloat(credits) : null;
-      if (credits.trim() && (isNaN(parsedCredits!) || parsedCredits! < 0)) {
+      if (credits.trim() && (isNaN(parsedCredits!) || parsedCredits! <= 0)) {
         setMessage("Credits must be a positive number.");
+        return;
+      }
+      if (hs && !parsedCredits) {
+        setMessage("Credits required when high school credit is enabled.");
         return;
       }
       const result = await updateCourseCreditConfig(courseSectionId, {
@@ -55,7 +61,14 @@ export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props)
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Section header */}
+      <div className="border-b border-sc-gray-100 pb-2">
+        <p className="text-label-sm font-semibold tracking-widest uppercase text-sc-gray-400">
+          High School Credit Configuration
+        </p>
+      </div>
+
       <div className="flex items-center gap-3">
         <Switch
           id="hs-credit"
@@ -68,44 +81,84 @@ export function CourseCreditConfig({ courseSectionId, initial, canEdit }: Props)
         </Label>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 pl-9">
-        {hs && (
-          <div className="space-y-1.5">
-            <Label className="text-label-sm text-sc-gray">Credits Attempted</Label>
+      {hs && (
+        <div className="grid grid-cols-2 gap-4 pl-9">
+          <div className="space-y-2">
+            <Label className="text-label-sm text-sc-gray">Course Credit</Label>
+            <p className="text-xs text-sc-gray-400 leading-snug">
+              The amount of high-school credit this course is worth when successfully completed.
+            </p>
+            {canEdit && (
+              <div className="flex gap-1.5 flex-wrap">
+                {PRESET_CREDITS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setCredits(String(p))}
+                    disabled={isPending}
+                    className={`rounded-md border px-2.5 py-1 text-label-sm transition-colors ${
+                      credits === String(p)
+                        ? "border-sc-teal bg-sc-teal/10 text-sc-teal font-medium"
+                        : "border-sc-gray-200 bg-white text-sc-gray hover:border-sc-teal hover:text-sc-teal"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!PRESET_CREDITS.map(String).includes(credits)) return;
+                    setCredits("");
+                  }}
+                  disabled={isPending}
+                  className={`rounded-md border px-2.5 py-1 text-label-sm transition-colors ${
+                    credits && !PRESET_CREDITS.map(String).includes(credits)
+                      ? "border-sc-teal bg-sc-teal/10 text-sc-teal font-medium"
+                      : "border-sc-gray-200 bg-white text-sc-gray hover:border-sc-teal hover:text-sc-teal"
+                  }`}
+                >
+                  Custom
+                </button>
+              </div>
+            )}
             <Input
               type="number"
               min="0"
               step="0.25"
-              placeholder="e.g. 1.0"
+              placeholder="e.g. 0.5"
               value={credits}
               onChange={(e) => setCredits(e.target.value)}
               disabled={!canEdit || isPending}
               className="w-28"
             />
-            <p className="text-xs text-sc-gray-400">
-              High-school transcript credit units. Separate from college/DE hours.
-            </p>
           </div>
-        )}
 
-        <div className="space-y-1.5">
-          <Label className="text-label-sm text-sc-gray">Course Level</Label>
-          <Select
-            value={level}
-            onChange={(e) => setLevel(e.target.value)}
-            disabled={!canEdit || isPending}
-            className="w-44"
-            placeholder="Not specified"
-          >
-            <option value="">Not specified</option>
-            {COURSE_LEVEL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
+          <div className="space-y-1.5">
+            <Label className="text-label-sm text-sc-gray">Course Level</Label>
+            <Select
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              disabled={!canEdit || isPending}
+              className="w-44"
+              placeholder="Not specified"
+            >
+              <option value="">Not specified</option>
+              {COURSE_LEVEL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
-      </div>
+      )}
+
+      {!canEdit && (
+        <p className="pl-9 text-xs text-sc-gray-400">
+          Registrar or above can edit credit configuration.
+        </p>
+      )}
 
       {canEdit && (
         <div className="flex items-center gap-3 pl-9">

@@ -721,9 +721,13 @@ export async function updateCourseCreditConfig(
       .eq("status", "active")
       .single();
 
-    const staffRoles = ["teacher","staff","registrar","admin","full_admin","platform_admin"];
-    if (!staffRoles.includes((member as any)?.role)) {
-      return { success: false, error: "Insufficient permissions" };
+    const registrarRoles = ["registrar","admin","full_admin","platform_admin"];
+    if (!registrarRoles.includes((member as any)?.role)) {
+      return { success: false, error: "Insufficient permissions — registrar or above required" };
+    }
+
+    if (payload.countsTowardHighSchoolCredit && !payload.creditsAttempted) {
+      return { success: false, error: "Credits must be set when high school credit is enabled." };
     }
 
     const validLevels = ["standard","honors","ap","dual_enrollment",null];

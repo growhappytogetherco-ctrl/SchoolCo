@@ -99,6 +99,10 @@ type SingleRow = {
 
 type DisplayRow = PairedRow | SingleRow;
 
+export function stripTermAnnotation(name: string): string {
+  return name.replace(/\s*\((?:term|s|semester|quarter|q)\s*\d+\)\s*$/i, "").trim();
+}
+
 export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
   const sorted = [...records].sort((a, b) => {
     const nameCompare = a.courseName.localeCompare(b.courseName, undefined, {
@@ -118,7 +122,7 @@ export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
     if (r.term === "semester_1") {
       const normalize = (s: string | null | undefined) =>
         (s ?? "").trim().toLowerCase();
-      const rName  = normalize(r.courseName);
+      const rName  = normalize(stripTermAnnotation(r.courseName));
       const rCode  = normalize(r.courseCode);
       const rLevel = normalize(r.courseLevel);
 
@@ -127,7 +131,7 @@ export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
           !used.has(s.id) &&
           s.id !== r.id &&
           s.term === "semester_2" &&
-          normalize(s.courseName) === rName &&
+          normalize(stripTermAnnotation(s.courseName)) === rName &&
           normalize(s.courseCode) === rCode &&
           normalize(s.courseLevel) === rLevel,
       );
@@ -146,7 +150,7 @@ export function buildDisplayRows(records: HistoricalRecord[]): DisplayRow[] {
         used.add(partner.id);
         rows.push({
           type: "paired",
-          courseName: r.courseName,
+          courseName: stripTermAnnotation(r.courseName),
           courseCode: r.courseCode,
           courseLevel: r.courseLevel,
           s1: r,

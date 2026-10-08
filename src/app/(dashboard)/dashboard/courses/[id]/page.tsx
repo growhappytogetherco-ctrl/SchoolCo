@@ -143,7 +143,7 @@ export default async function CourseDetailPage({
             creditsAttempted:             (section as any).credits_attempted ?? null,
             courseLevel:                  (section as any).course_level ?? null,
           }}
-          canEdit
+          canEdit={canFinalize}
         />
       </div>
 
@@ -164,7 +164,7 @@ export default async function CourseDetailPage({
           }}
           roster={roster}
           gradingPeriods={gradingPeriods}
-          canEdit
+          canEdit={canFinalize}
         />
       </div>
 

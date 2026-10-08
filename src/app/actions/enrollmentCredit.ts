@@ -42,9 +42,9 @@ export async function updateEnrollmentCredit(
 
     if (memberErr || !member) return { success: false, error: "Not a member of this organization" };
 
-    const staffRoles = ["teacher", "staff", "registrar", "admin", "full_admin", "platform_admin"];
-    if (!staffRoles.includes((member as any).role)) {
-      return { success: false, error: "Staff access required to configure enrollment credit" };
+    const registrarRoles = ["registrar", "admin", "full_admin", "platform_admin"];
+    if (!registrarRoles.includes((member as any).role)) {
+      return { success: false, error: "Registrar or above required to configure enrollment credit" };
     }
 
     // Validate course_level if provided
