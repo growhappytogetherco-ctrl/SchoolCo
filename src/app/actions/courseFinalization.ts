@@ -760,6 +760,14 @@ export async function updateCourseCreditConfig(
       }
     }
 
+    // Read previous values for audit trail
+    const { data: prevSection } = await (supabase as any)
+      .from("course_sections")
+      .select("counts_toward_high_school_credit, credits_attempted, course_level, grading_period_id")
+      .eq("id", courseSectionId)
+      .eq("organization_id", orgId)
+      .single();
+
     const { error } = await (supabase as any)
       .from("course_sections")
       .update({
@@ -775,6 +783,26 @@ export async function updateCourseCreditConfig(
       console.error("[updateCourseCreditConfig] error:", error.message);
       return { success: false, error: "Failed to update course configuration." };
     }
+
+    await logAudit({
+      organization_id: orgId,
+      actor_id:        profileId,
+      action:          "course_credit_config_updated",
+      resource_type:   "course_section",
+      resource_id:     courseSectionId,
+      previous_values: prevSection ? {
+        counts_toward_high_school_credit: prevSection.counts_toward_high_school_credit,
+        credits_attempted:                prevSection.credits_attempted,
+        course_level:                     prevSection.course_level,
+        grading_period_id:                prevSection.grading_period_id,
+      } : null,
+      new_values: {
+        counts_toward_high_school_credit: payload.countsTowardHighSchoolCredit,
+        credits_attempted:                payload.creditsAttempted,
+        course_level:                     payload.courseLevel,
+        grading_period_id:                payload.gradingPeriodId,
+      },
+    });
 
     revalidatePath(`/dashboard/courses/${courseSectionId}`);
     return { success: true, data: undefined };

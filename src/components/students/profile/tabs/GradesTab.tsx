@@ -123,11 +123,13 @@ function CourseCard({
   studentId,
   periodId,
   gradebookLink,
+  isAdmin,
 }: {
   course: StudentGradeProfile["courses"][0];
   studentId: string;
   periodId: string;
   gradebookLink: boolean;
+  isAdmin: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<CourseGradeDetail | null>(null);
@@ -229,15 +231,26 @@ function CourseCard({
               <AssignmentTable assignments={detail.assignments} />
 
               {/* Open gradebook link (staff only) */}
-              {gradebookLink && (
-                <div className="pt-1">
-                  <Link
-                    href={`/dashboard/courses/${course.courseSectionId}/gradebook`}
-                    className="inline-flex items-center gap-1.5 text-label-sm text-sc-teal hover:underline"
-                  >
-                    <ExternalLink className="size-3.5" />
-                    Open Gradebook
-                  </Link>
+              {(gradebookLink || isAdmin) && (
+                <div className="pt-1 flex flex-wrap gap-4">
+                  {gradebookLink && (
+                    <Link
+                      href={`/dashboard/courses/${course.courseSectionId}/gradebook`}
+                      className="inline-flex items-center gap-1.5 text-label-sm text-sc-teal hover:underline"
+                    >
+                      <ExternalLink className="size-3.5" />
+                      Open Gradebook
+                    </Link>
+                  )}
+                  {isAdmin && (
+                    <Link
+                      href={`/dashboard/courses/${course.courseSectionId}`}
+                      className="inline-flex items-center gap-1.5 text-label-sm text-sc-gray hover:text-sc-navy hover:underline"
+                    >
+                      <ExternalLink className="size-3.5" />
+                      Credit Settings
+                    </Link>
+                  )}
                 </div>
               )}
             </>
@@ -368,6 +381,7 @@ export function GradesTab({ studentId, isAdmin = false, isStaff = false }: Props
             studentId={studentId}
             periodId={activePeriodId ?? ""}
             gradebookLink={isStaff || isAdmin}
+            isAdmin={isAdmin}
           />
         ))}
       </div>

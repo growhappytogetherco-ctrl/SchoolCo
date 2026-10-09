@@ -2,6 +2,7 @@
 
 import { getActiveOrgId, createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/supabase/server";
+import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/types/actions";
 import { logAudit } from "@/lib/audit";
 
@@ -118,6 +119,9 @@ export async function updateEnrollmentCredit(
         grading_period_id:                payload.gradingPeriodId,
       },
     });
+
+    revalidatePath(`/dashboard/students/${enr.student_id}`);
+    revalidatePath(`/dashboard/courses/${enr.course_section_id}`);
 
     return { success: true, data: undefined };
   } catch (e) {
