@@ -213,14 +213,53 @@ async function computeCoursesForPeriod(
     .eq("status", "active")
     .not("course_section_id", "is", null);
 
+  // Load finalized quarter snapshots for this student+period (Stage Q1).
+  // When a snapshot exists, use its frozen grade instead of recomputing from live grades.
+  // This ensures finalized report cards remain stable even if grades are later corrected.
+  const enrollmentIds = ((enrollments ?? []) as any[]).map((e) => e.id);
+  const snapshotMap = new Map<string, { percentage: number | null; letter_grade: string | null; grade_state: string; missing_count: number }>();
+  if (enrollmentIds.length > 0) {
+    const { data: snapshots } = await (supabase as any)
+      .from("quarter_grade_snapshots")
+      .select("enrollment_id, percentage, letter_grade, grade_state, missing_count")
+      .eq("organization_id", orgId)
+      .eq("grading_period_id", periodId)
+      .in("enrollment_id", enrollmentIds);
+    for (const s of snapshots ?? []) {
+      snapshotMap.set(s.enrollment_id, s);
+    }
+  }
+
   const courses: ReportCourseData[] = [];
   for (const enr of (enrollments ?? []) as any[]) {
     const sec = enr.course_sections;
     if (!sec) continue;
-    const sectionId = sec.id as string;
-    const gradingMethod = (sec.grading_method ?? "points") as "points" | "weighted";
+    const sectionId      = sec.id as string;
+    const enrollmentId   = enr.id as string;
+    const gradingMethod  = (sec.grading_method ?? "points") as "points" | "weighted";
     const categoryWeights = sec.category_weights as CategoryWeights | null;
 
+    // If a finalized snapshot exists, prefer its frozen grade over live computation.
+    const snap = snapshotMap.get(enrollmentId);
+    if (snap) {
+      const pct = snap.percentage !== null ? Number(snap.percentage) : null;
+      courses.push({
+        courseSectionId:   sectionId,
+        courseName:        sec.course_name,
+        subject:           sec.subject,
+        teacherName:       sec.teacher_name,
+        gradingMethod,
+        gradeState:        snap.grade_state,
+        percentage:        pct,
+        displayPercentage: pct !== null ? pct.toFixed(2) + "%" : null,
+        letterGrade:       snap.letter_grade ?? null,
+        missingCount:      snap.missing_count ?? 0,
+        teacherComment:    existingComments.get(sectionId) ?? null,
+      });
+      continue;
+    }
+
+    // No snapshot — compute from live grades (current behavior)
     const { data: allAssignments } = await supabase
       .from("assignments")
       .select("id, points_possible, is_graded, category, target_mode")
