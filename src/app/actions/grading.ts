@@ -622,9 +622,8 @@ export async function getSectionGradingContext(
     if (pErr) throw pErr;
 
     const todayStr = today ?? new Date().toISOString().split("T")[0];
-    const current = (periods ?? []).find(
-      p => todayStr >= p.start_date && todayStr <= p.end_date
-    );
+    const { resolveDefaultPeriodId } = await import("@/lib/grading/periodSelection");
+    const defaultPeriodId = resolveDefaultPeriodId(periods ?? [], todayStr);
 
     // Grade scale
     const scale = await getOrgGradeScale(supabase, orgId);
@@ -647,7 +646,7 @@ export async function getSectionGradingContext(
       success: true,
       data: {
         periods: (periods ?? []) as GradingPeriodInfo[],
-        currentPeriodId: current?.id ?? (periods?.[0]?.id ?? null),
+        currentPeriodId: defaultPeriodId,
         schoolYearLabel: (sy as any)?.label ?? "",
         gradeScaleLevels: scale,
         canEdit,

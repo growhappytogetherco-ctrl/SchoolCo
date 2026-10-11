@@ -254,10 +254,8 @@ export async function getStudentGradeProfile(
     const todayStr = today ?? new Date().toISOString().split("T")[0];
     let activePeriodId = periodId ?? null;
     if (!activePeriodId) {
-      const currentQ = quarters.find(
-        (p) => todayStr >= p.start_date && todayStr <= p.end_date
-      );
-      activePeriodId = currentQ?.id ?? quarters[0]?.id ?? null;
+      const { resolveDefaultPeriodId } = await import("@/lib/grading/periodSelection");
+      activePeriodId = resolveDefaultPeriodId(quarters, todayStr);
     }
 
     // Enrolled course sections for this student
