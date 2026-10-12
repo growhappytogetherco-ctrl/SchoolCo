@@ -272,18 +272,20 @@ export async function getQuarterDashboard(
       }
     }
 
-    // Enrollment counts per section
-    let enrollmentCountMap = new Map<string, number>(); // sectionId → count
+    // Enrollment student IDs per section (needed for targeting-aware readiness)
+    const enrolledStudentsBySectionMap = new Map<string, Set<string>>();
     if (sectionIds.length > 0) {
       const { data: enrollments } = await supabase
         .from("curriculum_enrollments")
-        .select("course_section_id")
+        .select("course_section_id, student_id")
         .eq("organization_id", orgId)
         .in("course_section_id", sectionIds)
         .eq("status", "active");
       for (const e of (enrollments ?? []) as any[]) {
-        const cur = enrollmentCountMap.get(e.course_section_id) ?? 0;
-        enrollmentCountMap.set(e.course_section_id, cur + 1);
+        if (!enrolledStudentsBySectionMap.has(e.course_section_id)) {
+          enrolledStudentsBySectionMap.set(e.course_section_id, new Set());
+        }
+        enrolledStudentsBySectionMap.get(e.course_section_id)!.add(e.student_id);
       }
     }
 
@@ -296,7 +298,7 @@ export async function getQuarterDashboard(
       if (sectionIds.length > 0) {
         const { data: assignmentData } = await supabase
           .from("assignments")
-          .select("id, course_section_id")
+          .select("id, course_section_id, target_mode")
           .eq("organization_id", orgId)
           .eq("grading_period_id", period.id)
           .eq("status", "active")
@@ -322,6 +324,43 @@ export async function getQuarterDashboard(
           allPeriodAssignmentIds.push(id);
         }
       });
+
+      // Fetch assignment targets for targeting-aware readiness computation.
+      // A dash (—) in the gradebook means NOT assigned; only targeted pairs count.
+      const assignmentTargetSet = new Set<string>(); // "assignmentId:studentId"
+      if (allPeriodAssignmentIds.length > 0) {
+        const { data: targets } = await supabase
+          .from("assignment_student_targets")
+          .select("assignment_id, student_id")
+          .in("assignment_id", allPeriodAssignmentIds);
+        for (const t of (targets ?? []) as any[]) {
+          assignmentTargetSet.add(`${t.assignment_id}:${t.student_id}`);
+        }
+      }
+
+      // Count targeted (student, assignment) pairs per section.
+      // target_mode=null → legacy, all enrolled students are targeted (no rows in targets table).
+      // target_mode='all'|'selected' → only students with an explicit target row are assigned.
+      const targetedPairsBySectionMap = new Map<string, number>();
+      for (const a of assignments) {
+        const enrolled = enrolledStudentsBySectionMap.get(a.course_section_id);
+        if (!enrolled || enrolled.size === 0) continue;
+        if (a.target_mode === null) {
+          targetedPairsBySectionMap.set(
+            a.course_section_id,
+            (targetedPairsBySectionMap.get(a.course_section_id) ?? 0) + enrolled.size,
+          );
+        } else {
+          let count = 0;
+          enrolled.forEach((studentId) => {
+            if (assignmentTargetSet.has(`${a.id}:${studentId}`)) count++;
+          });
+          targetedPairsBySectionMap.set(
+            a.course_section_id,
+            (targetedPairsBySectionMap.get(a.course_section_id) ?? 0) + count,
+          );
+        }
+      }
 
       // Bulk-query grade statuses for readiness computation.
       // Also count total grade entries per section to detect "no row" (unsubmitted).
@@ -359,16 +398,15 @@ export async function getQuarterDashboard(
               }
             : { workflowId: null, status: "open", reviewStartedAt: null, finalizedAt: null, reopenCount: 0 };
 
-          const enrolledCount   = enrollmentCountMap.get(sec.id) ?? 0;
+          const enrolledCount   = enrolledStudentsBySectionMap.get(sec.id)?.size ?? 0;
           const assignmentCount = assignmentsBySectionMap.get(sec.id)?.length ?? 0;
           const missingCount    = missingBySectionMap.get(sec.id) ?? 0;
-          // ungradedCount = explicit not_graded rows + unsubmitted (no grade row at all).
-          // Unsubmitted is approximated as: expected slots minus actual entries.
-          // Expected = enrolled × assignments. Accurate for target_mode=all/null courses;
-          // may over-count for target_mode=selected (conservative: flags toward needs-review).
+          // ungradedCount = explicit not_graded rows + unsubmitted targeted pairs.
+          // Unsubmitted = targeted pairs that have no grade row at all.
+          // Dash cells (not-assigned) are excluded because they're not in targetedPairs.
           const gradeEntries    = gradeEntriesBySectionMap.get(sec.id) ?? 0;
-          const expectedSlots   = enrolledCount * assignmentCount;
-          const unsubmitted     = Math.max(0, expectedSlots - gradeEntries);
+          const targetedPairs   = targetedPairsBySectionMap.get(sec.id) ?? 0;
+          const unsubmitted     = Math.max(0, targetedPairs - gradeEntries);
           const ungradedCount   = (ungradedBySectionMap.get(sec.id) ?? 0) + unsubmitted;
           const readyToFinalize = workflow.status !== "finalized"
             && assignmentCount > 0
