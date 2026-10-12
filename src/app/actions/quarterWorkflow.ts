@@ -323,9 +323,11 @@ export async function getQuarterDashboard(
         }
       });
 
-      // Bulk-query grade statuses for readiness computation
-      const missingBySectionMap  = new Map<string, number>();
-      const ungradedBySectionMap = new Map<string, number>();
+      // Bulk-query grade statuses for readiness computation.
+      // Also count total grade entries per section to detect "no row" (unsubmitted).
+      const missingBySectionMap      = new Map<string, number>();
+      const ungradedBySectionMap     = new Map<string, number>(); // explicit not_graded status
+      const gradeEntriesBySectionMap = new Map<string, number>(); // any grade row at all
       if (allPeriodAssignmentIds.length > 0) {
         const { data: grades } = await supabase
           .from("student_assignment_grades")
@@ -334,6 +336,7 @@ export async function getQuarterDashboard(
         for (const g of (grades ?? []) as any[]) {
           const sid = assignmentToSection.get(g.assignment_id);
           if (!sid) continue;
+          gradeEntriesBySectionMap.set(sid, (gradeEntriesBySectionMap.get(sid) ?? 0) + 1);
           if (g.grade_status === "missing") {
             missingBySectionMap.set(sid, (missingBySectionMap.get(sid) ?? 0) + 1);
           } else if (g.grade_status === "not_graded") {
@@ -356,9 +359,17 @@ export async function getQuarterDashboard(
               }
             : { workflowId: null, status: "open", reviewStartedAt: null, finalizedAt: null, reopenCount: 0 };
 
+          const enrolledCount   = enrollmentCountMap.get(sec.id) ?? 0;
           const assignmentCount = assignmentsBySectionMap.get(sec.id)?.length ?? 0;
           const missingCount    = missingBySectionMap.get(sec.id) ?? 0;
-          const ungradedCount   = ungradedBySectionMap.get(sec.id) ?? 0;
+          // ungradedCount = explicit not_graded rows + unsubmitted (no grade row at all).
+          // Unsubmitted is approximated as: expected slots minus actual entries.
+          // Expected = enrolled × assignments. Accurate for target_mode=all/null courses;
+          // may over-count for target_mode=selected (conservative: flags toward needs-review).
+          const gradeEntries    = gradeEntriesBySectionMap.get(sec.id) ?? 0;
+          const expectedSlots   = enrolledCount * assignmentCount;
+          const unsubmitted     = Math.max(0, expectedSlots - gradeEntries);
+          const ungradedCount   = (ungradedBySectionMap.get(sec.id) ?? 0) + unsubmitted;
           const readyToFinalize = workflow.status !== "finalized"
             && assignmentCount > 0
             && missingCount === 0
@@ -371,7 +382,7 @@ export async function getQuarterDashboard(
             teacherName:        sec.teacher_name,
             gradingMethod:      sec.grading_method ?? "points",
             workflow,
-            enrolledCount:      enrollmentCountMap.get(sec.id) ?? 0,
+            enrolledCount,
             assignmentCount,
             ungradedCount,
             missingCount,
