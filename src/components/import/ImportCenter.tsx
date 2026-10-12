@@ -560,9 +560,10 @@ function WizardPanel({
             )}
 
             {dryResult.existingFamilies.length > 0 && (
-              <div className="rounded-2xl border border-sc-teal/30 bg-sc-teal/5 p-4 text-label-sm text-sc-navy">
-                <p className="font-semibold mb-1">Existing families — students will be linked (not duplicated):</p>
-                {dryResult.existingFamilies.map((f) => <p key={f} className="text-sc-gray">• {f}</p>)}
+              <div className="rounded-2xl border border-sc-gold-200 bg-sc-gold-50 p-4 text-label-sm text-sc-gold-800">
+                <p className="font-semibold mb-1">Existing family names found — separate family records will be created</p>
+                <p className="text-sc-gold-700 mb-2">To avoid incorrectly merging unrelated families, new family records are always created. After import, review and merge families manually if appropriate.</p>
+                {dryResult.existingFamilies.map((f) => <p key={f}>• {f}</p>)}
               </div>
             )}
 

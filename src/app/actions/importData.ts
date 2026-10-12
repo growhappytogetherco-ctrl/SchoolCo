@@ -121,26 +121,26 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
       (importSources ?? []).map((r) => [r.source_record_id as string, r.student_id as string])
     );
 
-    // Fetch existing family names
+    // Fetch existing family names — for informational warning only, NOT for auto-linking
     const { data: existingFamilies } = await supabase
       .from("families")
       .select("id, family_name")
       .eq("organization_id", orgId);
 
-    const existingFamilyNames = new Map(
-      (existingFamilies ?? []).map((f) => [(f.family_name as string).toLowerCase(), f.id as string])
+    const existingFamilyNameSet = new Set(
+      (existingFamilies ?? []).map((f) => (f.family_name as string).toLowerCase())
     );
 
-    // Fetch existing profiles (guardians) by email + name
+    // Fetch existing profiles (guardians) by email ONLY
+    // Name-alone is not a reliable identity — only email confirms who a guardian is
     const { data: existingProfiles } = await supabase
       .from("profiles")
       .select("id, full_name, email");
 
     const existingProfileEmails = new Set(
-      (existingProfiles ?? []).map((p) => (p.email as string | null)?.toLowerCase() ?? "")
-    );
-    const existingProfileNames = new Set(
-      (existingProfiles ?? []).map((p) => (p.full_name as string).toLowerCase())
+      (existingProfiles ?? [])
+        .map((p) => (p.email as string | null)?.toLowerCase() ?? "")
+        .filter(Boolean)
     );
 
     const dryRows: DryRunRow[] = [];
@@ -193,27 +193,31 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
       }
 
       toInsert++;
+      // Family: always create a new family for imported students.
+      // If a same-name family exists, flag it for the admin's awareness — do NOT auto-link.
+      // The admin can manually merge families after import if appropriate.
       const familyNorm = s.family?.family_name.toLowerCase() ?? "";
-      const familyAction = existingFamilyNames.has(familyNorm) ? "link_existing" : "insert";
-      if (familyAction === "link_existing" && !familiesFound.includes(s.family?.family_name ?? "")) {
+      const familyNameConflict = existingFamilyNameSet.has(familyNorm);
+      if (familyNameConflict && !familiesFound.includes(s.family?.family_name ?? "")) {
         familiesFound.push(s.family?.family_name ?? "");
       }
 
+      // Guardian: match by verified email only — name alone is not sufficient identity proof
       const guardianActions = (s.guardians ?? []).map((g) => {
-        const emailMatch = g.email && existingProfileEmails.has(g.email.toLowerCase());
-        const nameMatch  = existingProfileNames.has(g.full_name.toLowerCase());
-        const exists     = emailMatch || nameMatch;
-        if (exists && !profilesFound.includes(g.full_name)) profilesFound.push(g.full_name);
-        return { name: g.full_name, action: exists ? "link_existing" as const : "insert" as const };
+        const emailMatch = !!(g.email && existingProfileEmails.has(g.email.toLowerCase()));
+        if (emailMatch && !profilesFound.includes(g.full_name)) profilesFound.push(g.full_name);
+        return { name: g.full_name, action: emailMatch ? "link_existing" as const : "insert" as const };
       });
 
       dryRows.push({
         rowIndex: s._rowIndex, studentName: `${s.first_name} ${s.last_name}`,
         classification,
         action: "insert",
-        reason,
+        reason: familyNameConflict
+          ? `${reason ? reason + "; " : ""}A family named "${s.family?.family_name}" already exists — a separate family record will be created. Review after import.`
+          : reason,
         date_of_birth: s.date_of_birth, source_record_id: s._source_record_id,
-        familyAction,
+        familyAction: "insert",
         guardianActions,
       });
     }
@@ -353,11 +357,7 @@ export async function executeImport(jobId: string, csvText: string, selectedRowI
       .eq("source_system", "airtable_csv");
     const importedSourceIds = new Set((existingSourceMaps ?? []).map((r) => r.source_record_id as string));
 
-    const { data: existingFamilies } = await supabase.from("families").select("id, family_name").eq("organization_id", orgId);
-    const existingFamilyMap = new Map(
-      (existingFamilies ?? []).map((f) => [(f.family_name as string).toLowerCase(), f.id as string])
-    );
-
+    // Profiles matched by email only — name alone cannot confirm guardian identity
     const { data: existingProfiles } = await supabase.from("profiles").select("id, full_name, email");
     const existingProfileEmailMap = new Map(
       (existingProfiles ?? [])
@@ -398,14 +398,10 @@ export async function executeImport(jobId: string, csvText: string, selectedRowI
 
       try {
         // ── 1. Family ──────────────────────────────────────────────────
+        // Always create a new family for imported students.
+        // We do NOT auto-link by family name — that requires verified guardian relationships.
         let familyId: string;
-        const famNorm = s.family?.family_name.toLowerCase() ?? "";
-        const existingFamilyId = existingFamilyMap.get(famNorm);
-
-        if (existingFamilyId) {
-          familyId = existingFamilyId;
-          skippedFamilies++;
-        } else if (s.family) {
+        if (s.family) {
           const { data: fam, error: famErr } = await supabase
             .from("families")
             .insert({ organization_id: orgId, family_name: s.family.family_name, is_split_household: s.family.is_split_household, created_by: user.id })
@@ -463,7 +459,15 @@ export async function executeImport(jobId: string, csvText: string, selectedRowI
           .select("id")
           .single();
 
-        if (stuErr || !stu) throw new Error(`Student insert failed: ${stuErr?.message}`);
+        if (stuErr || !stu) {
+          // If the DB unique constraint fires (duplicate name within org), treat as already-exists
+          if (stuErr?.code === "23505") {
+            skippedStudents++;
+            importLog.push(log("warn", `Row ${s._rowIndex}: Skipped — student "${s.first_name} ${s.last_name}" already exists in database (unique constraint)`));
+            continue;
+          }
+          throw new Error(`Student insert failed: ${stuErr?.message}`);
+        }
         const studentId = stu.id as string;
         insertedStudentIds.push(studentId);
         existingStudentMap.set(normName, studentId);
