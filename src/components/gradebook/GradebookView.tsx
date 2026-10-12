@@ -379,7 +379,7 @@ export function GradebookView({
       ) : !hasAssignments ? (
         <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-12 text-center space-y-3">
           <p className="text-sc-gray font-medium text-sc-navy">
-            No assignments in {activePeriod?.name ?? "this period"} yet.
+            No assignments have been added for this quarter yet.
           </p>
           <p className="text-label-sm text-sc-gray">Create an assignment to start entering grades.</p>
           {canEdit && (
