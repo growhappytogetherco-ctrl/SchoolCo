@@ -283,11 +283,13 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
           .map((r) => r.rowIndex)
       );
       setSelectedRows(initialSelection);
-      // All selectable rows default to "new family"
+      // Initialize family choices from server suggestions (verified siblings default to
+      // "sibling_group"; unverified same-name rows default to "new").
       const initialChoices = new Map<number, string>();
       for (const r of res.result.rows) {
         if (r.classification === "new" || r.classification === "possible_duplicate") {
-          initialChoices.set(r.rowIndex, "new");
+          const suggested = res.result.suggestedFamilyChoices?.[r.rowIndex];
+          initialChoices.set(r.rowIndex, suggested ?? "new");
         }
       }
       setFamilyChoices(initialChoices);
@@ -624,11 +626,12 @@ function WizardPanel({
                           </p>
                         )}
                         {r.siblingNames && r.siblingNames.length > 0 && (
-                          <p className="text-[11px] text-sc-teal">
-                            Sibling{r.siblingNames.length > 1 ? "s" : ""} in this CSV: {r.siblingNames.join(", ")} — will share family unless you select a different one
+                          <p className={`text-[11px] ${r.siblingVerified ? "text-sc-teal" : "text-sc-gray"}`}>
+                            Possible sibling{r.siblingNames.length > 1 ? "s" : ""} in this CSV: {r.siblingNames.join(", ")}
+                            {r.siblingVerified ? " — verified by shared guardian email" : " — same family name only (unverified)"}
                           </p>
                         )}
-                        {isSelectable && dryResult.availableFamiliesList.length > 0 && (
+                        {isSelectable && (r.siblingNames?.length || dryResult.availableFamiliesList.length > 0) && (
                           <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                             <label className="text-[10px] text-sc-gray-400 uppercase tracking-wide font-semibold">Family</label>
                             <select
@@ -637,6 +640,9 @@ function WizardPanel({
                               className="mt-0.5 block w-full max-w-xs rounded-lg border border-sc-gray-200 bg-white px-2 py-1 text-[12px] text-sc-navy focus:border-sc-teal focus:outline-none"
                             >
                               <option value="new">+ Create new family</option>
+                              {r.siblingNames && r.siblingNames.length > 0 && (
+                                <option value="sibling_group">Share family with {r.siblingNames.join(", ")}</option>
+                              )}
                               {dryResult.availableFamiliesList.map((f) => (
                                 <option key={f.id} value={f.id}>{f.family_name}</option>
                               ))}

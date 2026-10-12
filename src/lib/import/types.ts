@@ -124,6 +124,11 @@ export interface DryRunRow {
   familyNameNorm?: string | null;
   /** Other student names in this CSV batch that share the same family name */
   siblingNames?: string[];
+  /**
+   * True when the sibling suggestion is verified by at least one shared guardian email.
+   * False when the match is family-name-only (unverified — could be coincidence).
+   */
+  siblingVerified?: boolean;
   guardianActions: Array<{ name: string; action: "insert" | "link_existing" }>;
 }
 
@@ -139,6 +144,13 @@ export interface DryRunResult {
   existingProfiles: string[];
   /** All existing families in the org — for the per-row family assignment picker */
   availableFamiliesList: Array<{ id: string; family_name: string }>;
+  /**
+   * Suggested initial family choices keyed by rowIndex.
+   * "sibling_group" = verified siblings should share one family (admin must confirm).
+   * "new" = create a separate family (default for unverified same-name rows).
+   * A UUID = link to this existing DB family.
+   */
+  suggestedFamilyChoices: Record<number, string>;
 }
 
 // ─── Import job status (from DB) ─────────────────────────────────────────────

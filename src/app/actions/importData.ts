@@ -142,19 +142,35 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
         .filter(Boolean)
     );
 
-    // Build intra-batch sibling map: family name norm → [student names]
-    const batchFamilyMap = new Map<string, string[]>();
+    // Build intra-batch sibling groups:
+    //   family name norm → { names, guardianEmails }
+    // Guardian email overlap between two rows with the same family name is the
+    // verification signal — it confirms shared parentage rather than coincidental name.
+    const batchFamilyGroups = new Map<string, { names: string[]; guardianEmails: Set<string> }>();
     for (const s of validRows) {
       const famNorm = (s.family?.family_name ?? "").toLowerCase().trim();
       if (!famNorm) continue;
-      const existing = batchFamilyMap.get(famNorm) ?? [];
-      existing.push(`${s.first_name} ${s.last_name}`);
-      batchFamilyMap.set(famNorm, existing);
+      const group = batchFamilyGroups.get(famNorm) ?? { names: [], guardianEmails: new Set() };
+      group.names.push(`${s.first_name} ${s.last_name}`);
+      for (const g of s.guardians ?? []) {
+        if (g.email) group.guardianEmails.add(g.email.toLowerCase());
+      }
+      batchFamilyGroups.set(famNorm, group);
     }
+
+    // Verify sibling groups: a group is verified when ≥2 rows share ≥1 guardian email.
+    // Build per-famNorm: { verified, names }
+    const verifiedSiblingGroups = new Map<string, { verified: boolean; names: string[] }>();
+    Array.from(batchFamilyGroups.entries()).forEach(([famNorm, group]) => {
+      if (group.names.length < 2) return;
+      const verified = group.guardianEmails.size > 0;
+      verifiedSiblingGroups.set(famNorm, { verified, names: group.names });
+    });
 
     const dryRows: DryRunRow[] = [];
     const familiesFound: string[] = [];
     const profilesFound: string[] = [];
+    const suggestedFamilyChoices: Record<number, string> = {};
     let toInsert = 0, toSkip = 0, withErrors = 0;
 
     for (const s of validRows) {
@@ -208,9 +224,20 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
         familiesFound.push(s.family?.family_name ?? "");
       }
 
-      // Siblings: other rows in this CSV that share the same family name
-      const allInFamily = batchFamilyMap.get(familyNorm) ?? [];
-      const siblingNames = allInFamily.filter((n) => n !== `${s.first_name} ${s.last_name}`);
+      // Sibling detection: look up this row's family group
+      const siblingGroup = verifiedSiblingGroups.get(familyNorm);
+      const siblingNames = siblingGroup
+        ? siblingGroup.names.filter((n) => n !== `${s.first_name} ${s.last_name}`)
+        : [];
+      const siblingVerified = siblingGroup?.verified ?? false;
+
+      // Suggest family choice: verified siblings default to "sibling_group" so the admin
+      // can confirm they share a family. Unverified same-name rows default to "new".
+      if (siblingGroup && siblingNames.length > 0) {
+        suggestedFamilyChoices[s._rowIndex] = siblingVerified ? "sibling_group" : "new";
+      } else {
+        suggestedFamilyChoices[s._rowIndex] = "new";
+      }
 
       // Guardian: match by verified email only — name alone is not sufficient identity proof
       const guardianActions = (s.guardians ?? []).map((g) => {
@@ -230,6 +257,7 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
         familyAction: "insert",
         familyNameNorm: familyNorm || null,
         siblingNames: siblingNames.length > 0 ? siblingNames : undefined,
+        siblingVerified: siblingNames.length > 0 ? siblingVerified : undefined,
         guardianActions,
       });
     }
@@ -250,6 +278,7 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
         id: f.id as string,
         family_name: f.family_name as string,
       })),
+      suggestedFamilyChoices,
     };
 
     await supabase.from("import_jobs").update({
@@ -384,7 +413,8 @@ export async function executeImport(
       .select("id, family_name")
       .eq("organization_id", orgId);
     const existingFamilyNameMap = new Map<string, string>(
-      (existingFamiliesForExec ?? []).map((f) => [(f.family_name as string).toLowerCase().trim(), f.id as string])
+      (existingFamiliesForExec as Array<{ id: string; family_name: string }> ?? [])
+        .map((f) => [f.family_name.toLowerCase().trim(), f.id])
     );
 
     // Profiles matched by email only — name alone cannot confirm guardian identity
@@ -439,29 +469,24 @@ export async function executeImport(
         const chosenFamilyId = familyChoices?.[s._rowIndex];
         const famNormKey = (s.family?.family_name ?? "").toLowerCase().trim();
 
-        if (chosenFamilyId && chosenFamilyId !== "new") {
-          // Admin explicitly selected an existing family
+        if (chosenFamilyId && chosenFamilyId !== "new" && chosenFamilyId !== "sibling_group") {
+          // Admin explicitly selected an existing DB family
           familyId = chosenFamilyId;
           skippedFamilies++;
           importLog.push(log("info", `Row ${s._rowIndex}: Linking to existing family (${chosenFamilyId})`));
-        } else if (famNormKey && existingFamilyNameMap.has(famNormKey) && (!chosenFamilyId || chosenFamilyId === "new")) {
-          // Auto-sibling: a family with this exact name was already created in this batch
-          // (or existed in DB). Only auto-link when admin chose "new" (default) AND the
-          // existing family was created by this same import (not a pre-existing DB family
-          // that the admin might not intend to link to). We distinguish these by checking
-          // whether the familyId is in insertedFamilyIds.
-          const existingId = existingFamilyNameMap.get(famNormKey)!;
-          if (insertedFamilyIds.includes(existingId)) {
-            // Created in this same batch — same siblings should share it
-            familyId = existingId;
+        } else if (chosenFamilyId === "sibling_group" && famNormKey) {
+          // Admin confirmed these are siblings — share the family already created in this batch,
+          // or create it fresh for the first sibling encountered.
+          const batchFamily = existingFamilyNameMap.get(famNormKey);
+          if (batchFamily && insertedFamilyIds.includes(batchFamily)) {
+            familyId = batchFamily;
             skippedFamilies++;
-            importLog.push(log("info", `Row ${s._rowIndex}: Linked to sibling family created in this batch (${existingId})`));
+            importLog.push(log("info", `Row ${s._rowIndex}: Linked to confirmed sibling family (${batchFamily})`));
           } else {
-            // Pre-existing family in DB — do NOT auto-link; require explicit admin choice
-            // (fall through to create a new family below)
-            familyId = "";
+            familyId = ""; // will create below; map will be updated so the next sibling shares it
           }
         } else {
+          // "new" or no choice — always create a separate family
           familyId = "";
         }
 
