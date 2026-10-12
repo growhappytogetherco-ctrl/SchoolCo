@@ -220,26 +220,39 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Step 1: File upload ────────────────────────────────────────────────────
+  function loadFile(f: File) {
+    // Reset all downstream state so stale results from a previous upload are not shown
+    setStep("upload");
+    setJobId(null);
+    setValidResult(null);
+    setDryResult(null);
+    setSelectedRows(new Set());
+    setFamilyChoices(new Map());
+    setImportResult(null);
+    setDriveFailures([]);
+    setRetryingDrive(new Set());
+    setRetriedDrive(new Set());
+    setErrMsg(null);
+    setFeedback("");
+    setFile(f);
+    setCsvText(""); // clear until FileReader completes
+    const reader = new FileReader();
+    reader.onload = (ev) => { setCsvText(ev.target?.result as string ?? ""); };
+    reader.readAsText(f);
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
     if (!f.name.endsWith(".csv")) { setFeedback("Please upload a .csv file"); return; }
-    setFile(f);
-    setFeedback("");
-
-    const reader = new FileReader();
-    reader.onload = (ev) => { setCsvText(ev.target?.result as string); };
-    reader.readAsText(f);
+    loadFile(f);
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
     if (!f || !f.name.endsWith(".csv")) { setFeedback("Please drop a .csv file"); return; }
-    setFile(f);
-    const reader = new FileReader();
-    reader.onload = (ev) => { setCsvText(ev.target?.result as string); };
-    reader.readAsText(f);
+    loadFile(f);
   }
 
   // ── Step 2: Validate ──────────────────────────────────────────────────────

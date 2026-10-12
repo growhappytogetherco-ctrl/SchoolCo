@@ -3,7 +3,9 @@ import { FIELD_ALIASES, type RawRow } from "./types";
 // ─── Core CSV parser (no dependencies) ───────────────────────────────────────
 
 export function parseCSV(text: string): { headers: string[]; rows: RawRow[] } {
-  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  // Strip UTF-8 BOM if present (Excel often adds ﻿ to CSV exports)
+  const clean = text.replace(/^﻿/, "");
+  const lines = clean.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   if (lines.length < 2) return { headers: [], rows: [] };
 
   const headers = parseLine(lines[0]).map((h) => h.trim());
