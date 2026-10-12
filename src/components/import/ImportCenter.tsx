@@ -8,6 +8,7 @@ import {
   CheckCircle2, Loader2, HardDrive, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { parseCSV, buildHeaderMap } from "@/lib/import/csvParser";
 import {
   createImportJob,
   validateCSV,
@@ -216,6 +217,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
   const [retriedDrive, setRetriedDrive]   = useState<Set<string>>(new Set());
   const [skipped, setSkipped]           = useState(0);
   const [errMsg, setErrMsg]             = useState<string | null>(null);
+  const [detectedHeaders, setDetectedHeaders] = useState<{ raw: string[]; recognized: string[] } | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -234,10 +236,22 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
     setRetriedDrive(new Set());
     setErrMsg(null);
     setFeedback("");
+    setDetectedHeaders(null);
     setFile(f);
     setCsvText(""); // clear until FileReader completes
     const reader = new FileReader();
-    reader.onload = (ev) => { setCsvText(ev.target?.result as string ?? ""); };
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string ?? "";
+      setCsvText(text);
+      // Show detected headers immediately so admin can confirm the right file is loaded
+      try {
+        const { headers } = parseCSV(text);
+        const headerMap = buildHeaderMap(headers);
+        setDetectedHeaders({ raw: headers, recognized: Array.from(headerMap.keys()) });
+      } catch {
+        setDetectedHeaders(null);
+      }
+    };
     reader.readAsText(f);
   }
 
@@ -363,7 +377,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
     setStep("upload"); setFile(null); setCsvText(""); setJobId(null);
     setValidResult(null); setDryResult(null); setSelectedRows(new Set()); setFamilyChoices(new Map()); setImportResult(null);
     setDriveFailures([]); setRetryingDrive(new Set()); setRetriedDrive(new Set());
-    setErrMsg(null); setFeedback("");
+    setErrMsg(null); setFeedback(""); setDetectedHeaders(null);
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -399,6 +413,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
             driveFailures={driveFailures} retryingDrive={retryingDrive} retriedDrive={retriedDrive}
             skipped={skipped} errMsg={errMsg} feedback={feedback}
             fileRef={fileRef}
+            detectedHeaders={detectedHeaders}
             onFileChange={handleFileChange} onDrop={handleDrop}
             onValidate={handleValidate} onDryRun={handleDryRun}
             onToggleRow={toggleRowSelection}
@@ -423,7 +438,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
 
 function WizardPanel({
   step, file, csvText, isPending, validResult, dryResult, selectedRows, familyChoices, importResult, driveFailures,
-  retryingDrive, retriedDrive, skipped, errMsg, feedback, fileRef,
+  retryingDrive, retriedDrive, skipped, errMsg, feedback, fileRef, detectedHeaders,
   onFileChange, onDrop, onValidate, onDryRun, onToggleRow, onSetFamilyChoice, onImport, onReset, onDriveRetry,
 }: {
   step: Step; file: File | null; csvText: string; isPending: boolean;
@@ -437,6 +452,7 @@ function WizardPanel({
   retriedDrive:  Set<string>;
   skipped: number; errMsg: string | null; feedback: string;
   fileRef: React.RefObject<HTMLInputElement>;
+  detectedHeaders: { raw: string[]; recognized: string[] } | null;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onDrop: (e: React.DragEvent) => void;
   onValidate: () => void;
@@ -504,17 +520,34 @@ function WizardPanel({
           </div>
 
           {file && (
-            <div className="flex items-center gap-3 rounded-2xl border border-sc-gray-100 bg-white shadow-card px-5 py-4">
-              <FileText className="size-5 text-sc-teal" />
-              <div className="flex-1">
-                <p className="text-label-md font-semibold text-sc-navy">{file.name}</p>
-                <p className="text-label-sm text-sc-gray">{(file.size / 1024).toFixed(1)} KB</p>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 rounded-2xl border border-sc-gray-100 bg-white shadow-card px-5 py-4">
+                <FileText className="size-5 text-sc-teal" />
+                <div className="flex-1">
+                  <p className="text-label-md font-semibold text-sc-navy">{file.name}</p>
+                  <p className="text-label-sm text-sc-gray">{(file.size / 1024).toFixed(1)} KB</p>
+                </div>
+                <button onClick={onValidate} disabled={!csvText || isPending}
+                  className="flex items-center gap-2 rounded-xl bg-sc-navy px-5 py-2.5 text-white text-label-md font-medium disabled:opacity-50 transition-colors hover:bg-sc-navy/90">
+                  {isPending ? <RefreshCw className="size-4 animate-spin" /> : <ChevronRight className="size-4" />}
+                  {isPending ? "Parsing…" : "Validate"}
+                </button>
               </div>
-              <button onClick={onValidate} disabled={!csvText || isPending}
-                className="flex items-center gap-2 rounded-xl bg-sc-navy px-5 py-2.5 text-white text-label-md font-medium disabled:opacity-50 transition-colors hover:bg-sc-navy/90">
-                {isPending ? <RefreshCw className="size-4 animate-spin" /> : <ChevronRight className="size-4" />}
-                {isPending ? "Parsing…" : "Validate"}
-              </button>
+              {detectedHeaders && (
+                <div className="rounded-xl border border-sc-gray-100 bg-sc-gray-50 px-4 py-3 space-y-1.5">
+                  <p className="text-[11px] font-semibold text-sc-gray-400 uppercase tracking-wide">
+                    Detected columns ({detectedHeaders.raw.length}) — {detectedHeaders.recognized.length} recognized
+                  </p>
+                  <p className="text-[11px] text-sc-gray leading-relaxed break-all">
+                    {detectedHeaders.raw.slice(0, 8).join(", ")}{detectedHeaders.raw.length > 8 ? ` … +${detectedHeaders.raw.length - 8} more` : ""}
+                  </p>
+                  {detectedHeaders.recognized.length < 3 && (
+                    <p className="text-[11px] text-sc-rose font-medium">
+                      ⚠ Fewer than 3 columns recognized. This CSV may not use the expected snake_case format (e.g. first_name, last_name). Check column headers.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
