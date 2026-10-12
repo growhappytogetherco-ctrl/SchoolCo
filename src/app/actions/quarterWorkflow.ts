@@ -292,27 +292,58 @@ export async function getQuarterDashboard(
 
     for (const period of periods) {
       // Assignments for this period across all sections
-      const assignmentCountMap = new Map<string, number>();  // sectionId → count
+      let assignments: any[] = [];
       if (sectionIds.length > 0) {
-        const { data: assignments } = await supabase
+        const { data: assignmentData } = await supabase
           .from("assignments")
-          .select("course_section_id")
+          .select("id, course_section_id")
           .eq("organization_id", orgId)
           .eq("grading_period_id", period.id)
           .eq("status", "active")
           .in("course_section_id", sectionIds);
-        for (const a of (assignments ?? []) as any[]) {
-          const cur = assignmentCountMap.get(a.course_section_id) ?? 0;
-          assignmentCountMap.set(a.course_section_id, cur + 1);
+        assignments = (assignmentData ?? []) as any[];
+      }
+
+      // Build assignment ID map for grade-status queries
+      const assignmentsBySectionMap = new Map<string, string[]>(); // sectionId → assignmentIds
+      for (const a of (assignments ?? []) as any[]) {
+        if (!assignmentsBySectionMap.has(a.course_section_id)) {
+          assignmentsBySectionMap.set(a.course_section_id, []);
+        }
+        assignmentsBySectionMap.get(a.course_section_id)!.push(a.id);
+      }
+
+      // Build reverse map and collect all period assignment IDs
+      const assignmentToSection = new Map<string, string>();
+      const allPeriodAssignmentIds: string[] = [];
+      Array.from(assignmentsBySectionMap.entries()).forEach(([sectionId, ids]) => {
+        for (const id of ids) {
+          assignmentToSection.set(id, sectionId);
+          allPeriodAssignmentIds.push(id);
+        }
+      });
+
+      // Bulk-query grade statuses for readiness computation
+      const missingBySectionMap  = new Map<string, number>();
+      const ungradedBySectionMap = new Map<string, number>();
+      if (allPeriodAssignmentIds.length > 0) {
+        const { data: grades } = await supabase
+          .from("student_assignment_grades")
+          .select("assignment_id, grade_status")
+          .in("assignment_id", allPeriodAssignmentIds);
+        for (const g of (grades ?? []) as any[]) {
+          const sid = assignmentToSection.get(g.assignment_id);
+          if (!sid) continue;
+          if (g.grade_status === "missing") {
+            missingBySectionMap.set(sid, (missingBySectionMap.get(sid) ?? 0) + 1);
+          } else if (g.grade_status === "not_graded") {
+            ungradedBySectionMap.set(sid, (ungradedBySectionMap.get(sid) ?? 0) + 1);
+          }
         }
       }
 
-      // Grade counts per section (to detect ungraded)
-      // Count grades that have a null grade_status or not_graded for each section+period
-      const gradeCountMap = new Map<string, { graded: number; missing: number; total: number }>();
-
       const courses: QuarterCourseRow[] = sectionList
-        .filter((s) => (assignmentCountMap.get(s.id) ?? 0) > 0)
+        .filter((s) => (assignmentsBySectionMap.get(s.id)?.length ?? 0) > 0)
         .map((sec) => {
           const wf = workflowMap.get(`${sec.id}:${period.id}`);
           const workflow: QuarterWorkflowStatus = wf
@@ -325,6 +356,14 @@ export async function getQuarterDashboard(
               }
             : { workflowId: null, status: "open", reviewStartedAt: null, finalizedAt: null, reopenCount: 0 };
 
+          const assignmentCount = assignmentsBySectionMap.get(sec.id)?.length ?? 0;
+          const missingCount    = missingBySectionMap.get(sec.id) ?? 0;
+          const ungradedCount   = ungradedBySectionMap.get(sec.id) ?? 0;
+          const readyToFinalize = workflow.status !== "finalized"
+            && assignmentCount > 0
+            && missingCount === 0
+            && ungradedCount === 0;
+
           return {
             courseSectionId:    sec.id,
             courseName:         sec.course_name,
@@ -333,12 +372,12 @@ export async function getQuarterDashboard(
             gradingMethod:      sec.grading_method ?? "points",
             workflow,
             enrolledCount:      enrollmentCountMap.get(sec.id) ?? 0,
-            assignmentCount:    assignmentCountMap.get(sec.id) ?? 0,
-            ungradedCount:      0,  // Simplified: detailed count not needed for dashboard
-            missingCount:       0,  // Simplified: detailed count not needed for dashboard
+            assignmentCount,
+            ungradedCount,
+            missingCount,
             averagePercentage:  null,
             averageLetterGrade: null,
-            readyToFinalize:    true,
+            readyToFinalize,
             snapshotCount:      0,
           };
         });
@@ -751,19 +790,21 @@ export async function finalizeQuarterCourse(
       });
     }
 
-    // Call atomic RPC
-    const { error: rpcError } = await supabase.rpc(
-      "insert_quarter_snapshots_and_finalize" as any,
+    // Call atomic RPC — pass objects directly, not JSON.stringify.
+    // supabase.rpc() serializes the param object to JSON; pre-stringifying
+    // would double-encode and arrive as a JSONB scalar, breaking jsonb_array_elements.
+    const { error: rpcError } = await (supabase as any).rpc(
+      "insert_quarter_snapshots_and_finalize",
       {
         p_workflow_id:    wf.id,
         p_org_id:         orgId,
         p_period_id:      periodId,
-        p_snapshots:      JSON.stringify(snapshots),
+        p_snapshots:      snapshots,
         p_finalized_by:   profileId,
-        p_event_metadata: JSON.stringify({
+        p_event_metadata: {
           course_section_id: courseSectionId,
           snapshot_count:    snapshots.length,
-        }),
+        },
       },
     );
 

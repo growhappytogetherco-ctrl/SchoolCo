@@ -121,17 +121,23 @@ export function QuarterCourseRowItem({
               {course.missingCount} missing
             </span>
           )}
+          {course.ungradedCount > 0 && (
+            <span className="flex items-center gap-1 text-sc-gold-700">
+              <AlertTriangle className="size-3.5" />
+              {course.ungradedCount} ungraded
+            </span>
+          )}
         </div>
 
-        {/* Average grade */}
-        <div className="hidden md:block w-16 text-right">
-          {course.averagePercentage !== null ? (
-            <span className="text-label-sm font-medium text-sc-navy">
-              {course.averagePercentage.toFixed(1)}%
-            </span>
-          ) : (
-            <span className="text-label-sm text-sc-gray-400">—</span>
-          )}
+        {/* Readiness indicator */}
+        <div className="hidden md:block text-right shrink-0">
+          {course.workflow.status === "finalized" ? null
+            : course.readyToFinalize ? (
+              <span className="text-label-sm font-medium text-sc-teal">Ready</span>
+            ) : (
+              <span className="text-label-sm text-sc-gold-700">Needs Review</span>
+            )
+          }
         </div>
 
         {/* Actions */}

@@ -129,6 +129,8 @@ export function QuarterDashboard({
   }
 
   const reviewSections    = activePeriod.courses.filter((c) => c.workflow.status === "review");
+  const readySections     = reviewSections.filter((c) => c.readyToFinalize);
+  const needsReviewCount  = reviewSections.length - readySections.length;
   const canBatchFinalize  = canFinalize && selectedSections.size > 0;
 
   return (
@@ -201,7 +203,15 @@ export function QuarterDashboard({
           <div className="mb-4 flex items-center gap-3 rounded-lg bg-sc-gold-50 border border-sc-gold-300 px-3 py-2">
             <Layers className="size-4 text-sc-gold-600 shrink-0" />
             <span className="text-label-sm text-sc-gold-800 flex-1">
-              {reviewSections.length} course{reviewSections.length !== 1 ? "s" : ""} ready for finalization
+              {readySections.length > 0 && (
+                <span className="text-sc-teal font-medium">{readySections.length} ready</span>
+              )}
+              {readySections.length > 0 && needsReviewCount > 0 && (
+                <span className="text-sc-gold-700"> · </span>
+              )}
+              {needsReviewCount > 0 && (
+                <span className="text-sc-gold-700">{needsReviewCount} need{needsReviewCount !== 1 ? "" : "s"} review</span>
+              )}
             </span>
             {selectedSections.size > 0 ? (
               <div className="flex items-center gap-2">
