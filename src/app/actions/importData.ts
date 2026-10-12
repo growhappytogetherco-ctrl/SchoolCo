@@ -121,7 +121,7 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
       (importSources ?? []).map((r) => [r.source_record_id as string, r.student_id as string])
     );
 
-    // Fetch existing family names — for informational warning only, NOT for auto-linking
+    // Fetch existing families — IDs for the picker, names for conflict warnings
     const { data: existingFamilies } = await supabase
       .from("families")
       .select("id, family_name")
@@ -234,6 +234,10 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
       rows: dryRows,
       existingFamilies: familiesFound,
       existingProfiles: profilesFound,
+      availableFamiliesList: (existingFamilies ?? []).map((f) => ({
+        id: f.id as string,
+        family_name: f.family_name as string,
+      })),
     };
 
     await supabase.from("import_jobs").update({
@@ -250,7 +254,12 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
 
 // ─── Execute import ───────────────────────────────────────────────────────────
 
-export async function executeImport(jobId: string, csvText: string, selectedRowIndices?: number[]): Promise<
+export async function executeImport(
+  jobId: string,
+  csvText: string,
+  selectedRowIndices?: number[],
+  familyChoices?: Record<number, string>,  // rowIndex → "new" | existing family UUID
+): Promise<
   {
     success: true;
     inserted: { students: number; families: number; guardians: number; medical: number; notes: number };
@@ -396,12 +405,20 @@ export async function executeImport(jobId: string, csvText: string, selectedRowI
         continue;
       }
 
+      // Declared outside try so catch can clean up orphan family on any failure
+      let createdFamilyId: string | null = null;
       try {
         // ── 1. Family ──────────────────────────────────────────────────
-        // Always create a new family for imported students.
-        // We do NOT auto-link by family name — that requires verified guardian relationships.
+        // Use the admin's per-row family choice if provided, otherwise create a new family.
         let familyId: string;
-        if (s.family) {
+
+        const chosenFamilyId = familyChoices?.[s._rowIndex];
+        if (chosenFamilyId && chosenFamilyId !== "new") {
+          // Admin selected an existing family
+          familyId = chosenFamilyId;
+          skippedFamilies++;
+          importLog.push(log("info", `Row ${s._rowIndex}: Linking to existing family (${chosenFamilyId})`));
+        } else if (s.family) {
           const { data: fam, error: famErr } = await supabase
             .from("families")
             .insert({ organization_id: orgId, family_name: s.family.family_name, is_split_household: s.family.is_split_household, created_by: user.id })
@@ -410,8 +427,8 @@ export async function executeImport(jobId: string, csvText: string, selectedRowI
 
           if (famErr || !fam) throw new Error(`Family insert failed: ${famErr?.message}`);
           familyId = fam.id as string;
+          createdFamilyId = familyId;
           insertedFamilyIds.push(familyId);
-          existingFamilyMap.set(famNorm, familyId);
 
           // ── Household ──────────────────────────────────────────────
           if (s.family.household) {
@@ -432,7 +449,10 @@ export async function executeImport(jobId: string, csvText: string, selectedRowI
             .insert({ organization_id: orgId, family_name: `${s.last_name} Family`, is_split_household: false, created_by: user.id })
             .select("id").single();
           familyId = (fam?.id ?? "") as string;
-          if (familyId) insertedFamilyIds.push(familyId);
+          if (familyId) {
+            createdFamilyId = familyId;
+            insertedFamilyIds.push(familyId);
+          }
         }
 
         // ── 2. Student ─────────────────────────────────────────────────
@@ -460,10 +480,33 @@ export async function executeImport(jobId: string, csvText: string, selectedRowI
           .single();
 
         if (stuErr || !stu) {
-          // If the DB unique constraint fires (duplicate name within org), treat as already-exists
+          // Clean up any family we created for this student before handling the error
+          if (createdFamilyId) {
+            await supabase.from("families").delete().eq("id", createdFamilyId);
+            const idx = insertedFamilyIds.indexOf(createdFamilyId);
+            if (idx >= 0) insertedFamilyIds.splice(idx, 1);
+          }
+
           if (stuErr?.code === "23505") {
-            skippedStudents++;
-            importLog.push(log("warn", `Row ${s._rowIndex}: Skipped — student "${s.first_name} ${s.last_name}" already exists in database (unique constraint)`));
+            // Verify identity: confirm the conflicting row is actually this student, not a
+            // different student with the same name (possible after migration 00087 is applied).
+            const { data: conflict } = await supabase
+              .from("students")
+              .select("id, date_of_birth")
+              .eq("organization_id", orgId)
+              .ilike("first_name", s.first_name)
+              .ilike("last_name", s.last_name)
+              .maybeSingle();
+
+            const conflictDob = conflict?.date_of_birth as string | null | undefined;
+            if (conflict && s.date_of_birth && conflictDob && s.date_of_birth !== conflictDob) {
+              // Different DOB — this is a different student blocked by the old constraint.
+              // This should not happen after migration 00087.
+              importLog.push(log("error", `Row ${s._rowIndex}: Blocked by unique constraint — "${s.first_name} ${s.last_name}" DOB in CSV (${s.date_of_birth}) differs from DB (${conflictDob}). Ensure migration 00087 has been applied.`));
+            } else {
+              skippedStudents++;
+              importLog.push(log("warn", `Row ${s._rowIndex}: Skipped — "${s.first_name} ${s.last_name}" already exists in database`));
+            }
             continue;
           }
           throw new Error(`Student insert failed: ${stuErr?.message}`);
@@ -623,6 +666,12 @@ export async function executeImport(jobId: string, csvText: string, selectedRowI
 
       } catch (rowErr) {
         importLog.push(log("error", `Row ${s._rowIndex}: Failed — ${rowErr}`));
+        // Clean up any family created for this row so it doesn't linger as an orphan
+        if (createdFamilyId) {
+          await supabase.from("families").delete().eq("id", createdFamilyId);
+          const idx = insertedFamilyIds.indexOf(createdFamilyId);
+          if (idx >= 0) insertedFamilyIds.splice(idx, 1);
+        }
       }
     }
 

@@ -129,10 +129,12 @@ export interface DryRunResult {
   toSkip: number;
   withErrors: number;
   rows: DryRunRow[];
-  /** Families that already exist and would be linked, not duplicated */
+  /** Family names in the CSV that also exist in the org — for warning display only */
   existingFamilies: string[];
   /** Guardians/profiles that already exist */
   existingProfiles: string[];
+  /** All existing families in the org — for the per-row family assignment picker */
+  availableFamiliesList: Array<{ id: string; family_name: string }>;
 }
 
 // ─── Import job status (from DB) ─────────────────────────────────────────────

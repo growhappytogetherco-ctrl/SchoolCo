@@ -208,6 +208,8 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
   } | null>(null);
   const [dryResult, setDryResult]       = useState<DryRunResult | null>(null);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  // Per-row family assignment: rowIndex → "new" | existing family UUID
+  const [familyChoices, setFamilyChoices] = useState<Map<number, string>>(new Map());
   const [importResult, setImportResult] = useState<{ students: number; families: number; guardians: number; medical: number; notes: number } | null>(null);
   const [driveFailures, setDriveFailures] = useState<Array<{ studentId: string; name: string; error: string }>>([]);
   const [retryingDrive, setRetryingDrive] = useState<Set<string>>(new Set());
@@ -281,6 +283,14 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
           .map((r) => r.rowIndex)
       );
       setSelectedRows(initialSelection);
+      // All selectable rows default to "new family"
+      const initialChoices = new Map<number, string>();
+      for (const r of res.result.rows) {
+        if (r.classification === "new" || r.classification === "possible_duplicate") {
+          initialChoices.set(r.rowIndex, "new");
+        }
+      }
+      setFamilyChoices(initialChoices);
       setStep("dryrun");
     });
   }
@@ -294,11 +304,16 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
   }
 
   // ── Step 4: Execute ────────────────────────────────────────────────────────
+  function setFamilyChoice(rowIndex: number, value: string) {
+    setFamilyChoices((prev) => new Map(prev).set(rowIndex, value));
+  }
+
   function handleImport() {
     if (!jobId || !csvText) return;
     setErrMsg(null);
     startTransition(async () => {
-      const res = await executeImport(jobId, csvText, Array.from(selectedRows));
+      const choicesObj = Object.fromEntries(familyChoices);
+      const res = await executeImport(jobId, csvText, Array.from(selectedRows), choicesObj);
       if (!res.success) { setErrMsg(res.error); return; }
       setImportResult(res.inserted);
       setSkipped(res.skipped);
@@ -331,7 +346,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
   // ── Reset ──────────────────────────────────────────────────────────────────
   function reset() {
     setStep("upload"); setFile(null); setCsvText(""); setJobId(null);
-    setValidResult(null); setDryResult(null); setSelectedRows(new Set()); setImportResult(null);
+    setValidResult(null); setDryResult(null); setSelectedRows(new Set()); setFamilyChoices(new Map()); setImportResult(null);
     setDriveFailures([]); setRetryingDrive(new Set()); setRetriedDrive(new Set());
     setErrMsg(null); setFeedback("");
     if (fileRef.current) fileRef.current.value = "";
@@ -364,13 +379,15 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
         {activeTab === "wizard" && (
           <WizardPanel
             step={step} file={file} csvText={csvText} isPending={isPending}
-            validResult={validResult} dryResult={dryResult} selectedRows={selectedRows} importResult={importResult}
+            validResult={validResult} dryResult={dryResult} selectedRows={selectedRows} familyChoices={familyChoices}
+            importResult={importResult}
             driveFailures={driveFailures} retryingDrive={retryingDrive} retriedDrive={retriedDrive}
             skipped={skipped} errMsg={errMsg} feedback={feedback}
             fileRef={fileRef}
             onFileChange={handleFileChange} onDrop={handleDrop}
             onValidate={handleValidate} onDryRun={handleDryRun}
             onToggleRow={toggleRowSelection}
+            onSetFamilyChoice={setFamilyChoice}
             onImport={handleImport} onReset={reset} onDriveRetry={handleDriveRetry}
           />
         )}
@@ -390,14 +407,15 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
 // ─── Wizard panel ─────────────────────────────────────────────────────────────
 
 function WizardPanel({
-  step, file, csvText, isPending, validResult, dryResult, selectedRows, importResult, driveFailures,
+  step, file, csvText, isPending, validResult, dryResult, selectedRows, familyChoices, importResult, driveFailures,
   retryingDrive, retriedDrive, skipped, errMsg, feedback, fileRef,
-  onFileChange, onDrop, onValidate, onDryRun, onToggleRow, onImport, onReset, onDriveRetry,
+  onFileChange, onDrop, onValidate, onDryRun, onToggleRow, onSetFamilyChoice, onImport, onReset, onDriveRetry,
 }: {
   step: Step; file: File | null; csvText: string; isPending: boolean;
   validResult: { validCount: number; errorCount: number; warnCount: number; errors: ValidationError[]; warnings: ValidationError[]; previewRows: Record<string,string>[] } | null;
   dryResult: DryRunResult | null;
   selectedRows: Set<number>;
+  familyChoices: Map<number, string>;
   importResult: { students: number; families: number; guardians: number; medical: number; notes: number } | null;
   driveFailures: Array<{ studentId: string; name: string; error: string }>;
   retryingDrive: Set<string>;
@@ -409,6 +427,7 @@ function WizardPanel({
   onValidate: () => void;
   onDryRun: () => void;
   onToggleRow: (rowIndex: number) => void;
+  onSetFamilyChoice: (rowIndex: number, value: string) => void;
   onImport: () => void;
   onReset: () => void;
   onDriveRetry: (studentId: string) => void;
@@ -561,8 +580,11 @@ function WizardPanel({
 
             {dryResult.existingFamilies.length > 0 && (
               <div className="rounded-2xl border border-sc-gold-200 bg-sc-gold-50 p-4 text-label-sm text-sc-gold-800">
-                <p className="font-semibold mb-1">Existing family names found — separate family records will be created</p>
-                <p className="text-sc-gold-700 mb-2">To avoid incorrectly merging unrelated families, new family records are always created. After import, review and merge families manually if appropriate.</p>
+                <p className="font-semibold mb-1">Existing family names found in this org</p>
+                <p className="text-sc-gold-700 mb-2">
+                  Each row below defaults to creating a new family. Use the Family dropdown on each row to assign a student to an existing family instead.
+                  Only link to an existing family when you are certain the student belongs to it.
+                </p>
                 {dryResult.existingFamilies.map((f) => <p key={f}>• {f}</p>)}
               </div>
             )}
@@ -577,6 +599,7 @@ function WizardPanel({
                 {dryResult.rows.slice(0, 200).map((r) => {
                   const isSelectable = r.classification === "new" || r.classification === "possible_duplicate";
                   const isChecked    = selectedRows.has(r.rowIndex);
+                  const familyChoice = familyChoices.get(r.rowIndex) ?? "new";
                   return (
                     <div key={r.rowIndex} className={cn(
                       "flex items-start gap-3 px-5 py-3",
@@ -603,6 +626,21 @@ function WizardPanel({
                           <p className="text-[11px] text-sc-gray">
                             Guardians: {r.guardianActions.map((g) => `${g.name} (${g.action === "insert" ? "new" : "existing"})`).join(", ")}
                           </p>
+                        )}
+                        {isSelectable && dryResult.availableFamiliesList.length > 0 && (
+                          <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+                            <label className="text-[10px] text-sc-gray-400 uppercase tracking-wide font-semibold">Family</label>
+                            <select
+                              value={familyChoice}
+                              onChange={(e) => onSetFamilyChoice(r.rowIndex, e.target.value)}
+                              className="mt-0.5 block w-full max-w-xs rounded-lg border border-sc-gray-200 bg-white px-2 py-1 text-[12px] text-sc-navy focus:border-sc-teal focus:outline-none"
+                            >
+                              <option value="new">+ Create new family</option>
+                              {dryResult.availableFamiliesList.map((f) => (
+                                <option key={f.id} value={f.id}>{f.family_name}</option>
+                              ))}
+                            </select>
+                          </div>
                         )}
                       </div>
                       <span className="text-[11px] text-sc-gray-300 shrink-0">row {r.rowIndex}</span>
