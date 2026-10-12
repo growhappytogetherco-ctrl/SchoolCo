@@ -4,7 +4,7 @@ import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
 import { mapRows } from "@/lib/import/mapper";
 import { validateMappedStudents } from "@/lib/import/validators";
 import { parseCSV } from "@/lib/import/csvParser";
-import type { MappedStudent, DryRunResult, DryRunRow, ImportJob } from "@/lib/import/types";
+import type { MappedStudent, DryRunResult, DryRunRow, ImportJob, ImportClassification } from "@/lib/import/types";
 import { isDriveConfigured, ensureOrgDriveStructure, createStudentFolderTree, detectSharedDriveId, getFolderDriveId } from "@/lib/drive/driveClient";
 import { getSubfolder, getOrgFolderName } from "@/lib/drive/types";
 
@@ -96,14 +96,29 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
     const mapped   = mapRows(rows);
     const { validRows } = validateMappedStudents(mapped);
 
-    // Fetch existing student names for duplicate detection
+    // Fetch existing students with DOB for multi-layer duplicate detection
     const { data: existingStudents } = await supabase
       .from("students")
-      .select("id, first_name, last_name")
+      .select("id, first_name, last_name, date_of_birth")
       .eq("organization_id", orgId);
 
-    const existingStudentNames = new Set(
-      (existingStudents ?? []).map((s) => `${(s.first_name as string).toLowerCase()} ${(s.last_name as string).toLowerCase()}`)
+    // name+DOB → confirmed existing; name-only → possible duplicate
+    const existingByNameDob = new Map<string, string>(); // "first last|dob" → id
+    const existingByName    = new Map<string, string>(); // "first last" → id
+    for (const s of existingStudents ?? []) {
+      const normName = `${(s.first_name as string).toLowerCase()} ${(s.last_name as string).toLowerCase()}`;
+      existingByName.set(normName, s.id as string);
+      if (s.date_of_birth) existingByNameDob.set(`${normName}|${s.date_of_birth}`, s.id as string);
+    }
+
+    // Fetch previously-imported source record IDs for this org
+    const { data: importSources } = await supabase
+      .from("student_import_sources")
+      .select("source_record_id, student_id")
+      .eq("organization_id", orgId)
+      .eq("source_system", "airtable_csv");
+    const importedSourceIds = new Map<string, string>(
+      (importSources ?? []).map((r) => [r.source_record_id as string, r.student_id as string])
     );
 
     // Fetch existing family names
@@ -135,19 +150,46 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
 
     for (const s of validRows) {
       const normName = `${s.first_name.toLowerCase()} ${s.last_name.toLowerCase()}`;
-      const isDuplicate = existingStudentNames.has(normName);
 
-      if (isDuplicate) {
+      // Layer 1: source record ID already imported
+      if (s._source_record_id && importedSourceIds.has(s._source_record_id)) {
         toSkip++;
         dryRows.push({
-          rowIndex: s._rowIndex,
-          studentName: `${s.first_name} ${s.last_name}`,
+          rowIndex: s._rowIndex, studentName: `${s.first_name} ${s.last_name}`,
+          classification: "already_exists",
           action: "skip_duplicate",
-          reason: "Student with this name already exists in the database",
-          familyAction: "skip",
-          guardianActions: [],
+          reason: "Previously imported (source record ID matched)",
+          date_of_birth: s.date_of_birth, source_record_id: s._source_record_id,
+          familyAction: "skip", guardianActions: [],
         });
         continue;
+      }
+
+      // Layer 2: name + DOB exact match
+      const dobKey = s.date_of_birth ? `${normName}|${s.date_of_birth}` : null;
+      if (dobKey && existingByNameDob.has(dobKey)) {
+        toSkip++;
+        dryRows.push({
+          rowIndex: s._rowIndex, studentName: `${s.first_name} ${s.last_name}`,
+          classification: "already_exists",
+          action: "skip_duplicate",
+          reason: "Student with same name and date of birth already exists",
+          date_of_birth: s.date_of_birth, source_record_id: s._source_record_id,
+          familyAction: "skip", guardianActions: [],
+        });
+        continue;
+      }
+
+      // Layer 3: name-only match — flag as possible duplicate
+      let classification: ImportClassification = "new";
+      let reason: string | undefined;
+      if (existingByName.has(normName)) {
+        classification = "possible_duplicate";
+        reason = s.date_of_birth
+          ? "Student with same name found but date of birth differs — review before importing"
+          : "Student with same name found — no date of birth to confirm identity";
+        // possible_duplicate still counts as "to review", not auto-skip
+        // We mark action as "insert" so it can be selected, but classification signals review needed
       }
 
       toInsert++;
@@ -166,9 +208,11 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
       });
 
       dryRows.push({
-        rowIndex: s._rowIndex,
-        studentName: `${s.first_name} ${s.last_name}`,
+        rowIndex: s._rowIndex, studentName: `${s.first_name} ${s.last_name}`,
+        classification,
         action: "insert",
+        reason,
+        date_of_birth: s.date_of_birth, source_record_id: s._source_record_id,
         familyAction,
         guardianActions,
       });
@@ -202,7 +246,7 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
 
 // ─── Execute import ───────────────────────────────────────────────────────────
 
-export async function executeImport(jobId: string, csvText: string): Promise<
+export async function executeImport(jobId: string, csvText: string, selectedRowIndices?: number[]): Promise<
   {
     success: true;
     inserted: { students: number; families: number; guardians: number; medical: number; notes: number };
@@ -288,11 +332,26 @@ export async function executeImport(jobId: string, csvText: string): Promise<
       importLog.push(log("info", "Google Drive org structure verified/provisioned"));
     }
 
+    // Per-row selection: if provided, only process rows in the set
+    const selectedSet = selectedRowIndices ? new Set(selectedRowIndices) : null;
+
     // Cache existing data to avoid repeated lookups
-    const { data: existingStudents } = await supabase.from("students").select("id, first_name, last_name").eq("organization_id", orgId);
-    const existingStudentMap = new Map(
-      (existingStudents ?? []).map((s) => [`${(s.first_name as string).toLowerCase()} ${(s.last_name as string).toLowerCase()}`, s.id as string])
-    );
+    const { data: existingStudents } = await supabase.from("students").select("id, first_name, last_name, date_of_birth").eq("organization_id", orgId);
+    const existingStudentByNameDob = new Map<string, string>();
+    const existingStudentMap = new Map<string, string>();
+    for (const s of existingStudents ?? []) {
+      const normName = `${(s.first_name as string).toLowerCase()} ${(s.last_name as string).toLowerCase()}`;
+      existingStudentMap.set(normName, s.id as string);
+      if (s.date_of_birth) existingStudentByNameDob.set(`${normName}|${s.date_of_birth}`, s.id as string);
+    }
+
+    // Fetch already-imported source record IDs
+    const { data: existingSourceMaps } = await supabase
+      .from("student_import_sources")
+      .select("source_record_id")
+      .eq("organization_id", orgId)
+      .eq("source_system", "airtable_csv");
+    const importedSourceIds = new Set((existingSourceMaps ?? []).map((r) => r.source_record_id as string));
 
     const { data: existingFamilies } = await supabase.from("families").select("id, family_name").eq("organization_id", orgId);
     const existingFamilyMap = new Map(
@@ -307,12 +366,33 @@ export async function executeImport(jobId: string, csvText: string): Promise<
     );
 
     for (const s of validRows) {
+      // ── Skip rows not selected by the administrator ──────────────────
+      if (selectedSet && !selectedSet.has(s._rowIndex)) {
+        skippedStudents++;
+        continue;
+      }
+
       const normName = `${s.first_name.toLowerCase()} ${s.last_name.toLowerCase()}`;
 
-      // ── Skip duplicate students ──────────────────────────────────────
-      if (existingStudentMap.has(normName)) {
+      // ── Skip if source record ID already imported ────────────────────
+      if (s._source_record_id && importedSourceIds.has(s._source_record_id)) {
         skippedStudents++;
-        importLog.push(log("info", `Row ${s._rowIndex}: Skipped duplicate student "${s.first_name} ${s.last_name}"`));
+        importLog.push(log("info", `Row ${s._rowIndex}: Skipped (source record ID already imported) "${s.first_name} ${s.last_name}"`));
+        continue;
+      }
+
+      // ── Skip confirmed duplicates (name + DOB) ───────────────────────
+      const dobKey = s.date_of_birth ? `${normName}|${s.date_of_birth}` : null;
+      if (dobKey && existingStudentByNameDob.has(dobKey)) {
+        skippedStudents++;
+        importLog.push(log("info", `Row ${s._rowIndex}: Skipped duplicate (name+DOB match) "${s.first_name} ${s.last_name}"`));
+        continue;
+      }
+
+      // ── Skip name-only duplicates (no DOB to confirm) ────────────────
+      if (!s.date_of_birth && existingStudentMap.has(normName)) {
+        skippedStudents++;
+        importLog.push(log("warn", `Row ${s._rowIndex}: Skipped possible duplicate (name match, no DOB) "${s.first_name} ${s.last_name}"`));
         continue;
       }
 
@@ -387,7 +467,21 @@ export async function executeImport(jobId: string, csvText: string): Promise<
         const studentId = stu.id as string;
         insertedStudentIds.push(studentId);
         existingStudentMap.set(normName, studentId);
+        if (s.date_of_birth) existingStudentByNameDob.set(`${normName}|${s.date_of_birth}`, studentId);
         importLog.push(log("info", `Row ${s._rowIndex}: Inserted student "${s.first_name} ${s.last_name}" (${studentId})`));
+
+        // ── 2a. Source mapping ─────────────────────────────────────────
+        if (s._source_record_id) {
+          await supabase.from("student_import_sources").upsert({
+            organization_id:  orgId,
+            student_id:       studentId,
+            import_job_id:    jobId,
+            source_system:    "airtable_csv",
+            source_record_id: s._source_record_id,
+            imported_by:      user.id,
+          } as never, { onConflict: "organization_id,source_system,source_record_id" });
+          importedSourceIds.add(s._source_record_id);
+        }
 
         // ── 2b. Drive folder ───────────────────────────────────────────
         if (isDriveConfigured() && studentsFolderIdForImport) {

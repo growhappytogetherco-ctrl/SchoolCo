@@ -167,8 +167,12 @@ function mapRow(row: RawRow, rowIndex: number, headerMap: Map<string, string>): 
     });
   }
 
+  // Source record ID — from _airtable_id (API fetch) or airtable_record_id column (CSV export)
+  const sourceRecordId = row["_airtable_id"] || g("airtable_record_id") || null;
+
   return {
     _rowIndex:               rowIndex,
+    _source_record_id:       sourceRecordId || null,
     first_name:              firstName,
     last_name:               lastName,
     preferred_name:          g("preferred_name")        || null,

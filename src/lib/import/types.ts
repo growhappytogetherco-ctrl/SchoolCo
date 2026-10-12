@@ -9,6 +9,9 @@ export interface MappedStudent {
   /** Original CSV row index (1-based, after header) */
   _rowIndex: number;
 
+  /** Source system record ID (e.g. Airtable record ID from _airtable_id column) */
+  _source_record_id?: string | null;
+
   // students table
   first_name: string;
   last_name: string;
@@ -101,11 +104,21 @@ export interface ValidationResult {
 
 // ─── Dry-run result ───────────────────────────────────────────────────────────
 
+/** How a row was classified during dry-run duplicate detection */
+export type ImportClassification =
+  | "new"               // no match found — safe to import
+  | "already_exists"    // confirmed match (name + DOB) — skip by default
+  | "possible_duplicate"// name match only, DOB unavailable or mismatched — flag for review
+  | "invalid";          // missing required fields
+
 export interface DryRunRow {
   rowIndex: number;
   studentName: string;
+  classification: ImportClassification;
   action: "insert" | "skip_duplicate" | "error";
   reason?: string;
+  date_of_birth?: string | null;
+  source_record_id?: string | null;
   familyAction: "insert" | "link_existing" | "skip";
   guardianActions: Array<{ name: string; action: "insert" | "link_existing" }>;
 }
@@ -170,6 +183,7 @@ export interface AirtableConfig {
  * Airtable field names can differ across organizations.
  */
 export const FIELD_ALIASES: Record<string, string[]> = {
+  airtable_record_id:       ["record id", "airtable record id", "airtable id", "id"],
   first_name:               ["first name", "firstname", "student first name", "first"],
   last_name:                ["last name", "lastname", "student last name", "last", "surname"],
   preferred_name:           ["preferred name", "nickname", "goes by", "preferred", "preferred first name"],

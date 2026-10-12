@@ -33,7 +33,7 @@ interface DriveStatus {
 
 interface Props {
   previousJobs: ImportJob[];
-  driveStatus:  DriveStatus;
+  driveStatus?: DriveStatus;
 }
 
 // ─── Drive Setup Panel ─────────────────────────────────────────────────────────
@@ -207,6 +207,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
     validCount: number; errorCount: number; warnCount: number; errors: ValidationError[]; warnings: ValidationError[]; previewRows: Record<string, string>[];
   } | null>(null);
   const [dryResult, setDryResult]       = useState<DryRunResult | null>(null);
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [importResult, setImportResult] = useState<{ students: number; families: number; guardians: number; medical: number; notes: number } | null>(null);
   const [driveFailures, setDriveFailures] = useState<Array<{ studentId: string; name: string; error: string }>>([]);
   const [retryingDrive, setRetryingDrive] = useState<Set<string>>(new Set());
@@ -273,7 +274,22 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
       const res = await dryRunImport(jobId, csvText);
       if (!res.success) { setErrMsg(res.error); return; }
       setDryResult(res.result);
+      // Pre-select only NEW rows; possible_duplicate rows start unchecked
+      const initialSelection = new Set(
+        res.result.rows
+          .filter((r) => r.classification === "new")
+          .map((r) => r.rowIndex)
+      );
+      setSelectedRows(initialSelection);
       setStep("dryrun");
+    });
+  }
+
+  function toggleRowSelection(rowIndex: number) {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowIndex)) next.delete(rowIndex); else next.add(rowIndex);
+      return next;
     });
   }
 
@@ -282,7 +298,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
     if (!jobId || !csvText) return;
     setErrMsg(null);
     startTransition(async () => {
-      const res = await executeImport(jobId, csvText);
+      const res = await executeImport(jobId, csvText, Array.from(selectedRows));
       if (!res.success) { setErrMsg(res.error); return; }
       setImportResult(res.inserted);
       setSkipped(res.skipped);
@@ -315,7 +331,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
   // ── Reset ──────────────────────────────────────────────────────────────────
   function reset() {
     setStep("upload"); setFile(null); setCsvText(""); setJobId(null);
-    setValidResult(null); setDryResult(null); setImportResult(null);
+    setValidResult(null); setDryResult(null); setSelectedRows(new Set()); setImportResult(null);
     setDriveFailures([]); setRetryingDrive(new Set()); setRetriedDrive(new Set());
     setErrMsg(null); setFeedback("");
     if (fileRef.current) fileRef.current.value = "";
@@ -348,12 +364,13 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
         {activeTab === "wizard" && (
           <WizardPanel
             step={step} file={file} csvText={csvText} isPending={isPending}
-            validResult={validResult} dryResult={dryResult} importResult={importResult}
+            validResult={validResult} dryResult={dryResult} selectedRows={selectedRows} importResult={importResult}
             driveFailures={driveFailures} retryingDrive={retryingDrive} retriedDrive={retriedDrive}
             skipped={skipped} errMsg={errMsg} feedback={feedback}
             fileRef={fileRef}
             onFileChange={handleFileChange} onDrop={handleDrop}
             onValidate={handleValidate} onDryRun={handleDryRun}
+            onToggleRow={toggleRowSelection}
             onImport={handleImport} onReset={reset} onDriveRetry={handleDriveRetry}
           />
         )}
@@ -361,7 +378,10 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
         {activeTab === "history" && (
           <HistoryPanel jobs={jobs} onRollback={handleRollback} isPending={isPending} />
         )}
-        {activeTab === "drive" && <DriveSetupPanel initialStatus={driveStatus} />}
+        {activeTab === "drive" && driveStatus && <DriveSetupPanel initialStatus={driveStatus} />}
+        {activeTab === "drive" && !driveStatus && (
+          <p className="text-body-sm text-sc-gray py-8 text-center">Drive setup is not available on this page. Visit <a href="/dashboard/admin/import" className="text-sc-teal underline">Import Center</a> for Drive configuration.</p>
+        )}
       </div>
     </div>
   );
@@ -370,13 +390,14 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
 // ─── Wizard panel ─────────────────────────────────────────────────────────────
 
 function WizardPanel({
-  step, file, csvText, isPending, validResult, dryResult, importResult, driveFailures,
+  step, file, csvText, isPending, validResult, dryResult, selectedRows, importResult, driveFailures,
   retryingDrive, retriedDrive, skipped, errMsg, feedback, fileRef,
-  onFileChange, onDrop, onValidate, onDryRun, onImport, onReset, onDriveRetry,
+  onFileChange, onDrop, onValidate, onDryRun, onToggleRow, onImport, onReset, onDriveRetry,
 }: {
   step: Step; file: File | null; csvText: string; isPending: boolean;
   validResult: { validCount: number; errorCount: number; warnCount: number; errors: ValidationError[]; warnings: ValidationError[]; previewRows: Record<string,string>[] } | null;
   dryResult: DryRunResult | null;
+  selectedRows: Set<number>;
   importResult: { students: number; families: number; guardians: number; medical: number; notes: number } | null;
   driveFailures: Array<{ studentId: string; name: string; error: string }>;
   retryingDrive: Set<string>;
@@ -387,6 +408,7 @@ function WizardPanel({
   onDrop: (e: React.DragEvent) => void;
   onValidate: () => void;
   onDryRun: () => void;
+  onToggleRow: (rowIndex: number) => void;
   onImport: () => void;
   onReset: () => void;
   onDriveRetry: (studentId: string) => void;
@@ -515,57 +537,93 @@ function WizardPanel({
       )}
 
       {/* ── Step: Dry Run ───────────────────────────────────── */}
-      {step === "dryrun" && dryResult && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <StatCard label="Will Insert" value={dryResult.toInsert} color="teal" />
-            <StatCard label="Will Skip (dup)" value={dryResult.toSkip} color="gray" />
-            <StatCard label="Errors" value={dryResult.withErrors} color={dryResult.withErrors > 0 ? "rose" : "teal"} />
-          </div>
-
-          {dryResult.existingFamilies.length > 0 && (
-            <div className="rounded-2xl border border-sc-gold-200 bg-sc-gold-50 p-4 text-label-sm text-sc-gold-800">
-              <p className="font-semibold mb-1">Existing families found — students will be linked:</p>
-              {dryResult.existingFamilies.map((f) => <p key={f}>• {f}</p>)}
+      {step === "dryrun" && dryResult && (() => {
+        const possibleDups = dryResult.rows.filter((r) => r.classification === "possible_duplicate");
+        const newRows      = dryResult.rows.filter((r) => r.classification === "new");
+        const skippedRows  = dryResult.rows.filter((r) => r.classification === "already_exists");
+        const invalidRows  = dryResult.rows.filter((r) => r.classification === "invalid");
+        const selectedCount = dryResult.rows.filter((r) => selectedRows.has(r.rowIndex)).length;
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-4 gap-3">
+              <StatCard label="New Students" value={newRows.length} color="teal" />
+              <StatCard label="Already Exists" value={skippedRows.length} color="gray" />
+              <StatCard label="Review Required" value={possibleDups.length} color={possibleDups.length > 0 ? "gold" : "teal"} />
+              <StatCard label="Invalid" value={invalidRows.length} color={invalidRows.length > 0 ? "rose" : "teal"} />
             </div>
-          )}
 
-          {/* Row preview */}
-          <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">
-            <div className="px-5 py-3 border-b border-sc-gray-100">
-              <p className="text-label-md font-semibold text-sc-navy">Row-by-row plan</p>
+            {possibleDups.length > 0 && (
+              <div className="rounded-2xl border border-sc-gold-200 bg-sc-gold-50 p-4 text-label-sm text-sc-gold-800">
+                <p className="font-semibold mb-1">Review required — {possibleDups.length} possible duplicate{possibleDups.length !== 1 ? "s" : ""} found</p>
+                <p className="text-sc-gold-700">These rows have name matches in SchoolCo but no confirmed date of birth match. Check each one before importing.</p>
+              </div>
+            )}
+
+            {dryResult.existingFamilies.length > 0 && (
+              <div className="rounded-2xl border border-sc-teal/30 bg-sc-teal/5 p-4 text-label-sm text-sc-navy">
+                <p className="font-semibold mb-1">Existing families — students will be linked (not duplicated):</p>
+                {dryResult.existingFamilies.map((f) => <p key={f} className="text-sc-gray">• {f}</p>)}
+              </div>
+            )}
+
+            {/* Row-by-row plan with checkboxes */}
+            <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-sc-gray-100">
+                <p className="text-label-md font-semibold text-sc-navy">Row-by-row review</p>
+                <p className="text-label-sm text-sc-gray">{selectedCount} selected for import</p>
+              </div>
+              <div className="divide-y divide-sc-gray-50 max-h-[480px] overflow-y-auto">
+                {dryResult.rows.slice(0, 200).map((r) => {
+                  const isSelectable = r.classification === "new" || r.classification === "possible_duplicate";
+                  const isChecked    = selectedRows.has(r.rowIndex);
+                  return (
+                    <div key={r.rowIndex} className={cn(
+                      "flex items-start gap-3 px-5 py-3",
+                      isSelectable ? "cursor-pointer hover:bg-sc-gray-50/50" : "opacity-60",
+                      isChecked && isSelectable ? "bg-sc-teal/[0.03]" : "",
+                    )} onClick={() => isSelectable && onToggleRow(r.rowIndex)}>
+                      {isSelectable ? (
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => onToggleRow(r.rowIndex)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5 size-4 rounded border-sc-gray-300 text-sc-teal shrink-0"
+                        />
+                      ) : (
+                        <div className="size-4 mt-0.5 shrink-0" />
+                      )}
+                      <ClassificationBadge classification={r.classification} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-label-md font-semibold text-sc-navy">{r.studentName}</p>
+                        {r.date_of_birth && <p className="text-[11px] text-sc-gray">DOB: {r.date_of_birth}</p>}
+                        {r.reason && <p className="text-label-sm text-sc-gray">{r.reason}</p>}
+                        {r.guardianActions.length > 0 && (
+                          <p className="text-[11px] text-sc-gray">
+                            Guardians: {r.guardianActions.map((g) => `${g.name} (${g.action === "insert" ? "new" : "existing"})`).join(", ")}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-sc-gray-300 shrink-0">row {r.rowIndex}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <div className="divide-y divide-sc-gray-50 max-h-96 overflow-y-auto">
-              {dryResult.rows.slice(0, 100).map((r) => (
-                <div key={r.rowIndex} className="flex items-start gap-3 px-5 py-3">
-                  <ActionBadge action={r.action} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-label-md font-semibold text-sc-navy">{r.studentName}</p>
-                    {r.reason && <p className="text-label-sm text-sc-gray">{r.reason}</p>}
-                    {r.guardianActions.length > 0 && (
-                      <p className="text-label-sm text-sc-gray">
-                        Guardians: {r.guardianActions.map((g) => `${g.name} (${g.action === "insert" ? "new" : "existing"})`).join(", ")}
-                      </p>
-                    )}
-                  </div>
-                  <span className="text-label-sm text-sc-gray-300">row {r.rowIndex}</span>
-                </div>
-              ))}
+
+            <div className="flex gap-3">
+              <button onClick={onReset} className="flex items-center gap-2 rounded-xl border border-sc-gray-200 px-4 py-2.5 text-label-md text-sc-gray hover:border-sc-navy hover:text-sc-navy">
+                <ArrowLeft className="size-4" /> Start Over
+              </button>
+              <button onClick={onImport} disabled={isPending || selectedCount === 0}
+                className="flex items-center gap-2 ml-auto rounded-xl bg-sc-teal px-6 py-2.5 text-white text-label-md font-semibold disabled:opacity-50">
+                {isPending ? <RefreshCw className="size-4 animate-spin" /> : <CheckCircle className="size-4" />}
+                {isPending ? "Importing…" : `Import ${selectedCount} Selected Student${selectedCount !== 1 ? "s" : ""}`}
+              </button>
             </div>
           </div>
-
-          <div className="flex gap-3">
-            <button onClick={onReset} className="flex items-center gap-2 rounded-xl border border-sc-gray-200 px-4 py-2.5 text-label-md text-sc-gray hover:border-sc-navy hover:text-sc-navy">
-              <ArrowLeft className="size-4" /> Start Over
-            </button>
-            <button onClick={onImport} disabled={isPending || dryResult.toInsert === 0}
-              className="flex items-center gap-2 ml-auto rounded-xl bg-sc-teal px-6 py-2.5 text-white text-label-md font-semibold disabled:opacity-50">
-              {isPending ? <RefreshCw className="size-4 animate-spin" /> : <CheckCircle className="size-4" />}
-              {isPending ? "Importing…" : `Import ${dryResult.toInsert} Students`}
-            </button>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Step: Done ───────────────────────────────────────── */}
       {step === "done" && importResult && (
@@ -919,4 +977,15 @@ function ActionBadge({ action }: { action: "insert" | "skip_duplicate" | "error"
   };
   const c = CFG[action];
   return <span className={cn("rounded-md border px-1.5 py-0.5 text-label-sm font-mono font-bold shrink-0 mt-0.5", c.cls)}>{c.label}</span>;
+}
+
+function ClassificationBadge({ classification }: { classification: "new" | "already_exists" | "possible_duplicate" | "invalid" }) {
+  const CFG = {
+    new:                { cls: "bg-sc-teal-50 text-sc-teal border-sc-teal-200",        label: "NEW"       },
+    already_exists:     { cls: "bg-sc-gray-50 text-sc-gray border-sc-gray-200",        label: "EXISTS"    },
+    possible_duplicate: { cls: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-300",    label: "REVIEW"    },
+    invalid:            { cls: "bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200",    label: "INVALID"   },
+  };
+  const c = CFG[classification];
+  return <span className={cn("rounded-md border px-1.5 py-0.5 text-[10px] font-mono font-bold shrink-0 mt-0.5 whitespace-nowrap", c.cls)}>{c.label}</span>;
 }

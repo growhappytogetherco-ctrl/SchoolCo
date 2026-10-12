@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { UserPlus } from "lucide-react";
-import { getUser, getStudents, getActiveOrgId } from "@/lib/supabase/server";
+import { UserPlus, Upload } from "lucide-react";
+import { getUser, getStudents, getActiveOrgId, createClient } from "@/lib/supabase/server";
 import { StudentTable } from "@/components/students/StudentTable";
 import { requireStaff } from "@/lib/roleGuard";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,16 @@ export default async function StudentsPage({
     rawFilter === "former" ? "former" : rawFilter === "all" ? "all" : "active";
   const filterCfg = FILTERS.find((f) => f.key === activeFilter)!;
 
+  const supabase = await createClient();
+  const { data: membership } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("organization_id", orgId)
+    .eq("profile_id", user.id)
+    .eq("status", "active")
+    .single();
+  const isAdmin = ["admin", "full_admin", "platform_admin"].includes((membership?.role as string) ?? "");
+
   const students = await getStudents(orgId, {
     limit: 200,
     enrollmentStatuses: filterCfg.key === "all" ? [] : [...filterCfg.statuses],
@@ -54,13 +64,24 @@ export default async function StudentsPage({
           </p>
         </div>
 
-        <Link
-          href="/dashboard/students/new"
-          className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-4 py-2 text-white text-label-md font-medium hover:bg-sc-teal-700 transition-colors shadow-sm"
-        >
-          <UserPlus className="size-4" />
-          Enroll Student
-        </Link>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Link
+              href="/dashboard/admin/import"
+              className="inline-flex items-center gap-2 rounded-lg border border-sc-gray-200 bg-white px-4 py-2 text-sc-navy text-label-md font-medium hover:bg-sc-gray-50 transition-colors shadow-sm"
+            >
+              <Upload className="size-4" />
+              Import Students
+            </Link>
+          )}
+          <Link
+            href="/dashboard/students/new"
+            className="inline-flex items-center gap-2 rounded-lg bg-sc-teal px-4 py-2 text-white text-label-md font-medium hover:bg-sc-teal-700 transition-colors shadow-sm"
+          >
+            <UserPlus className="size-4" />
+            Enroll Student
+          </Link>
+        </div>
       </div>
 
       {/* ── Filter Tabs ─────────────────────────────────────── */}
