@@ -111,12 +111,11 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
       if (s.date_of_birth) existingByNameDob.set(`${normName}|${s.date_of_birth}`, s.id as string);
     }
 
-    // Fetch previously-imported source record IDs for this org
+    // Fetch previously-imported source record IDs for this org (any source system)
     const { data: importSources } = await supabase
       .from("student_import_sources")
-      .select("source_record_id, student_id")
-      .eq("organization_id", orgId)
-      .eq("source_system", "airtable_csv");
+      .select("source_record_id, student_id, source_system")
+      .eq("organization_id", orgId);
     const importedSourceIds = new Map<string, string>(
       (importSources ?? []).map((r) => [r.source_record_id as string, r.student_id as string])
     );
@@ -142,6 +141,16 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
         .map((p) => (p.email as string | null)?.toLowerCase() ?? "")
         .filter(Boolean)
     );
+
+    // Build intra-batch sibling map: family name norm → [student names]
+    const batchFamilyMap = new Map<string, string[]>();
+    for (const s of validRows) {
+      const famNorm = (s.family?.family_name ?? "").toLowerCase().trim();
+      if (!famNorm) continue;
+      const existing = batchFamilyMap.get(famNorm) ?? [];
+      existing.push(`${s.first_name} ${s.last_name}`);
+      batchFamilyMap.set(famNorm, existing);
+    }
 
     const dryRows: DryRunRow[] = [];
     const familiesFound: string[] = [];
@@ -193,14 +202,15 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
       }
 
       toInsert++;
-      // Family: always create a new family for imported students.
-      // If a same-name family exists, flag it for the admin's awareness — do NOT auto-link.
-      // The admin can manually merge families after import if appropriate.
-      const familyNorm = s.family?.family_name.toLowerCase() ?? "";
+      const familyNorm = (s.family?.family_name ?? "").toLowerCase().trim();
       const familyNameConflict = existingFamilyNameSet.has(familyNorm);
       if (familyNameConflict && !familiesFound.includes(s.family?.family_name ?? "")) {
         familiesFound.push(s.family?.family_name ?? "");
       }
+
+      // Siblings: other rows in this CSV that share the same family name
+      const allInFamily = batchFamilyMap.get(familyNorm) ?? [];
+      const siblingNames = allInFamily.filter((n) => n !== `${s.first_name} ${s.last_name}`);
 
       // Guardian: match by verified email only — name alone is not sufficient identity proof
       const guardianActions = (s.guardians ?? []).map((g) => {
@@ -214,10 +224,12 @@ export async function dryRunImport(jobId: string, csvText: string): Promise<
         classification,
         action: "insert",
         reason: familyNameConflict
-          ? `${reason ? reason + "; " : ""}A family named "${s.family?.family_name}" already exists — a separate family record will be created. Review after import.`
+          ? `${reason ? reason + "; " : ""}A family named "${s.family?.family_name}" already exists — use the Family selector below to link to it, or create a separate record.`
           : reason,
         date_of_birth: s.date_of_birth, source_record_id: s._source_record_id,
         familyAction: "insert",
+        familyNameNorm: familyNorm || null,
+        siblingNames: siblingNames.length > 0 ? siblingNames : undefined,
         guardianActions,
       });
     }
@@ -358,13 +370,22 @@ export async function executeImport(
       if (s.date_of_birth) existingStudentByNameDob.set(`${normName}|${s.date_of_birth}`, s.id as string);
     }
 
-    // Fetch already-imported source record IDs
+    // Fetch already-imported source record IDs (any source system)
     const { data: existingSourceMaps } = await supabase
       .from("student_import_sources")
       .select("source_record_id")
-      .eq("organization_id", orgId)
-      .eq("source_system", "airtable_csv");
+      .eq("organization_id", orgId);
     const importedSourceIds = new Set((existingSourceMaps ?? []).map((r) => r.source_record_id as string));
+
+    // Pre-load existing families — keyed by normalized name — for sibling deduplication.
+    // This map is updated as new families are created so siblings within the same batch share a record.
+    const { data: existingFamiliesForExec } = await supabase
+      .from("families")
+      .select("id, family_name")
+      .eq("organization_id", orgId);
+    const existingFamilyNameMap = new Map<string, string>(
+      (existingFamiliesForExec ?? []).map((f) => [(f.family_name as string).toLowerCase().trim(), f.id as string])
+    );
 
     // Profiles matched by email only — name alone cannot confirm guardian identity
     const { data: existingProfiles } = await supabase.from("profiles").select("id, full_name, email");
@@ -409,16 +430,42 @@ export async function executeImport(
       let createdFamilyId: string | null = null;
       try {
         // ── 1. Family ──────────────────────────────────────────────────
-        // Use the admin's per-row family choice if provided, otherwise create a new family.
+        // Priority: (a) admin's explicit per-row choice, (b) sibling match via shared
+        // existingFamilyNameMap (which covers both DB families and families created earlier
+        // in this same import batch), (c) create new family.
         let familyId: string;
+        let householdId: string | null = null;
 
         const chosenFamilyId = familyChoices?.[s._rowIndex];
+        const famNormKey = (s.family?.family_name ?? "").toLowerCase().trim();
+
         if (chosenFamilyId && chosenFamilyId !== "new") {
-          // Admin selected an existing family
+          // Admin explicitly selected an existing family
           familyId = chosenFamilyId;
           skippedFamilies++;
           importLog.push(log("info", `Row ${s._rowIndex}: Linking to existing family (${chosenFamilyId})`));
-        } else if (s.family) {
+        } else if (famNormKey && existingFamilyNameMap.has(famNormKey) && (!chosenFamilyId || chosenFamilyId === "new")) {
+          // Auto-sibling: a family with this exact name was already created in this batch
+          // (or existed in DB). Only auto-link when admin chose "new" (default) AND the
+          // existing family was created by this same import (not a pre-existing DB family
+          // that the admin might not intend to link to). We distinguish these by checking
+          // whether the familyId is in insertedFamilyIds.
+          const existingId = existingFamilyNameMap.get(famNormKey)!;
+          if (insertedFamilyIds.includes(existingId)) {
+            // Created in this same batch — same siblings should share it
+            familyId = existingId;
+            skippedFamilies++;
+            importLog.push(log("info", `Row ${s._rowIndex}: Linked to sibling family created in this batch (${existingId})`));
+          } else {
+            // Pre-existing family in DB — do NOT auto-link; require explicit admin choice
+            // (fall through to create a new family below)
+            familyId = "";
+          }
+        } else {
+          familyId = "";
+        }
+
+        if (!familyId && s.family) {
           const { data: fam, error: famErr } = await supabase
             .from("families")
             .insert({ organization_id: orgId, family_name: s.family.family_name, is_split_household: s.family.is_split_household, created_by: user.id })
@@ -429,6 +476,8 @@ export async function executeImport(
           familyId = fam.id as string;
           createdFamilyId = familyId;
           insertedFamilyIds.push(familyId);
+          // Register in map so subsequent siblings in this batch can find it
+          if (famNormKey) existingFamilyNameMap.set(famNormKey, familyId);
 
           // ── Household ──────────────────────────────────────────────
           if (s.family.household) {
@@ -440,10 +489,13 @@ export async function executeImport(
               .from("households")
               .insert({ organization_id: orgId, family_id: familyId, household_label: hh.household_label, sort_order: hh.sort_order, address_json: addrJson as never, phone: hh.phone, email: hh.email, created_by: user.id })
               .select("id").single();
-            if (hhData) insertedHouseholdIds.push(hhData.id as string);
+            if (hhData) {
+              householdId = hhData.id as string;
+              insertedHouseholdIds.push(householdId);
+            }
           }
-        } else {
-          // Fallback: create minimal family
+        } else if (!familyId) {
+          // Fallback: create minimal family when s.family is null
           const { data: fam } = await supabase
             .from("families")
             .insert({ organization_id: orgId, family_name: `${s.last_name} Family`, is_split_household: false, created_by: user.id })
@@ -519,11 +571,13 @@ export async function executeImport(
 
         // ── 2a. Source mapping ─────────────────────────────────────────
         if (s._source_record_id) {
+          // Rows with an Airtable record ID use "airtable_csv"; plain CSV rows use "csv_upload"
+          const sourceSystem = s._source_record_id.startsWith("rec") ? "airtable_csv" : "csv_upload";
           await supabase.from("student_import_sources").upsert({
             organization_id:  orgId,
             student_id:       studentId,
             import_job_id:    jobId,
-            source_system:    "airtable_csv",
+            source_system:    sourceSystem,
             source_record_id: s._source_record_id,
             imported_by:      user.id,
           } as never, { onConflict: "organization_id,source_system,source_record_id" });
@@ -607,18 +661,19 @@ export async function executeImport(
 
             if (profileId) {
               await supabase.from("guardianships").insert({
-                organization_id:        orgId,
-                profile_id:             profileId,
-                student_id:             studentId,
-                relationship_type:      g.relationship_type as never,
-                custody_type:           g.custody_type as never,
-                is_legal_guardian:      g.is_legal_guardian,
-                is_primary_contact:     g.is_primary_contact,
-                is_emergency_contact:   g.is_emergency_contact,
+                organization_id:         orgId,
+                profile_id:              profileId,
+                student_id:              studentId,
+                household_id:            householdId,
+                relationship_type:       g.relationship_type as never,
+                custody_type:            g.custody_type as never,
+                is_legal_guardian:       g.is_legal_guardian,
+                is_primary_contact:      g.is_primary_contact,
+                is_emergency_contact:    g.is_emergency_contact,
                 emergency_contact_order: g.emergency_contact_order,
-                can_pickup:             g.can_pickup,
-                pickup_restrictions:    g.pickup_restrictions,
-                created_by:             user.id,
+                can_pickup:              g.can_pickup,
+                pickup_restrictions:     g.pickup_restrictions,
+                created_by:              user.id,
               } as never);
             }
           } catch (gErr) {

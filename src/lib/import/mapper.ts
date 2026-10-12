@@ -161,7 +161,7 @@ function mapRow(row: RawRow, rowIndex: number, headerMap: Map<string, string>): 
     notes.push({
       category:  "general",
       priority:  "normal",
-      title:     "Imported from Airtable",
+      title:     "Import note",
       body:      rawNotes,
       is_pinned: false,
     });

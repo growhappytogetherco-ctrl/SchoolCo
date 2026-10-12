@@ -120,6 +120,10 @@ export interface DryRunRow {
   date_of_birth?: string | null;
   source_record_id?: string | null;
   familyAction: "insert" | "link_existing" | "skip";
+  /** Normalized family name — rows sharing this value are siblings in the same CSV batch */
+  familyNameNorm?: string | null;
+  /** Other student names in this CSV batch that share the same family name */
+  siblingNames?: string[];
   guardianActions: Array<{ name: string; action: "insert" | "link_existing" }>;
 }
 

@@ -358,7 +358,7 @@ export function ImportCenter({ previousJobs, driveStatus }: Props) {
       {/* Page header */}
       <div className="bg-white border-b border-sc-gray-100 px-6 py-5">
         <h1 className="font-serif text-heading-1 text-sc-navy">Data Import Center</h1>
-        <p className="text-body-sm text-sc-gray mt-1">Import student records from Airtable CSV exports into SchoolCo.</p>
+        <p className="text-body-sm text-sc-gray mt-1">Import student enrollment records into SchoolCo from a CSV file.</p>
       </div>
 
       {/* Tabs */}
@@ -477,7 +477,7 @@ function WizardPanel({
               <Upload className="size-8 text-sc-teal" />
             </div>
             <div>
-              <p className="text-label-lg font-semibold text-sc-navy">Drop your Airtable CSV here</p>
+              <p className="text-label-lg font-semibold text-sc-navy">Drop your enrollment CSV here</p>
               <p className="text-label-sm text-sc-gray mt-1">or click to browse</p>
             </div>
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={onFileChange} />
@@ -507,13 +507,9 @@ function WizardPanel({
             <div className="flex items-start gap-2">
               <Info className="size-4 text-sc-gold-700 shrink-0 mt-0.5" />
               <div className="text-label-sm text-sc-gold-800 space-y-1">
-                <p className="font-semibold">How to export from Airtable</p>
-                <ol className="list-decimal ml-4 space-y-0.5 text-sc-gold-700">
-                  <li>Open your Airtable base</li>
-                  <li>Go to the Students (or main) table</li>
-                  <li>Click <strong>...</strong> → <strong>Download CSV</strong></li>
-                  <li>Upload the downloaded .csv file above</li>
-                </ol>
+                <p className="font-semibold">Accepted CSV formats</p>
+                <p className="text-sc-gold-700">Use the original RLA enrollment CSV format (snake_case headers) or any CSV with headers that match the Field Mapping tab. Column names are case-insensitive and common variations are recognized.</p>
+                <p className="text-sc-gold-700">Visit the <strong>Field Mapping</strong> tab to see all accepted column names, or download the template CSV.</p>
               </div>
             </div>
           </div>
@@ -625,6 +621,11 @@ function WizardPanel({
                         {r.guardianActions.length > 0 && (
                           <p className="text-[11px] text-sc-gray">
                             Guardians: {r.guardianActions.map((g) => `${g.name} (${g.action === "insert" ? "new" : "existing"})`).join(", ")}
+                          </p>
+                        )}
+                        {r.siblingNames && r.siblingNames.length > 0 && (
+                          <p className="text-[11px] text-sc-teal">
+                            Sibling{r.siblingNames.length > 1 ? "s" : ""} in this CSV: {r.siblingNames.join(", ")} — will share family unless you select a different one
                           </p>
                         )}
                         {isSelectable && dryResult.availableFamiliesList.length > 0 && (
