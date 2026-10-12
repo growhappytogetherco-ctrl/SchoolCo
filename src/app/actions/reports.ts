@@ -465,7 +465,7 @@ export async function previewStudentReport(
 
     const { data: student } = await supabase
       .from("students")
-      .select("first_name, last_name, preferred_name, grade_level, school_year_id")
+      .select("first_name, last_name, preferred_name, grade_level")
       .eq("id", studentId)
       .single();
     if (!student) return { success: false, error: "Student not found" };
@@ -480,9 +480,10 @@ export async function previewStudentReport(
     if (!period) return { success: false, error: "Period not found" };
     const p = period as any;
 
+    // school_year_id lives on grading_periods, not on students
     let schoolYearLabel = "";
-    if (s.school_year_id) {
-      const { data: sy } = await supabase.from("school_years").select("label").eq("id", s.school_year_id).single();
+    if (p.school_year_id) {
+      const { data: sy } = await supabase.from("school_years").select("label").eq("id", p.school_year_id).single();
       schoolYearLabel = (sy as any)?.label ?? "";
     }
 
@@ -533,13 +534,14 @@ export async function saveReportDraft(
     const { supabase, profileId } = await assertStaff(orgId);
     const scale = await getGradeScale(supabase, orgId);
 
-    const { data: student } = await supabase
-      .from("students")
+    // school_year_id lives on grading_periods, not on students
+    const { data: periodForYear } = await supabase
+      .from("grading_periods")
       .select("school_year_id")
-      .eq("id", studentId)
+      .eq("id", periodId)
       .single();
-    const schoolYearId = (student as any)?.school_year_id as string | null;
-    if (!schoolYearId) return { success: false, error: "Student has no school year" };
+    const schoolYearId = (periodForYear as any)?.school_year_id as string | null;
+    if (!schoolYearId) return { success: false, error: "Period has no school year" };
 
     const commentMap = new Map(Object.entries(courseComments));
     const isSemester = reportType === "semester";
