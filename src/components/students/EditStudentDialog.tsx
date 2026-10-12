@@ -25,7 +25,7 @@ const Schema = z.object({
   first_name:        z.string().min(1, "Required").max(100),
   last_name:         z.string().min(1, "Required").max(100),
   preferred_name:    z.string().max(100).optional().nullable(),
-  date_of_birth:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD").optional().nullable(),
+  date_of_birth:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD").optional().nullable().or(z.literal("")),
   grade_level:       z.string().max(20).optional().nullable(),
   enrollment_status: z.enum(["applicant","waitlisted","enrolled","withdrawn","graduated","expelled"]).optional(),
   enrollment_date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD").optional().nullable().or(z.literal("")),
