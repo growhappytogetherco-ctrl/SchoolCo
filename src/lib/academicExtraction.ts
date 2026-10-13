@@ -238,7 +238,12 @@ export async function extractAcademicRecord(
   try {
     const response = await client.messages.create({
       model: "claude-sonnet-5-5",
-      max_tokens: 8192,
+      max_tokens: 16000,
+      // between_tools disables thinking on claude-sonnet-5-5 ({type:"disabled"} returns 400).
+      // Without this, the model spends 3–4k tokens thinking before writing JSON,
+      // which caused truncation (stop_reason: max_tokens) on multi-year transcripts.
+      thinking: { type: "between_tools" } as any,
+      output_config: { effort: "high" } as any,
       system: buildSystemPrompt(),
       messages: [
         {
@@ -267,6 +272,17 @@ export async function extractAcademicRecord(
       usage:        response.usage,
       content_type: response.content[0]?.type,
     };
+
+    if (rawResponse.stop_reason === "max_tokens") {
+      const textBlock = response.content.find((b) => b.type === "text");
+      const partial = textBlock?.type === "text" ? textBlock.text.slice(0, 500) : "";
+      return {
+        success: false,
+        error: "This document has too many courses to analyze in one pass. Try uploading a single school year at a time.",
+        courses: [],
+        raw: { ...rawResponse, raw_text: partial },
+      };
+    }
 
     const textBlock = response.content.find((b) => b.type === "text");
     if (!textBlock || textBlock.type !== "text") {

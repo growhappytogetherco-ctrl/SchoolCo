@@ -19,7 +19,7 @@ import {
   type SourceCreditUnit, type InstitutionType, type SourceDocumentOption,
 } from "@/app/actions/courseRecords";
 import type { DuplicateMatch, ConflictMatch } from "@/lib/courseRecordMatching";
-import { requestAcademicImport, checkPriorImport, getImportJobs, type ImportJob } from "@/app/actions/academicImport";
+import { requestAcademicImport, checkPriorImport, getImportJobs, retryImport, type ImportJob } from "@/app/actions/academicImport";
 import { ImportReviewScreen } from "@/components/grades/ImportReviewScreen";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1059,6 +1059,7 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
   const [reviewingImportId, setReviewingImportId] = useState<string | null>(null);
   const [priorImportWarning, setPriorImportWarning] = useState<ImportJob | null>(null);
   const [pendingAnalyzeDocId, setPendingAnalyzeDocId] = useState<string | null>(null);
+  const [retryingJobId, setRetryingJobId]       = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1102,6 +1103,19 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
       setAnalyzeError(result.error ?? "Analysis failed.");
     }
     setAnalyzing(false);
+  }
+
+  async function handleRetryImport(importId: string) {
+    setRetryingJobId(importId);
+    setAnalyzeError("");
+    const result = await retryImport(importId, studentId);
+    if (result.success) {
+      setReviewingImportId(result.data.importId);
+      await load();
+    } else {
+      setAnalyzeError(result.error ?? "Retry failed.");
+    }
+    setRetryingJobId(null);
   }
 
   useEffect(() => { load(); }, [load]);
@@ -1385,25 +1399,40 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
         <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-4 space-y-2">
           <p className="text-label-sm font-medium text-sc-navy">Import History</p>
           {importJobs.map((job) => (
-            <div key={job.id} className="flex items-center justify-between gap-3 py-1.5 border-b border-sc-gray-100 last:border-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <FileText className="size-4 text-sc-gray shrink-0" />
-                <span className="text-label-sm text-sc-navy truncate">{job.document_title ?? "Academic Record"}</span>
-                <span className={`text-label-sm ${job.status === "failed" ? "text-sc-rose" : job.status === "reviewed" ? "text-sc-teal-700" : "text-sc-gold-700"}`}>
-                  · {job.status}
-                </span>
+            <div key={job.id} className="py-1.5 border-b border-sc-gray-100 last:border-0 space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="size-4 text-sc-gray shrink-0" />
+                  <span className="text-label-sm text-sc-navy truncate">{job.document_title ?? "Academic Record"}</span>
+                  <span className={`text-label-sm font-medium ${job.status === "failed" ? "text-sc-rose" : job.status === "reviewed" ? "text-sc-teal-700" : "text-sc-gold-700"}`}>
+                    · {job.status === "needs_review" ? "Needs Review" : job.status === "completed" ? "Completed" : job.status === "reviewed" ? "Reviewed" : job.status === "failed" ? "Failed" : job.status}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-label-sm text-sc-gray-400">{new Date(job.created_at).toLocaleDateString()}</span>
+                  {(job.status === "completed" || job.status === "reviewed") && (
+                    <button
+                      onClick={() => setReviewingImportId(job.id)}
+                      className="text-label-sm text-sc-teal-700 hover:underline"
+                    >
+                      Review →
+                    </button>
+                  )}
+                  {job.status === "failed" && canManage && (
+                    <button
+                      onClick={() => handleRetryImport(job.id)}
+                      disabled={retryingJobId === job.id}
+                      className="inline-flex items-center gap-1 text-label-sm text-sc-teal-700 hover:underline disabled:opacity-50"
+                    >
+                      {retryingJobId === job.id ? <Loader2 className="size-3 animate-spin" /> : null}
+                      Retry Analysis
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-label-sm text-sc-gray-400">{new Date(job.created_at).toLocaleDateString()}</span>
-                {(job.status === "completed" || job.status === "reviewed") && (
-                  <button
-                    onClick={() => setReviewingImportId(job.id)}
-                    className="text-label-sm text-sc-teal-700 hover:underline"
-                  >
-                    Review →
-                  </button>
-                )}
-              </div>
+              {job.status === "failed" && job.error_message && (
+                <p className="text-label-sm text-sc-rose-700 pl-6">{job.error_message}</p>
+              )}
             </div>
           ))}
         </div>
