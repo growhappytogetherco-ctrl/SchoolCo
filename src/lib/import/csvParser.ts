@@ -5,16 +5,46 @@ import { FIELD_ALIASES, type RawRow } from "./types";
 export function parseCSV(text: string): { headers: string[]; rows: RawRow[] } {
   // Strip UTF-8 BOM if present (Excel often adds ﻿ to CSV exports)
   const clean = text.replace(/^﻿/, "");
-  const lines = clean.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  if (lines.length < 2) return { headers: [], rows: [] };
 
-  const headers = parseLine(lines[0]).map((h) => h.trim());
+  // Split into logical records while respecting quoted fields that may span
+  // multiple physical lines (common in Jotform/Google Forms exports).
+  const logicalLines: string[] = [];
+  let i = 0;
+  let currentLine = "";
+  let inQuotes = false;
+
+  while (i < clean.length) {
+    const ch = clean[i];
+    if (ch === '"') {
+      // Escaped double-quote inside a quoted field ("") — include both
+      if (inQuotes && clean[i + 1] === '"') {
+        currentLine += '""';
+        i += 2;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      currentLine += ch;
+      i++;
+    } else if ((ch === "\r" || ch === "\n") && !inQuotes) {
+      if (ch === "\r" && clean[i + 1] === "\n") i++; // consume CRLF as one
+      if (currentLine.trim()) logicalLines.push(currentLine);
+      currentLine = "";
+      i++;
+    } else {
+      currentLine += ch;
+      i++;
+    }
+  }
+  if (currentLine.trim()) logicalLines.push(currentLine);
+
+  if (logicalLines.length < 2) return { headers: [], rows: [] };
+
+  const headers = parseLine(logicalLines[0]).map((h) => h.trim());
   const rows: RawRow[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
+  for (let j = 1; j < logicalLines.length; j++) {
+    const line = logicalLines[j].trim();
     if (!line) continue;
-
     const values = parseLine(line);
     const row: RawRow = {};
     headers.forEach((h, idx) => {
