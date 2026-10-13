@@ -455,7 +455,7 @@ export function AcademicHistory({ studentId, isAdmin }: Props) {
 
                     {entry.type === "report" && entry.reportItem && (
                       <a
-                        href={`/print/report/${entry.reportItem.id}`}
+                        href={`/report/${entry.reportItem.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex-shrink-0 flex items-center gap-1 text-label-sm text-sc-teal hover:underline"

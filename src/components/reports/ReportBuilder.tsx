@@ -180,7 +180,7 @@ export function ReportBuilder({ studentId, periods, allPeriods, isAdmin }: Props
                   <div className="flex items-center gap-2">
                     {statusBadge(r.status)}
                     <a
-                      href={`/print/report/${r.id}`}
+                      href={`/report/${r.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1 text-label-sm text-sc-teal hover:underline"
@@ -308,7 +308,7 @@ export function ReportBuilder({ studentId, periods, allPeriods, isAdmin }: Props
                   </button>
                   {currentReportId && (
                     <a
-                      href={`/print/report/${currentReportId}`}
+                      href={`/report/${currentReportId}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 rounded-lg border border-sc-teal/30 bg-white px-4 py-2 text-label-sm text-sc-teal hover:bg-sc-teal/5 transition-colors"
@@ -338,7 +338,7 @@ export function ReportBuilder({ studentId, periods, allPeriods, isAdmin }: Props
                 <p className="text-label-sm text-sc-gray">The report has been saved and is now visible to authorized parents.</p>
                 <div className="flex gap-2">
                   <a
-                    href={`/print/report/${currentReportId}`}
+                    href={`/report/${currentReportId}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 rounded-lg bg-sc-teal px-4 py-2 text-label-sm text-white hover:bg-sc-teal-700 transition-colors"
