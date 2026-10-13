@@ -72,7 +72,6 @@ function CourseTableQuarter({ courses }: { courses: ReportCourseData[] }) {
       <thead>
         <tr className="bg-gray-50">
           <th className="text-left py-2 px-3 font-semibold text-gray-700 border border-gray-200">Course</th>
-          <th className="text-left py-2 px-3 font-semibold text-gray-700 border border-gray-200">Teacher</th>
           <th className="text-right py-2 px-3 font-semibold text-gray-700 border border-gray-200">Percent</th>
           <th className="text-right py-2 px-3 font-semibold text-gray-700 border border-gray-200">Grade</th>
           {courses.some((c) => c.missingCount > 0) && (
@@ -90,7 +89,6 @@ function CourseTableQuarter({ courses }: { courses: ReportCourseData[] }) {
                 <p className="text-xs text-gray-600 mt-0.5 italic">{c.teacherComment}</p>
               )}
             </td>
-            <td className="py-2 px-3 border border-gray-200 text-gray-700">{c.teacherName ?? "—"}</td>
             <td className="py-2 px-3 border border-gray-200 text-right text-gray-900 font-mono">{gradeText(c)}</td>
             <td className="py-2 px-3 border border-gray-200 text-right font-semibold text-gray-900">{letterText(c)}</td>
             {courses.some((x) => x.missingCount > 0) && (
@@ -112,7 +110,6 @@ function CourseTableSemester({ courses }: { courses: ReportCourseData[] }) {
       <thead>
         <tr className="bg-gray-50">
           <th className="text-left py-2 px-3 font-semibold text-gray-700 border border-gray-200">Course</th>
-          <th className="text-left py-2 px-3 font-semibold text-gray-700 border border-gray-200">Teacher</th>
           {quarterNames.map((qn) => (
             <th key={qn} className="text-right py-2 px-3 font-semibold text-gray-700 border border-gray-200">{qn}</th>
           ))}
@@ -130,7 +127,6 @@ function CourseTableSemester({ courses }: { courses: ReportCourseData[] }) {
                 <p className="text-xs text-gray-600 mt-0.5 italic">{c.teacherComment}</p>
               )}
             </td>
-            <td className="py-2 px-3 border border-gray-200 text-gray-700">{c.teacherName ?? "—"}</td>
             {(c.quarterGrades ?? []).map((q) => (
               <td key={q.periodName} className="py-2 px-3 border border-gray-200 text-right font-mono text-gray-800">
                 {q.gradeState === "no_grade" ? "—" : (q.displayPercentage ?? "—")}

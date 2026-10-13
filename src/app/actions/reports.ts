@@ -470,7 +470,7 @@ export async function previewStudentReport(
       .single();
     if (!student) return { success: false, error: "Student not found" };
     const s = student as any;
-    const studentName = `${s.preferred_name ?? s.first_name} ${s.last_name}`;
+    const studentName = `${s.first_name} ${s.last_name}`;
 
     const { data: period } = await supabase
       .from("grading_periods")
@@ -669,7 +669,7 @@ export async function issueStudentReport(reportId: string): Promise<ActionResult
     const period  = r.grading_periods;
     const sy      = r.school_years;
 
-    const studentName = `${student?.preferred_name ?? student?.first_name} ${student?.last_name}`;
+    const studentName = `${student?.first_name} ${student?.last_name}`;
     const attendance  = period
       ? await getAttendanceSummary(supabase, r.student_id, period.start_date, period.end_date)
       : null;
@@ -770,9 +770,10 @@ export async function getStudentReport(
     const student  = r.students;
     const period   = r.grading_periods;
 
-    const studentName = isIssued
-      ? (r.student_name_snapshot ?? `${student?.preferred_name ?? student?.first_name} ${student?.last_name}`)
-      : `${student?.preferred_name ?? student?.first_name} ${student?.last_name}`;
+    // Always use official enrollment name (first_name + last_name) from the live
+    // student record. Preferred/display names must not appear on report cards.
+    // The snapshot is kept for historical reference but not used for display.
+    const studentName = `${student?.first_name} ${student?.last_name}`;
     const gradeLevel  = isIssued ? r.grade_level_snapshot  : student?.grade_level;
     const syLabel     = isIssued ? r.school_year_label_snapshot : (r.school_years?.label ?? "");
     const periodName  = isIssued ? (r.period_name_snapshot ?? period?.name ?? "") : (period?.name ?? "");
