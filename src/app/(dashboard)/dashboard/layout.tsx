@@ -17,12 +17,13 @@ interface OrgContext {
 }
 
 interface UserContext {
-  id:            string;
-  full_name:     string;
-  avatar_url:    string | null;
-  role:          UserRole;
-  org:           OrgContext;
+  id:              string;
+  full_name:       string;
+  avatar_url:      string | null;
+  role:            UserRole;
+  org:             OrgContext;
   hasParentAccess: boolean;
+  canViewFinances: boolean;
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -56,7 +57,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       // Fetch membership + org using canonical profileId
       const { data: membership } = await supabase
         .from("organization_members")
-        .select(`role, roles, organizations ( id, name, logo_url )`)
+        .select(`role, roles, can_view_finances, can_manage_finances, organizations ( id, name, logo_url )`)
         .eq("profile_id", profileId)
         .eq("organization_id", orgId)
         .eq("status", "active")
@@ -107,13 +108,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
       if (!displayName) displayName = "User";
 
+      const mem = membership as unknown as { can_view_finances: boolean; can_manage_finances: boolean };
       setCtx({
-        id:             profileId,
-        full_name:      displayName,
-        avatar_url:     (profile as any)?.avatar_url ?? null,
-        role:           membership.role as UserRole,
+        id:              profileId,
+        full_name:       displayName,
+        avatar_url:      (profile as any)?.avatar_url ?? null,
+        role:            membership.role as UserRole,
         org,
         hasParentAccess,
+        canViewFinances: !!(mem.can_view_finances || mem.can_manage_finances),
       });
 
       // Initial unread count — conversation-based, not notification-based
@@ -173,6 +176,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           orgName={ctx.org.name}
           orgLogo={ctx.org.logo_url}
           messageBadge={messageBadge}
+          canViewFinances={ctx.canViewFinances}
         />
       </div>
 
@@ -192,6 +196,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               orgLogo={ctx.org.logo_url}
               onClose={() => setSidebar(false)}
               messageBadge={messageBadge}
+              canViewFinances={ctx.canViewFinances}
             />
           </div>
         </>

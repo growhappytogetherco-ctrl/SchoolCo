@@ -25,11 +25,12 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 interface AppSidebarProps {
-  role:          UserRole;
-  orgName:       string;
-  orgLogo?:      string | null;
-  onClose?:      () => void; // Mobile: close drawer
-  messageBadge?: number;
+  role:             UserRole;
+  orgName:          string;
+  orgLogo?:         string | null;
+  onClose?:         () => void; // Mobile: close drawer
+  messageBadge?:    number;
+  canViewFinances?: boolean;
 }
 
 function NavLink({ item, onClick, messageBadge }: { item: NavItem; onClick?: () => void; messageBadge?: number }) {
@@ -73,8 +74,25 @@ function NavLink({ item, onClick, messageBadge }: { item: NavItem; onClick?: () 
   );
 }
 
-export function AppSidebar({ role, orgName, orgLogo, onClose, messageBadge }: AppSidebarProps) {
-  const navItems = NAV_ITEMS_BY_ROLE[role] ?? [];
+const FINANCE_NAV: NavItem = { label: "Finance", href: "/dashboard/finance", icon: "DollarSign" };
+const FINANCE_REPORTS_NAV: NavItem = { label: "Finance Reports", href: "/dashboard/reports", icon: "BarChart2" };
+
+export function AppSidebar({ role, orgName, orgLogo, onClose, messageBadge, canViewFinances }: AppSidebarProps) {
+  const baseItems = NAV_ITEMS_BY_ROLE[role] ?? [];
+  // Finance nav is permission-gated (can_view_finances / can_manage_finances), not role-gated.
+  // Inject after the last non-settings item so it groups near admin tools.
+  const navItems = canViewFinances
+    ? (() => {
+        const settingsIdx = baseItems.findIndex((i) => i.href === "/dashboard/settings");
+        const insertAt = settingsIdx >= 0 ? settingsIdx : baseItems.length;
+        return [
+          ...baseItems.slice(0, insertAt),
+          FINANCE_NAV,
+          FINANCE_REPORTS_NAV,
+          ...baseItems.slice(insertAt),
+        ];
+      })()
+    : baseItems;
 
   return (
     <aside className="flex flex-col h-full bg-sc-navy w-64 shrink-0">

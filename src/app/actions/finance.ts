@@ -762,3 +762,424 @@ export async function getPastDueReport(schoolYearId: string, orgId: string): Pro
   if (!summary) return [];
   return summary.students.filter((s) => s.past_due > 0).sort((a, b) => b.past_due - a.past_due);
 }
+
+// ── Finance dashboard summary (overview totals across all school years) ───
+
+export interface FinanceDashboardSummary {
+  gross_charged_cents:    number;
+  total_collected_cents:  number;
+  total_adjusted_cents:   number;
+  outstanding_cents:      number;
+  past_due_cents:         number;
+  scholarship_cents:      number;
+  step_up_pep_cents:      number;
+  step_up_ua_cents:       number;
+  other_scholarship_cents: number;
+  parent_payment_cents:   number;
+  active_charge_count:    number;
+  student_count:          number;
+  current_school_year_id: string | null;
+}
+
+export async function getFinanceDashboardSummary(
+  orgId: string,
+  schoolYearId?: string | null,
+): Promise<FinanceDashboardSummary | null> {
+  const auth = await assertFinanceView(orgId);
+  if (!auth.ok) return null;
+
+  const supabase = await createClient();
+  const today = new Date().toISOString().split("T")[0];
+
+  // Resolve school year: use provided ID or fall back to current year
+  let resolvedYearId: string | null = schoolYearId ?? null;
+  if (!resolvedYearId) {
+    const { data: syData } = await supabase
+      .from("school_years")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("is_current", true)
+      .maybeSingle();
+    resolvedYearId = (syData as any)?.id ?? null;
+  }
+  const currentYearId = resolvedYearId;
+
+  // Active charges for the selected school year only
+  let chargesQuery = supabase
+    .from("student_charges")
+    .select("id, student_id, original_amount_cents")
+    .eq("organization_id", orgId)
+    .eq("status", "active");
+  if (resolvedYearId) chargesQuery = chargesQuery.eq("school_year_id", resolvedYearId);
+
+  const { data: charges } = await chargesQuery;
+
+  const chargeList = (charges ?? []) as { id: string; student_id: string; original_amount_cents: number }[];
+  const chargeIds = chargeList.map((c) => c.id);
+  const grossCents = chargeList.reduce((s, c) => s + c.original_amount_cents, 0);
+  const uniqueStudents = new Set(chargeList.map((c) => c.student_id)).size;
+
+  // Adjustments on this year's charges only
+  let adjCents = 0;
+  if (chargeIds.length > 0) {
+    const { data: adjs } = await supabase
+      .from("charge_adjustments")
+      .select("amount_cents")
+      .in("charge_id", chargeIds)
+      .eq("status", "active");
+    adjCents = ((adjs ?? []) as { amount_cents: number }[]).reduce((s, a) => s + a.amount_cents, 0);
+  }
+
+  // Payments for the selected school year (non-voided)
+  // school_year_id on student_payments reflects which academic year a payment applies to,
+  // regardless of calendar date received.
+  let paymentsQuery = supabase
+    .from("student_payments")
+    .select("amount_cents, payment_source, status")
+    .eq("organization_id", orgId)
+    .neq("status", "voided");
+  if (resolvedYearId) paymentsQuery = paymentsQuery.eq("school_year_id", resolvedYearId);
+
+  const { data: payments } = await paymentsQuery;
+
+  const payList = (payments ?? []) as { amount_cents: number; payment_source: string; status: string }[];
+  const collectedCents = payList.reduce((s, p) => s + p.amount_cents, 0);
+
+  const SCHOLARSHIP_SOURCES = new Set(["scholarship", "step_up_pep", "step_up_ua", "aaa"]);
+  const scholarshipCents = payList.filter((p) => SCHOLARSHIP_SOURCES.has(p.payment_source)).reduce((s, p) => s + p.amount_cents, 0);
+  const stepUpPepCents    = payList.filter((p) => p.payment_source === "step_up_pep").reduce((s, p) => s + p.amount_cents, 0);
+  const stepUpUaCents     = payList.filter((p) => p.payment_source === "step_up_ua").reduce((s, p) => s + p.amount_cents, 0);
+  const otherScholCents   = payList.filter((p) => SCHOLARSHIP_SOURCES.has(p.payment_source) && p.payment_source !== "step_up_pep" && p.payment_source !== "step_up_ua").reduce((s, p) => s + p.amount_cents, 0);
+  const parentPayCents    = payList.filter((p) => p.payment_source === "parent_payment" || p.payment_source === "cash" || p.payment_source === "check" || p.payment_source === "online").reduce((s, p) => s + p.amount_cents, 0);
+
+  // Outstanding and past-due: use allocations per charge
+  let outstandingCents = 0;
+  let pastDueCents = 0;
+  if (chargeIds.length > 0) {
+    const { data: allocs } = await supabase
+      .from("payment_allocations")
+      .select("charge_id, amount_cents, payment_id");
+
+    // voided payment IDs
+    const { data: voidedPayments } = await supabase
+      .from("student_payments")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("status", "voided");
+    const voidedIds = new Set(((voidedPayments ?? []) as { id: string }[]).map((p) => p.id));
+
+    const { data: adjByCharge } = await supabase
+      .from("charge_adjustments")
+      .select("charge_id, amount_cents")
+      .in("charge_id", chargeIds)
+      .eq("status", "active");
+
+    const adjMap = new Map<string, number>();
+    for (const a of (adjByCharge ?? []) as { charge_id: string; amount_cents: number }[]) {
+      adjMap.set(a.charge_id, (adjMap.get(a.charge_id) ?? 0) + a.amount_cents);
+    }
+
+    const paidMap = new Map<string, number>();
+    for (const a of (allocs ?? []) as { charge_id: string; amount_cents: number; payment_id: string }[]) {
+      if (!voidedIds.has(a.payment_id)) {
+        paidMap.set(a.charge_id, (paidMap.get(a.charge_id) ?? 0) + a.amount_cents);
+      }
+    }
+
+    const chargeMap = new Map(chargeList.map((c) => [c.id, c]));
+    const { data: chargeDueDates } = await supabase
+      .from("student_charges")
+      .select("id, due_date")
+      .in("id", chargeIds);
+    const dueDateMap = new Map(((chargeDueDates ?? []) as { id: string; due_date: string | null }[]).map((c) => [c.id, c.due_date]));
+
+    for (const [id] of Array.from(chargeMap)) {
+      const charge = chargeMap.get(id)!;
+      const adjC = adjMap.get(id) ?? 0;
+      const effC = charge.original_amount_cents + adjC;
+      const paidC = paidMap.get(id) ?? 0;
+      const balC = effC - paidC;
+      if (balC > 0) {
+        outstandingCents += balC;
+        const due = dueDateMap.get(id);
+        if (due && due < today) pastDueCents += balC;
+      }
+    }
+  }
+
+  return {
+    gross_charged_cents:     grossCents,
+    total_collected_cents:   collectedCents,
+    total_adjusted_cents:    Math.abs(adjCents),
+    outstanding_cents:       outstandingCents,
+    past_due_cents:          pastDueCents,
+    scholarship_cents:       scholarshipCents,
+    step_up_pep_cents:       stepUpPepCents,
+    step_up_ua_cents:        stepUpUaCents,
+    other_scholarship_cents: otherScholCents,
+    parent_payment_cents:    parentPayCents,
+    active_charge_count:     chargeList.length,
+    student_count:           uniqueStudents,
+    current_school_year_id:  currentYearId,
+  };
+}
+
+// ── Recent ledger activity ─────────────────────────────────────────────────
+
+export interface LedgerActivity {
+  id:           string;
+  posted_at:    string;
+  entry_type:   string;
+  amount_cents: number;
+  description:  string;
+  student_name: string | null;
+  student_id:   string | null;
+}
+
+export async function getRecentLedgerActivity(orgId: string, limit = 25): Promise<LedgerActivity[]> {
+  const auth = await assertFinanceView(orgId);
+  if (!auth.ok) return [];
+
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("finance_ledger")
+    .select("id, posted_at, entry_type, debit_cents, credit_cents, description, student_id")
+    .eq("organization_id", orgId)
+    .order("posted_at", { ascending: false })
+    .limit(limit);
+
+  const rows = (data ?? []) as {
+    id: string; posted_at: string; entry_type: string;
+    debit_cents: number; credit_cents: number;
+    description: string; student_id: string | null;
+  }[];
+
+  if (rows.length === 0) return [];
+
+  // Fetch student names
+  const studentIds = Array.from(new Set(rows.map((r) => r.student_id).filter(Boolean))) as string[];
+  const nameMap = new Map<string, string>();
+  if (studentIds.length > 0) {
+    const { data: students } = await supabase
+      .from("students")
+      .select("id, first_name, last_name")
+      .in("id", studentIds);
+    for (const s of (students ?? []) as { id: string; first_name: string; last_name: string }[]) {
+      nameMap.set(s.id, `${s.first_name} ${s.last_name}`);
+    }
+  }
+
+  return rows.map((r) => ({
+    id:           r.id,
+    posted_at:    r.posted_at,
+    entry_type:   r.entry_type,
+    amount_cents: r.credit_cents > 0 ? r.credit_cents : r.debit_cents,
+    description:  r.description,
+    student_name: r.student_id ? (nameMap.get(r.student_id) ?? null) : null,
+    student_id:   r.student_id,
+  }));
+}
+
+// ── Family financial overview ─────────────────────────────────────────────
+// Groups student balances by family (guardian relationships).
+// Each student's balance is counted ONCE — families are informational groupings
+// only and do not represent legal financial responsibility.
+
+export interface FamilyOverviewRow {
+  family_label:   string;
+  student_count:  number;
+  total_charged_cents: number;
+  total_paid_cents:    number;
+  balance_cents:       number;
+  students: {
+    student_id:   string;
+    student_name: string;
+    charged_cents: number;
+    paid_cents:    number;
+    balance_cents: number;
+  }[];
+}
+
+export async function getFamilyOverview(
+  orgId: string,
+  schoolYearId: string
+): Promise<FamilyOverviewRow[]> {
+  const auth = await assertFinanceView(orgId);
+  if (!auth.ok) return [];
+
+  const supabase = await createClient();
+
+  // 1. Charges for this school year
+  const { data: chargesRaw } = await supabase
+    .from("student_charges")
+    .select("id, student_id, original_amount_cents")
+    .eq("organization_id", orgId)
+    .eq("school_year_id", schoolYearId)
+    .eq("status", "active");
+  const charges = (chargesRaw ?? []) as { id: string; student_id: string; original_amount_cents: number }[];
+  if (charges.length === 0) return [];
+
+  const chargeIds = charges.map((c) => c.id);
+
+  // Aggregate gross per student
+  const grossByStudent = new Map<string, number>();
+  for (const c of charges) {
+    grossByStudent.set(c.student_id, (grossByStudent.get(c.student_id) ?? 0) + c.original_amount_cents);
+  }
+
+  // Adjustments per charge → per student
+  const { data: adjsRaw } = await supabase
+    .from("charge_adjustments")
+    .select("charge_id, amount_cents")
+    .in("charge_id", chargeIds)
+    .eq("status", "active");
+
+  const adjByCharge = new Map<string, number>();
+  for (const a of (adjsRaw ?? []) as { charge_id: string; amount_cents: number }[]) {
+    adjByCharge.set(a.charge_id, (adjByCharge.get(a.charge_id) ?? 0) + a.amount_cents);
+  }
+
+  const effectiveByStudent = new Map<string, number>();
+  for (const c of charges) {
+    const adj = adjByCharge.get(c.id) ?? 0;
+    effectiveByStudent.set(c.student_id, (effectiveByStudent.get(c.student_id) ?? 0) + c.original_amount_cents + adj);
+  }
+
+  // Allocations → paid per charge → per student
+  const { data: allocsRaw } = await supabase
+    .from("payment_allocations")
+    .select("charge_id, amount_cents, payment_id")
+    .in("charge_id", chargeIds);
+
+  const { data: voidedRaw } = await supabase
+    .from("student_payments")
+    .select("id")
+    .eq("organization_id", orgId)
+    .neq("status", "voided")
+    .in("id", ((allocsRaw ?? []) as { payment_id: string }[]).map((a) => a.payment_id));
+
+  const validPaymentIds = new Set(((voidedRaw ?? []) as { id: string }[]).map((p) => p.id));
+  const paidByStudent = new Map<string, number>();
+  for (const a of (allocsRaw ?? []) as { charge_id: string; amount_cents: number; payment_id: string }[]) {
+    if (!validPaymentIds.has(a.payment_id)) continue;
+    const charge = charges.find((c) => c.id === a.charge_id);
+    if (!charge) continue;
+    paidByStudent.set(charge.student_id, (paidByStudent.get(charge.student_id) ?? 0) + a.amount_cents);
+  }
+
+  // 2. Student names
+  const studentIds = Array.from(grossByStudent.keys());
+  const { data: studentsRaw } = await supabase
+    .from("students")
+    .select("id, first_name, last_name")
+    .in("id", studentIds);
+  const nameMap = new Map<string, string>();
+  for (const s of (studentsRaw ?? []) as { id: string; first_name: string; last_name: string }[]) {
+    nameMap.set(s.id, `${s.first_name} ${s.last_name}`);
+  }
+
+  // 3. Guardian relationships — group students by shared guardians
+  // A "family" is the set of students sharing at least one guardian.
+  const { data: guardRaw } = await supabase
+    .from("guardianships")
+    .select("profile_id, student_id")
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .in("student_id", studentIds);
+  const guardships = (guardRaw ?? []) as { profile_id: string; student_id: string }[];
+
+  // Guardian profile names
+  const guardianProfileIds = Array.from(new Set(guardships.map((g) => g.profile_id)));
+  const { data: guardProfiles } = await supabase
+    .from("profiles")
+    .select("id, full_name")
+    .in("id", guardianProfileIds);
+  const guardNameMap = new Map<string, string>();
+  for (const p of (guardProfiles ?? []) as { id: string; full_name: string | null }[]) {
+    if (p.full_name) guardNameMap.set(p.id, p.full_name);
+  }
+
+  // Build family groupings using union-find (disjoint set) on students sharing a guardian
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    if (!parent.has(x)) parent.set(x, x);
+    const p = parent.get(x)!;
+    if (p !== x) { parent.set(x, find(p)); }
+    return parent.get(x)!;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  // Union students sharing a guardian
+  const guardianToStudents = new Map<string, string[]>();
+  for (const g of guardships) {
+    const list = guardianToStudents.get(g.profile_id) ?? [];
+    list.push(g.student_id);
+    guardianToStudents.set(g.profile_id, list);
+  }
+  for (const students of Array.from(guardianToStudents.values())) {
+    for (let i = 1; i < students.length; i++) union(students[0], students[i]);
+  }
+
+  // Ensure all students without guardians get their own root
+  for (const sid of studentIds) find(sid);
+
+  // Group students by root
+  const familyMap = new Map<string, string[]>();
+  for (const sid of studentIds) {
+    const root = find(sid);
+    const group = familyMap.get(root) ?? [];
+    group.push(sid);
+    familyMap.set(root, group);
+  }
+
+  // Build family labels: "LastName Family" from guardians, or student name if no guardians
+  const result: FamilyOverviewRow[] = [];
+  for (const [root, members] of Array.from(familyMap)) {
+    // Find guardian profile IDs for any student in this family
+    const familyGuardians = guardships.filter((g) => members.includes(g.student_id));
+    const uniqueGuardians = Array.from(new Set(familyGuardians.map((g) => g.profile_id)));
+
+    let familyLabel: string;
+    if (uniqueGuardians.length > 0) {
+      // Pick first guardian name, extract last name
+      const gName = guardNameMap.get(uniqueGuardians[0]) ?? "";
+      const lastName = gName.split(" ").pop() ?? gName;
+      familyLabel = lastName ? `${lastName} Family` : "Family";
+    } else {
+      // No guardian — label by student last name
+      const sName = nameMap.get(members[0]) ?? "Student";
+      const lastName = sName.split(" ").pop() ?? sName;
+      familyLabel = lastName ? `${lastName} Family` : "Unlinked Student";
+    }
+
+    const studentRows = members.map((sid) => {
+      const charged = effectiveByStudent.get(sid) ?? 0;
+      const paid    = paidByStudent.get(sid)     ?? 0;
+      return {
+        student_id:    sid,
+        student_name:  nameMap.get(sid) ?? sid,
+        charged_cents: charged,
+        paid_cents:    paid,
+        balance_cents: charged - paid,
+      };
+    }).sort((a, b) => a.student_name.localeCompare(b.student_name));
+
+    const totalCharged = studentRows.reduce((n, s) => n + s.charged_cents, 0);
+    const totalPaid    = studentRows.reduce((n, s) => n + s.paid_cents,    0);
+
+    result.push({
+      family_label:        familyLabel,
+      student_count:       members.length,
+      total_charged_cents: totalCharged,
+      total_paid_cents:    totalPaid,
+      balance_cents:       totalCharged - totalPaid,
+      students:            studentRows,
+    });
+  }
+
+  return result.sort((a, b) => a.family_label.localeCompare(b.family_label));
+}
