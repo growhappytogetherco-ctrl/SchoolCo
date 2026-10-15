@@ -24,9 +24,20 @@ export const metadata: Metadata = {
   },
   description:
     "Every Child Known. Every Family Connected. Every Leader Developed.",
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL ?? "https://schoolco.app"
-  ),
+  metadataBase: (() => {
+    // Next.js replaces NEXT_PUBLIC_* values with "[SENSITIVE]" in the server
+    // bundle during static page data collection, causing new URL() to throw
+    // TypeError. We catch only TypeError here so genuine mis-configuration
+    // (a non-URL string in a real deployment) surfaces as a build warning
+    // while still falling back to the production domain.
+    const raw = process.env.NEXT_PUBLIC_APP_URL || "https://schoolco.app";
+    try {
+      return new URL(raw);
+    } catch (e) {
+      if (e instanceof TypeError) return new URL("https://schoolco.app");
+      throw e;
+    }
+  })(),
   openGraph: {
     type:        "website",
     locale:      "en_US",

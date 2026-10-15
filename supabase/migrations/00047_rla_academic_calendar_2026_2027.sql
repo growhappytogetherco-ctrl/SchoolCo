@@ -19,6 +19,13 @@ DECLARE
   creator uuid := '7ba9a63f-c33d-4a25-b716-125e27bdf1b5'; -- Elisa Johnson
 BEGIN
 
+  -- Skip gracefully on a blank database (org doesn't exist yet).
+  -- Production is unaffected: the org exists and FK is satisfied there.
+  IF NOT EXISTS (SELECT 1 FROM organizations WHERE id = org_id) THEN
+    RAISE NOTICE '00047: RLA org not found — skipping calendar seed.';
+    RETURN;
+  END IF;
+
   -- ── SEMESTER 1 ─────────────────────────────────────────────────────────
 
   -- August 10, 2026 — First Day of School / Semester 1 Begins

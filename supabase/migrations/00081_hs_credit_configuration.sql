@@ -34,7 +34,8 @@ begin
   limit  1;
 
   if v_s1_id is null then
-    raise exception '00081: Semester 1 grading period not found — aborting';
+    raise notice '00081: Semester 1 grading period not found — skipping credit configuration.';
+    return;
   end if;
 
   -- Resolve Full Year grading period (inserted by 00080)
@@ -44,7 +45,8 @@ begin
   limit  1;
 
   if v_fy_id is null then
-    raise exception '00081: Full Year grading period not found — ensure 00080 ran first';
+    raise notice '00081: Full Year grading period not found — skipping credit configuration.';
+    return;
   end if;
 
   raise notice '00081: Semester 1 id=%, Full Year id=%', v_s1_id, v_fy_id;

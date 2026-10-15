@@ -293,6 +293,13 @@ DO $$
 DECLARE
   rla_org uuid := '9fd43346-f43b-41d1-9b4c-fe8702471b07';
 BEGIN
+  -- Skip gracefully on a blank database (org doesn't exist yet).
+  -- Production is unaffected: org exists and INSERT has ON CONFLICT DO NOTHING.
+  IF NOT EXISTS (SELECT 1 FROM organizations WHERE id = rla_org) THEN
+    RAISE NOTICE '00059: RLA org not found — skipping school_year seed.';
+    RETURN;
+  END IF;
+
   INSERT INTO school_years (organization_id, label, start_date, end_date, is_current)
   VALUES (rla_org, '2026-2027', '2026-08-10', '2027-05-25', true)
   ON CONFLICT (organization_id, label) DO NOTHING;

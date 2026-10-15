@@ -40,7 +40,8 @@ begin
   -- Resolve org
   select id into v_org_id from organizations where short_name = 'RLA';
   if v_org_id is null then
-    raise exception 'RLA organization not found — aborting';
+    raise notice 'RLA organization not found — nothing to clean up, skipping.';
+    return;
   end if;
 
   raise notice 'Removing fake/test student data for org: %', v_org_id;

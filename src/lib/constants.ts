@@ -154,7 +154,6 @@ export const NAV_ITEMS_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Courses",           href: "/dashboard/courses",                 icon: "BookOpen" },
     { label: "Quarters",          href: "/dashboard/academics/quarters",      icon: "BookCheck" },
     { label: "Staff",             href: "/dashboard/staff",                   icon: "UserCheck" },
-    { label: "Finance Reports",   href: "/dashboard/reports",                 icon: "DollarSign" },
     { label: "Incident Reports",  href: "/dashboard/incidents",               icon: "AlertTriangle" },
     { label: "Planning",          href: "/dashboard/planning",                icon: "Calendar" },
     { label: "Import Center",     href: "/dashboard/admin/import",            icon: "Upload" },

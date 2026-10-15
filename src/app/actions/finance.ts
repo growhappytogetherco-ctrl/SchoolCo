@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
-import { getActiveRole } from "@/lib/supabase/org-context";
 import { resolveProfileId } from "@/lib/supabase/server";
 import { logAudit } from "@/lib/audit";
 
@@ -26,8 +25,10 @@ import type {
 // are not reliably readable when server actions are called from client
 // components. getUser() works (reads Supabase auth tokens); our custom
 // cookies do not. The caller passes orgId from their server-component context.
-
-const FINANCE_MANAGE_ROLES = new Set(["full_admin", "platform_admin"]);
+//
+// Finance access is ALWAYS explicit — no role grants it automatically.
+// can_view_finances = true  → read-only
+// can_manage_finances = true → full read+write
 
 async function assertFinanceView(orgId: string) {
   const user = await getUser();
@@ -37,19 +38,19 @@ async function assertFinanceView(orgId: string) {
   const profileId = await resolveProfileId(user.id);
   const { data: mem } = await supabase
     .from("organization_members")
-    .select("role, can_view_finances, can_manage_finances")
+    .select("can_view_finances, can_manage_finances")
     .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();
 
-  const memData = mem as unknown as { role: string; can_view_finances: boolean; can_manage_finances: boolean } | null;
+  const memData = mem as unknown as { can_view_finances: boolean; can_manage_finances: boolean } | null;
   if (!memData) return { ok: false as const, error: "Not a member of this organization." };
 
-  const hasAccess = FINANCE_MANAGE_ROLES.has(memData.role) || memData.can_view_finances || memData.can_manage_finances;
+  const hasAccess = memData.can_view_finances || memData.can_manage_finances;
   if (!hasAccess) return { ok: false as const, error: "Finance access required." };
 
-  return { ok: true as const, user, orgId, role: memData.role };
+  return { ok: true as const, user, orgId };
 }
 
 async function assertFinanceManage(orgId: string) {
@@ -60,19 +61,18 @@ async function assertFinanceManage(orgId: string) {
   const profileId = await resolveProfileId(user.id);
   const { data: mem } = await supabase
     .from("organization_members")
-    .select("role, can_manage_finances")
+    .select("can_manage_finances")
     .eq("profile_id", profileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();
 
-  const memData = mem as unknown as { role: string; can_manage_finances: boolean } | null;
+  const memData = mem as unknown as { can_manage_finances: boolean } | null;
   if (!memData) return { ok: false as const, error: "Not a member of this organization." };
 
-  const hasAccess = FINANCE_MANAGE_ROLES.has(memData.role) || memData.can_manage_finances;
-  if (!hasAccess) return { ok: false as const, error: "Finance management access required." };
+  if (!memData.can_manage_finances) return { ok: false as const, error: "Finance management access required." };
 
-  return { ok: true as const, user, orgId, role: memData.role };
+  return { ok: true as const, user, orgId };
 }
 
 // ── School years ──────────────────────────────────────────────────────────
@@ -119,18 +119,19 @@ export async function addCharge(payload: {
   const { data, error } = await supabase
     .from("student_charges")
     .insert({
-      organization_id:    auth.orgId,
-      student_id:         payload.studentId,
-      school_year_id:     payload.schoolYearId,
-      charge_type:        payload.chargeType,
-      description:        payload.description,
-      original_amount:    payload.amount,
-      due_date:           payload.dueDate || null,
-      plan_type:          payload.planType || null,
-      installment_number: payload.installmentNumber || null,
-      notes:              payload.notes || null,
-      created_by:         profileId,
-      updated_by:         profileId,
+      organization_id:       auth.orgId,
+      student_id:            payload.studentId,
+      school_year_id:        payload.schoolYearId,
+      charge_type:           payload.chargeType,
+      description:           payload.description,
+      original_amount:       payload.amount,
+      original_amount_cents: Math.round(payload.amount * 100),
+      due_date:              payload.dueDate || null,
+      plan_type:             payload.planType || null,
+      installment_number:    payload.installmentNumber || null,
+      notes:                 payload.notes || null,
+      created_by:            profileId,
+      updated_by:            profileId,
     } as never)
     .select("id")
     .single();
@@ -199,8 +200,11 @@ export async function updateCharge(chargeId: string, payload: {
   if (!charge) return { success: false, error: "Charge not found." };
 
   const update: Record<string, unknown> = { updated_by: profileId };
-  if (payload.description !== undefined) update.description     = payload.description;
-  if (payload.amount      !== undefined) update.original_amount = payload.amount;
+  if (payload.description !== undefined) update.description             = payload.description;
+  if (payload.amount      !== undefined) {
+    update.original_amount       = payload.amount;
+    update.original_amount_cents = Math.round(payload.amount * 100);
+  }
   if (payload.dueDate     !== undefined) update.due_date        = payload.dueDate || null;
   if (payload.notes       !== undefined) update.notes           = payload.notes || null;
 
@@ -242,6 +246,7 @@ export async function addAdjustment(payload: {
       charge_id:        payload.chargeId,
       adjustment_type:  payload.adjustmentType,
       amount:           payload.amount,
+      amount_cents:     Math.round(payload.amount * 100),
       description:      payload.description,
       notes:            payload.notes || null,
       created_by:       profileId,
@@ -281,7 +286,7 @@ export async function recordPayment(payload: PaymentWithAllocations): Promise<{ 
 
   // Validate allocation total ≤ payment amount
   const allocTotal = payload.allocations.reduce((s, a) => s + a.amount, 0);
-  if (allocTotal > payload.amount + 0.01) {
+  if (allocTotal > payload.amount + 0.005) {
     return { success: false, error: "Allocated amount exceeds payment amount." };
   }
 
@@ -294,6 +299,7 @@ export async function recordPayment(payload: PaymentWithAllocations): Promise<{ 
       school_year_id:   payload.schoolYearId,
       payment_date:     payload.paymentDate,
       amount:           payload.amount,
+      amount_cents:     Math.round(payload.amount * 100),
       payment_source:   payload.paymentSource,
       reference_number: payload.referenceNumber || null,
       notes:            payload.notes || null,
@@ -310,7 +316,7 @@ export async function recordPayment(payload: PaymentWithAllocations): Promise<{ 
   if (payload.allocations.length > 0) {
     const allocRows = payload.allocations
       .filter((a) => a.amount > 0)
-      .map((a) => ({ payment_id: paymentId, charge_id: a.chargeId, amount: a.amount, created_by: profileId }));
+      .map((a) => ({ payment_id: paymentId, charge_id: a.chargeId, amount: a.amount, amount_cents: Math.round(a.amount * 100), created_by: profileId }));
 
     const { error: allocErr } = await supabase.from("payment_allocations").insert(allocRows as never);
     if (allocErr) return { success: false, error: allocErr.message };
@@ -352,9 +358,6 @@ export async function voidPayment(paymentId: string, reason: string, orgId: stri
 
 // ── Finance summary (core calculation) ───────────────────────────────────
 
-function fmt(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 export async function getStudentFinanceSummary(
   studentId: string,
@@ -378,7 +381,7 @@ export async function getStudentFinanceSummary(
   // Fetch charges
   const { data: rawCharges } = await supabase
     .from("student_charges")
-    .select("id, charge_type, description, original_amount, due_date, plan_type, installment_number, status, notes, created_at, created_by")
+    .select("id, charge_type, description, original_amount_cents, due_date, plan_type, installment_number, status, notes, created_at, created_by")
     .eq("student_id", studentId)
     .eq("school_year_id", schoolYearId)
     .eq("organization_id", auth.orgId)
@@ -390,7 +393,7 @@ export async function getStudentFinanceSummary(
   if (chargeIds.length > 0) {
     const { data } = await supabase
       .from("charge_adjustments")
-      .select("id, charge_id, adjustment_type, amount, description, notes, status, created_at, created_by")
+      .select("id, charge_id, adjustment_type, amount_cents, description, notes, status, created_at, created_by")
       .in("charge_id", chargeIds)
       .eq("organization_id", auth.orgId);
     rawAdjustments = (data ?? []) as unknown[];
@@ -401,7 +404,7 @@ export async function getStudentFinanceSummary(
   if (chargeIds.length > 0) {
     const { data } = await supabase
       .from("payment_allocations")
-      .select("id, charge_id, amount, payment_id")
+      .select("id, charge_id, amount_cents, payment_id")
       .in("charge_id", chargeIds);
     rawAllocations = (data ?? []) as unknown[];
   }
@@ -409,7 +412,7 @@ export async function getStudentFinanceSummary(
   // Fetch payments (to check status and for UI display)
   const { data: rawPayments } = await supabase
     .from("student_payments")
-    .select("id, payment_date, amount, payment_source, reference_number, notes, status, created_at, created_by")
+    .select("id, payment_date, amount_cents, payment_source, reference_number, notes, status, created_at, created_by")
     .eq("student_id", studentId)
     .eq("school_year_id", schoolYearId)
     .eq("organization_id", auth.orgId)
@@ -423,7 +426,7 @@ export async function getStudentFinanceSummary(
   );
 
   // Map adjustments by charge_id
-  type RawAdj = { id: string; charge_id: string; adjustment_type: string; amount: number; description: string; notes: string | null; status: string; created_at: string; created_by: string | null };
+  type RawAdj = { id: string; charge_id: string; adjustment_type: string; amount_cents: number; description: string; notes: string | null; status: string; created_at: string; created_by: string | null };
   const adjByCharge = new Map<string, RawAdj[]>();
   for (const adj of rawAdjustments as RawAdj[]) {
     if (!adjByCharge.has(adj.charge_id)) adjByCharge.set(adj.charge_id, []);
@@ -431,25 +434,29 @@ export async function getStudentFinanceSummary(
   }
 
   // Map allocations by charge_id (only active payments)
-  type RawAlloc = { id: string; charge_id: string; amount: number; payment_id: string };
+  type RawAlloc = { id: string; charge_id: string; amount_cents: number; payment_id: string };
   const paidByCharge = new Map<string, number>();
   for (const alloc of rawAllocations as RawAlloc[]) {
     if (!voidedPaymentIds.has(alloc.payment_id)) {
-      paidByCharge.set(alloc.charge_id, (paidByCharge.get(alloc.charge_id) ?? 0) + alloc.amount);
+      paidByCharge.set(alloc.charge_id, (paidByCharge.get(alloc.charge_id) ?? 0) + alloc.amount_cents);
     }
   }
 
-  type RawCharge = { id: string; charge_type: string; description: string; original_amount: number; due_date: string | null; plan_type: string | null; installment_number: number | null; status: string; notes: string | null; created_at: string; created_by: string | null };
+  type RawCharge = { id: string; charge_type: string; description: string; original_amount_cents: number; due_date: string | null; plan_type: string | null; installment_number: number | null; status: string; notes: string | null; created_at: string; created_by: string | null };
 
   const today = new Date().toISOString().split("T")[0];
 
   // Build charge objects
   const charges: StudentCharge[] = ((rawCharges ?? []) as unknown as RawCharge[]).map((c) => {
     const adjs = adjByCharge.get(c.id) ?? [];
-    const adjSum = adjs.filter((a) => a.status === "active").reduce((s, a) => s + a.amount, 0);
-    const effectiveAmount = fmt(c.original_amount + adjSum);
-    const paidAmount = fmt(paidByCharge.get(c.id) ?? 0);
-    const balance = fmt(effectiveAmount - paidAmount);
+    const adjSumCents = adjs.filter((a) => a.status === "active").reduce((s, a) => s + a.amount_cents, 0);
+    const effectiveCents = c.original_amount_cents + adjSumCents;
+    const paidCents      = paidByCharge.get(c.id) ?? 0;
+    const balanceCents   = effectiveCents - paidCents;
+    // Convert cents → dollars at the display boundary
+    const effectiveAmount = effectiveCents / 100;
+    const paidAmount      = paidCents / 100;
+    const balance         = balanceCents / 100;
 
     return {
       id:                 c.id,
@@ -457,7 +464,7 @@ export async function getStudentFinanceSummary(
       school_year_id:     schoolYearId,
       charge_type:        c.charge_type as ChargeType,
       description:        c.description,
-      original_amount:    c.original_amount,
+      original_amount:    c.original_amount_cents / 100,
       effective_amount:   effectiveAmount,
       paid_amount:        paidAmount,
       balance:            balance,
@@ -470,7 +477,7 @@ export async function getStudentFinanceSummary(
         id:              a.id,
         charge_id:       a.charge_id,
         adjustment_type: a.adjustment_type as AdjustmentType,
-        amount:          a.amount,
+        amount:          a.amount_cents / 100,
         description:     a.description,
         notes:           a.notes,
         status:          a.status as ChargeStatus,
@@ -488,29 +495,29 @@ export async function getStudentFinanceSummary(
   if (paymentIds.length > 0) {
     const { data: pa } = await supabase
       .from("payment_allocations")
-      .select("id, payment_id, charge_id, amount")
+      .select("id, payment_id, charge_id, amount_cents")
       .in("payment_id", paymentIds);
-    for (const a of (pa ?? []) as unknown as { id: string; payment_id: string; charge_id: string; amount: number }[]) {
+    for (const a of (pa ?? []) as unknown as { id: string; payment_id: string; charge_id: string; amount_cents: number }[]) {
       if (!paymentAllocMap.has(a.payment_id)) paymentAllocMap.set(a.payment_id, []);
       const charge = charges.find((c) => c.id === a.charge_id);
       paymentAllocMap.get(a.payment_id)!.push({
         id:                 a.id,
         charge_id:          a.charge_id,
-        amount:             a.amount,
+        amount:             a.amount_cents / 100,
         charge_description: charge?.description ?? "Unlinked",
         charge_type:        charge?.charge_type ?? "other_fee",
       });
     }
   }
 
-  type RawPayment = { id: string; payment_date: string; amount: number; payment_source: string; reference_number: string | null; notes: string | null; status: string; created_at: string; created_by: string | null };
+  type RawPayment = { id: string; payment_date: string; amount_cents: number; payment_source: string; reference_number: string | null; notes: string | null; status: string; created_at: string; created_by: string | null };
 
   const payments: PaymentRecord[] = ((rawPayments ?? []) as unknown as RawPayment[]).map((p) => ({
     id:               p.id,
     student_id:       studentId,
     school_year_id:   schoolYearId,
     payment_date:     p.payment_date,
-    amount:           p.amount,
+    amount:           p.amount_cents / 100,
     payment_source:   p.payment_source as PaymentSource,
     reference_number: p.reference_number,
     notes:            p.notes,
@@ -520,16 +527,16 @@ export async function getStudentFinanceSummary(
     created_at:       p.created_at,
   }));
 
-  // Calculate totals (active charges only)
+  // Calculate totals (active charges only) — all values in dollars (cents / 100 already applied above)
   const activeCharges = charges.filter((c) => c.status === "active");
-  const totalCharged  = fmt(activeCharges.reduce((s, c) => s + c.effective_amount, 0));
-  const totalPaid     = fmt(activeCharges.reduce((s, c) => s + c.paid_amount, 0));
-  const balanceDue    = fmt(totalCharged - totalPaid);
+  const totalCharged  = Math.round(activeCharges.reduce((s, c) => s + c.effective_amount, 0) * 100) / 100;
+  const totalPaid     = Math.round(activeCharges.reduce((s, c) => s + c.paid_amount, 0) * 100) / 100;
+  const balanceDue    = Math.round((totalCharged - totalPaid) * 100) / 100;
 
   // Past due: active charges where due_date < today and balance > 0
-  const pastDue = fmt(activeCharges
+  const pastDue = Math.round(activeCharges
     .filter((c) => c.due_date && c.due_date < today && c.balance > 0)
-    .reduce((s, c) => s + c.balance, 0));
+    .reduce((s, c) => s + c.balance, 0) * 100) / 100;
 
   // Next due: earliest future charge with balance > 0
   const upcoming = activeCharges
@@ -571,10 +578,8 @@ export async function getStudentFinanceSummary(
 // ── Finance permission check for UI ──────────────────────────────────────
 
 export async function checkFinanceAccess(): Promise<{ canView: boolean; canManage: boolean }> {
-  const [user, orgId, role] = await Promise.all([getUser(), getActiveOrgId(), getActiveRole()]);
+  const [user, orgId] = await Promise.all([getUser(), getActiveOrgId()]);
   if (!user || !orgId) return { canView: false, canManage: false };
-
-  if (FINANCE_MANAGE_ROLES.has(role ?? "")) return { canView: true, canManage: true };
 
   const supabase = await createClient();
   const profileId = await resolveProfileId(user.id);
@@ -605,7 +610,7 @@ export async function getARSummary(schoolYearId: string, orgId: string): Promise
   // Get all active charges for the school year
   const { data: charges } = await supabase
     .from("student_charges")
-    .select("id, student_id, original_amount, due_date")
+    .select("id, student_id, original_amount_cents, due_date")
     .eq("organization_id", auth.orgId)
     .eq("school_year_id", schoolYearId)
     .eq("status", "active");
@@ -614,21 +619,21 @@ export async function getARSummary(schoolYearId: string, orgId: string): Promise
     return { total_charged: 0, total_collected: 0, total_outstanding: 0, total_past_due: 0, students: [] };
   }
 
-  type RawCharge = { id: string; student_id: string; original_amount: number; due_date: string | null };
+  type RawCharge = { id: string; student_id: string; original_amount_cents: number; due_date: string | null };
   const chargeList = charges as unknown as RawCharge[];
   const chargeIds = chargeList.map((c) => c.id);
 
   // Get adjustments
   const { data: adjs } = await supabase
     .from("charge_adjustments")
-    .select("charge_id, amount")
+    .select("charge_id, amount_cents")
     .in("charge_id", chargeIds)
     .eq("status", "active");
 
   // Get all allocations (payments not voided)
   const { data: allocs } = await supabase
     .from("payment_allocations")
-    .select("charge_id, amount, payment_id")
+    .select("charge_id, amount_cents, payment_id")
     .in("charge_id", chargeIds);
 
   // Get voided payment IDs
@@ -654,44 +659,45 @@ export async function getARSummary(schoolYearId: string, orgId: string): Promise
   const studentMap = new Map<string, Student>();
   for (const s of (students ?? []) as unknown as Student[]) studentMap.set(s.id, s);
 
-  type RawAdj = { charge_id: string; amount: number };
+  // All amounts in integer cents for calculation; convert to dollars on return
+  type RawAdj = { charge_id: string; amount_cents: number };
   const adjSumByCharge = new Map<string, number>();
   for (const a of (adjs ?? []) as unknown as RawAdj[]) {
-    adjSumByCharge.set(a.charge_id, (adjSumByCharge.get(a.charge_id) ?? 0) + a.amount);
+    adjSumByCharge.set(a.charge_id, (adjSumByCharge.get(a.charge_id) ?? 0) + a.amount_cents);
   }
 
-  type RawAlloc = { charge_id: string; amount: number; payment_id: string };
+  type RawAlloc = { charge_id: string; amount_cents: number; payment_id: string };
   const paidByCharge = new Map<string, number>();
   for (const a of (allocs ?? []) as unknown as RawAlloc[]) {
     if (!voidedPIds.has(a.payment_id)) {
-      paidByCharge.set(a.charge_id, (paidByCharge.get(a.charge_id) ?? 0) + a.amount);
+      paidByCharge.set(a.charge_id, (paidByCharge.get(a.charge_id) ?? 0) + a.amount_cents);
     }
   }
 
-  // Roll up by student
-  const byStudent = new Map<string, { charged: number; paid: number; pastDue: number }>();
+  // Roll up by student (all in cents)
+  const byStudent = new Map<string, { chargedCents: number; paidCents: number; pastDueCents: number }>();
   for (const c of chargeList) {
-    const adj = adjSumByCharge.get(c.id) ?? 0;
-    const eff = c.original_amount + adj;
-    const paid = paidByCharge.get(c.id) ?? 0;
-    const balance = eff - paid;
-    const isPastDue = !!c.due_date && c.due_date < today && balance > 0;
+    const adjCents = adjSumByCharge.get(c.id) ?? 0;
+    const effCents = c.original_amount_cents + adjCents;
+    const paidCents = paidByCharge.get(c.id) ?? 0;
+    const balanceCents = effCents - paidCents;
+    const isPastDue = !!c.due_date && c.due_date < today && balanceCents > 0;
 
-    if (!byStudent.has(c.student_id)) byStudent.set(c.student_id, { charged: 0, paid: 0, pastDue: 0 });
+    if (!byStudent.has(c.student_id)) byStudent.set(c.student_id, { chargedCents: 0, paidCents: 0, pastDueCents: 0 });
     const row = byStudent.get(c.student_id)!;
-    row.charged  += eff;
-    row.paid     += paid;
-    if (isPastDue) row.pastDue += balance;
+    row.chargedCents  += effCents;
+    row.paidCents     += paidCents;
+    if (isPastDue) row.pastDueCents += balanceCents;
   }
 
   const rows: ARStudentRow[] = [];
   for (const [sid, totals] of Array.from(byStudent.entries())) {
     const s = studentMap.get(sid);
-    const name = s ? (s.preferred_name ? `${s.preferred_name} ${s.last_name}` : `${s.first_name} ${s.last_name}`) : "Unknown";
-    const balance = fmt(totals.charged - totals.paid);
-    const pastDue = fmt(totals.pastDue);
+    const name = s ? `${s.first_name} ${s.last_name}` : "Unknown";
+    const balance = (totals.chargedCents - totals.paidCents) / 100;
+    const pastDue = totals.pastDueCents / 100;
     let status = "not_configured";
-    if (totals.charged > 0) {
+    if (totals.chargedCents > 0) {
       if (pastDue > 0) status = "past_due";
       else if (balance <= 0) status = "paid_in_full";
       else status = "current";
@@ -700,8 +706,8 @@ export async function getARSummary(schoolYearId: string, orgId: string): Promise
       student_id:     sid,
       student_name:   name,
       grade_level:    s?.grade_level ?? null,
-      total_charged:  fmt(totals.charged),
-      total_paid:     fmt(totals.paid),
+      total_charged:  totals.chargedCents / 100,
+      total_paid:     totals.paidCents / 100,
       balance_due:    balance,
       past_due:       pastDue,
       finance_status: status,
@@ -710,14 +716,14 @@ export async function getARSummary(schoolYearId: string, orgId: string): Promise
 
   rows.sort((a, b) => b.balance_due - a.balance_due);
 
-  const totalCharged   = fmt(rows.reduce((s, r) => s + r.total_charged, 0));
-  const totalCollected = fmt(rows.reduce((s, r) => s + r.total_paid, 0));
+  const totalCharged   = rows.reduce((s, r) => s + r.total_charged, 0);
+  const totalCollected = rows.reduce((s, r) => s + r.total_paid, 0);
 
   return {
     total_charged:     totalCharged,
     total_collected:   totalCollected,
-    total_outstanding: fmt(totalCharged - totalCollected),
-    total_past_due:    fmt(rows.reduce((s, r) => s + r.past_due, 0)),
+    total_outstanding: totalCharged - totalCollected,
+    total_past_due:    rows.reduce((s, r) => s + r.past_due, 0),
     students:          rows,
   };
 }
@@ -729,23 +735,23 @@ export async function getPaymentSourceReport(schoolYearId: string, orgId: string
   const supabase = await createClient();
   const { data } = await supabase
     .from("student_payments")
-    .select("payment_source, amount")
+    .select("payment_source, amount_cents")
     .eq("organization_id", auth.orgId)
     .eq("school_year_id", schoolYearId)
     .eq("status", "active");
 
-  const bySource = new Map<string, { total: number; count: number }>();
-  for (const p of (data ?? []) as unknown as { payment_source: string; amount: number }[]) {
-    if (!bySource.has(p.payment_source)) bySource.set(p.payment_source, { total: 0, count: 0 });
+  const bySource = new Map<string, { totalCents: number; count: number }>();
+  for (const p of (data ?? []) as unknown as { payment_source: string; amount_cents: number }[]) {
+    if (!bySource.has(p.payment_source)) bySource.set(p.payment_source, { totalCents: 0, count: 0 });
     const row = bySource.get(p.payment_source)!;
-    row.total += p.amount;
+    row.totalCents += p.amount_cents;
     row.count += 1;
   }
 
   return Array.from(bySource.entries())
-    .map(([source, { total, count }]) => ({
+    .map(([source, { totalCents, count }]) => ({
       payment_source: source as PaymentSource,
-      total_amount:   fmt(total),
+      total_amount:   totalCents / 100,
       payment_count:  count,
     }))
     .sort((a, b) => b.total_amount - a.total_amount);

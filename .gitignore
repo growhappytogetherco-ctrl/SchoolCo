@@ -44,6 +44,12 @@ next-env.d.ts
 # Claude Code local settings
 .claude/settings.local.json
 
+# Database backups — contain real data, never commit
+/backup/
+
+# Staging environment — contains staging credentials
+.env.staging
+
 # Loose design/asset files in project root (not part of the application)
 /*.png
 /*.PNG

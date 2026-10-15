@@ -1,0 +1,26 @@
+# Minimal Supabase CLI configuration.
+# The CLI requires this file to run db push --linked.
+# Project ref is stored in supabase/.temp/linked-project.json.
+
+project_id = "cgnqkaqbsquerohxqkqt"
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+
+[auth]
+enabled = true

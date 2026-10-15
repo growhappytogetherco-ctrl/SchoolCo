@@ -72,26 +72,18 @@ export default async function StudentProfilePage({
     .eq("organization_id", orgId)
     .in("status", ["active", "pitching"]);
 
-  // Finance permissions — check before rendering
-  const FINANCE_FULL_ROLES = new Set(["full_admin", "platform_admin"]);
-  let canViewFinance = false;
-  let canManageFinance = false;
-  if (FINANCE_FULL_ROLES.has(role)) {
-    canViewFinance = true;
-    canManageFinance = true;
-  } else {
-    const profileId = await resolveProfileId(user.id);
-    const { data: mem } = await supabase
-      .from("organization_members")
-      .select("can_view_finances, can_manage_finances")
-      .eq("profile_id", profileId)
-      .eq("organization_id", orgId)
-      .eq("status", "active")
-      .single();
-    const memData = mem as unknown as { can_view_finances: boolean; can_manage_finances: boolean } | null;
-    canViewFinance   = !!(memData?.can_view_finances || memData?.can_manage_finances);
-    canManageFinance = !!memData?.can_manage_finances;
-  }
+  // Finance permissions — explicit only, no role bypass
+  const profileId = await resolveProfileId(user.id);
+  const { data: financeMem } = await supabase
+    .from("organization_members")
+    .select("can_view_finances, can_manage_finances")
+    .eq("profile_id", profileId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+  const fmData = financeMem as unknown as { can_view_finances: boolean; can_manage_finances: boolean } | null;
+  const canViewFinance   = !!(fmData?.can_view_finances || fmData?.can_manage_finances);
+  const canManageFinance = !!fmData?.can_manage_finances;
 
   // Fetch school years server-side (avoids RLS/cookie issues in client-side server actions)
   let schoolYears: { id: string; label: string; start_date: string; end_date: string; is_current: boolean }[] = [];

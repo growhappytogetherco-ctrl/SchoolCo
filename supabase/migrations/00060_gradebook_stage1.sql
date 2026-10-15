@@ -173,6 +173,12 @@ DO $$
 DECLARE
   rla_org_id uuid := '9fd43346-f43b-41d1-9b4c-fe8702471b07';
 BEGIN
+  -- Skip gracefully on a blank database. Production unaffected: org exists there.
+  IF NOT EXISTS (SELECT 1 FROM organizations WHERE id = rla_org_id) THEN
+    RAISE NOTICE '00060: RLA org not found — skipping grade scale seed.';
+    RETURN;
+  END IF;
+
   insert into grade_scales (organization_id, name, is_default, levels)
   values (
     rla_org_id,

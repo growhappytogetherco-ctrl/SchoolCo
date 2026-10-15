@@ -9,7 +9,14 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "test:security": "npx tsx tests/security/rls-regression.ts",
-    "audit:rls": "npx supabase db query --linked < tests/security/rls-policy-audit.sql"
+    "audit:rls": "npx supabase db query --linked < tests/security/rls-policy-audit.sql",
+    "audit:balances": "npx tsx scripts/audit_finance_reconciliation.ts",
+    "audit:balances:staging": "ENV_FILE=.env.staging npx tsx scripts/audit_finance_reconciliation.ts",
+    "staging:seed": "npx tsx scripts/staging_seed_sanitized.ts",
+    "backup:financial": "npx tsx scripts/backup_financial_data.ts",
+    "staging:seed:dry-run": "npx tsx scripts/staging_seed_sanitized.ts --dry-run",
+    "staging:push": "npx supabase db push --db-url \"$(grep STAGING_DB_URL .env.staging | cut -d= -f2-)\"",
+    "migrate:ledger-backfill": "npx tsx scripts/migrate_ledger_backfill.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -56,6 +63,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.5.2",
+    "dotenv": "^18.0.7",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.18",
     "postcss": "^8.4.47",

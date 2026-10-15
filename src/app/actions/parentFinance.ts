@@ -47,7 +47,6 @@ export interface ChildFinanceResult {
   summaries:    ParentFinanceSummary[];  // one per school year, newest first
 }
 
-function fmt(n: number) { return Math.round(n * 100) / 100; }
 
 async function verifyGuardianship(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -115,7 +114,7 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
   // Fetch all charges for guardian's students in one query (RLS enforces guardian scope)
   const { data: rawCharges } = await supabase
     .from("student_charges")
-    .select("id, student_id, school_year_id, charge_type, description, original_amount, due_date, plan_type, status, notes")
+    .select("id, student_id, school_year_id, charge_type, description, original_amount_cents, due_date, plan_type, status, notes")
     .in("student_id", studentIds)
     .in("school_year_id", yearIds)
     .eq("organization_id", orgId)
@@ -129,7 +128,7 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
   if (chargeIds.length > 0) {
     const { data } = await supabase
       .from("charge_adjustments")
-      .select("id, charge_id, amount, status")
+      .select("id, charge_id, amount_cents, status")
       .in("charge_id", chargeIds);
     adjList = (data ?? []) as any[];
   }
@@ -139,7 +138,7 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
   if (chargeIds.length > 0) {
     const { data } = await supabase
       .from("payment_allocations")
-      .select("charge_id, amount, payment_id")
+      .select("charge_id, amount_cents, payment_id")
       .in("charge_id", chargeIds);
     allocList = (data ?? []) as any[];
   }
@@ -147,7 +146,7 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
   // Payments for those students
   const { data: rawPayments } = await supabase
     .from("student_payments")
-    .select("id, student_id, school_year_id, payment_date, amount, payment_source, reference_number, status")
+    .select("id, student_id, school_year_id, payment_date, amount_cents, payment_source, reference_number, status")
     .in("student_id", studentIds)
     .in("school_year_id", yearIds)
     .eq("organization_id", orgId)
@@ -159,7 +158,7 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
   const adjByCharge = new Map<string, number>();
   for (const a of adjList) {
     if (a.status === "active") {
-      adjByCharge.set(a.charge_id, (adjByCharge.get(a.charge_id) ?? 0) + a.amount);
+      adjByCharge.set(a.charge_id, (adjByCharge.get(a.charge_id) ?? 0) + a.amount_cents);
     }
   }
 
@@ -170,7 +169,7 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
   const paidByCharge = new Map<string, number>();
   for (const a of allocList) {
     if (!voidedPaymentIds.has(a.payment_id)) {
-      paidByCharge.set(a.charge_id, (paidByCharge.get(a.charge_id) ?? 0) + a.amount);
+      paidByCharge.set(a.charge_id, (paidByCharge.get(a.charge_id) ?? 0) + a.amount_cents);
     }
   }
 
@@ -188,17 +187,17 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
         if (yCharges.length === 0 && yPayments.length === 0) return null;
 
         const charges: ParentChargeRow[] = yCharges.map((c) => {
-          const adj = adjByCharge.get(c.id) ?? 0;
-          const eff = fmt(c.original_amount + adj);
-          const paid = fmt(paidByCharge.get(c.id) ?? 0);
+          const adjCents  = adjByCharge.get(c.id) ?? 0;
+          const effCents  = c.original_amount_cents + adjCents;
+          const paidCents = paidByCharge.get(c.id) ?? 0;
           return {
             id:               c.id,
             charge_type:      c.charge_type,
             description:      c.description,
-            original_amount:  c.original_amount,
-            effective_amount: eff,
-            paid_amount:      paid,
-            balance:          fmt(eff - paid),
+            original_amount:  c.original_amount_cents / 100,
+            effective_amount: effCents / 100,
+            paid_amount:      paidCents / 100,
+            balance:          (effCents - paidCents) / 100,
             due_date:         c.due_date,
             plan_type:        c.plan_type,
             status:           c.status,
@@ -208,19 +207,19 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
         const payments: ParentPaymentRow[] = yPayments.map((p) => ({
           id:               p.id,
           payment_date:     p.payment_date,
-          amount:           p.amount,
+          amount:           p.amount_cents / 100,
           payment_source:   p.payment_source,
           reference_number: p.reference_number,
           status:           p.status,
         }));
 
         const activeCharges = charges.filter((c) => c.status === "active");
-        const totalCharged  = fmt(activeCharges.reduce((s, c) => s + c.effective_amount, 0));
-        const totalPaid     = fmt(activeCharges.reduce((s, c) => s + c.paid_amount, 0));
-        const balanceDue    = fmt(totalCharged - totalPaid);
-        const pastDue = fmt(activeCharges
+        const totalCharged  = activeCharges.reduce((s, c) => s + c.effective_amount, 0);
+        const totalPaid     = activeCharges.reduce((s, c) => s + c.paid_amount, 0);
+        const balanceDue    = totalCharged - totalPaid;
+        const pastDue = activeCharges
           .filter((c) => c.due_date && c.due_date < today && c.balance > 0)
-          .reduce((s, c) => s + c.balance, 0));
+          .reduce((s, c) => s + c.balance, 0);
 
         const upcoming = activeCharges
           .filter((c) => c.due_date && c.due_date >= today && c.balance > 0)
@@ -244,7 +243,7 @@ export async function getMyChildrenFinance(): Promise<ActionResult<ChildFinanceR
 
     return {
       child_id:    child.id,
-      child_name:  child.preferred_name ? `${child.preferred_name} ${child.last_name}` : `${child.first_name} ${child.last_name}`,
+      child_name:  `${child.first_name} ${child.last_name}`,
       grade_level: child.grade_level,
       summaries:   yearSummaries,
     };
