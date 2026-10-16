@@ -126,11 +126,13 @@ export interface ARStudentRow {
 }
 
 export interface ARSummary {
-  total_charged:     number;
-  total_collected:   number;
-  total_outstanding: number;
-  total_past_due:    number;
-  students:          ARStudentRow[];
+  total_gross_charged: number;  // sum of original_amount_cents before adjustments
+  total_adjusted:      number;  // sum of active adjustment amounts (positive = reduction)
+  total_charged:       number;  // net billed = gross - adjustments
+  total_collected:     number;
+  total_outstanding:   number;
+  total_past_due:      number;
+  students:            ARStudentRow[];
 }
 
 export interface PaymentSourceRow {

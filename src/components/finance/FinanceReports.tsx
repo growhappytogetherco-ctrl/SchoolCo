@@ -44,7 +44,7 @@ function statusCls(s: string) {
 }
 
 function exportCSV(rows: ARStudentRow[], filename: string) {
-  const headers = ["Student", "Grade", "Total Charged", "Total Paid", "Balance Due", "Past Due", "Status"];
+  const headers = ["Student", "Grade", "Net Billed", "Total Paid", "Balance Due", "Past Due", "Status"];
   const lines = rows.map((r) => [
     r.student_name, r.grade_level ?? "", r.total_charged, r.total_paid, r.balance_due, r.past_due, statusLabel(r.finance_status),
   ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
@@ -60,13 +60,46 @@ function exportCSV(rows: ARStudentRow[], filename: string) {
 function ARTable({ summary }: { summary: ARSummary }) {
   return (
     <div className="space-y-4">
-      {/* Totals row */}
+      {/* Billing summary waterfall */}
+      <div className="rounded-xl border border-sc-gray-100 bg-white p-4 sm:p-5">
+        <h3 className="text-label-md font-semibold text-sc-navy mb-3">Billing Summary</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-1.5 text-body-md">
+          <div className="flex justify-between">
+            <span className="text-sc-gray">Gross Charges</span>
+            <span className="tabular-nums text-sc-navy font-medium">{currency(summary.total_gross_charged)}</span>
+          </div>
+          {summary.total_adjusted > 0 && (
+            <div className="flex justify-between">
+              <span className="text-sc-gray">Less Adjustments &amp; Waivers</span>
+              <span className="tabular-nums text-sc-gold-700">({currency(summary.total_adjusted)})</span>
+            </div>
+          )}
+          <div className="flex justify-between border-t border-sc-gray-100 pt-1.5">
+            <span className="font-semibold text-sc-navy">Net Billed</span>
+            <span className="tabular-nums font-bold text-sc-navy text-base">{currency(summary.total_charged)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sc-gray">Less Payments Collected</span>
+            <span className="tabular-nums text-emerald-700">({currency(summary.total_collected)})</span>
+          </div>
+          <div className="flex justify-between border-t border-sc-gray-100 pt-1.5">
+            <span className={cn("font-semibold", summary.total_outstanding > 0 ? "text-sc-gold-700" : "text-emerald-700")}>
+              Outstanding Balance
+            </span>
+            <span className={cn("tabular-nums font-bold text-base", summary.total_outstanding > 0 ? "text-sc-gold-700" : "text-emerald-700")}>
+              {currency(summary.total_outstanding)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Status cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total Charged",     value: currency(summary.total_charged)     },
-          { label: "Total Collected",   value: currency(summary.total_collected)   },
-          { label: "Total Outstanding", value: currency(summary.total_outstanding), warn: summary.total_outstanding > 0 },
-          { label: "Total Past Due",    value: currency(summary.total_past_due),    warn: summary.total_past_due > 0 },
+          { label: "Net Billed",          value: currency(summary.total_charged)     },
+          { label: "Payments Collected",  value: currency(summary.total_collected)   },
+          { label: "Outstanding Balance", value: currency(summary.total_outstanding), warn: summary.total_outstanding > 0 },
+          { label: "Past Due",            value: currency(summary.total_past_due),    warn: summary.total_past_due > 0 },
         ].map(({ label, value, warn }) => (
           <div key={label} className={cn("rounded-xl border p-4", warn ? "border-sc-rose-200 bg-sc-rose-50" : "border-sc-gray-100 bg-white")}>
             <p className="text-label-sm text-sc-gray">{label}</p>

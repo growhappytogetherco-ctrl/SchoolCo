@@ -54,9 +54,11 @@ function statusBadge(s: string) {
 // ── Overview cards ────────────────────────────────────────────────────────
 
 function OverviewCards({ summary }: { summary: FinanceDashboardSummary }) {
+  const netBilledCents = summary.gross_charged_cents - summary.total_adjusted_cents;
+
   const cards = [
     {
-      label: "Total Billed",
+      label: "Gross Charges",
       value: currency(summary.gross_charged_cents),
       sub:   `${summary.active_charge_count} charges · ${summary.student_count} students`,
       Icon:  BadgeDollarSign,
@@ -64,7 +66,7 @@ function OverviewCards({ summary }: { summary: FinanceDashboardSummary }) {
       bg:    "bg-white border-sc-gray-100",
     },
     {
-      label: "Total Collected",
+      label: "Payments Collected",
       value: currency(summary.total_collected_cents),
       sub:   `${currency(summary.scholarship_cents)} scholarships · ${currency(summary.parent_payment_cents)} direct`,
       Icon:  TrendingUp,
@@ -72,9 +74,9 @@ function OverviewCards({ summary }: { summary: FinanceDashboardSummary }) {
       bg:    "bg-white border-sc-gray-100",
     },
     {
-      label: "Outstanding",
+      label: "Outstanding Balance",
       value: currency(summary.outstanding_cents),
-      sub:   `After ${currency(summary.total_adjusted_cents)} adjustments`,
+      sub:   `Net billed ${currency(netBilledCents)} − collected ${currency(summary.total_collected_cents)}`,
       Icon:  Clock,
       color: summary.outstanding_cents > 0 ? "text-sc-gold-700" : "text-emerald-700",
       bg:    summary.outstanding_cents > 0 ? "bg-sc-gold-50 border-sc-gold-300" : "bg-white border-sc-gray-100",
@@ -102,6 +104,39 @@ function OverviewCards({ summary }: { summary: FinanceDashboardSummary }) {
             <p className="text-xs text-sc-gray mt-1 leading-tight">{sub}</p>
           </div>
         ))}
+      </div>
+
+      {/* Billing summary waterfall */}
+      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-4 sm:p-5">
+        <h3 className="text-label-md font-semibold text-sc-navy mb-3">Billing Summary</h3>
+        <div className="space-y-1.5 text-body-md max-w-sm">
+          <div className="flex justify-between">
+            <span className="text-sc-gray">Gross Charges</span>
+            <span className="tabular-nums text-sc-navy font-medium">{currency(summary.gross_charged_cents)}</span>
+          </div>
+          {summary.total_adjusted_cents > 0 && (
+            <div className="flex justify-between">
+              <span className="text-sc-gray">Less Adjustments &amp; Waivers</span>
+              <span className="tabular-nums text-sc-gold-700">({currency(summary.total_adjusted_cents)})</span>
+            </div>
+          )}
+          <div className="flex justify-between border-t border-sc-gray-100 pt-1.5">
+            <span className="font-semibold text-sc-navy">Net Billed</span>
+            <span className="tabular-nums font-bold text-sc-navy text-base">{currency(netBilledCents)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sc-gray">Less Payments Collected</span>
+            <span className="tabular-nums text-emerald-700">({currency(summary.total_collected_cents)})</span>
+          </div>
+          <div className="flex justify-between border-t border-sc-gray-100 pt-1.5">
+            <span className={cn("font-semibold", summary.outstanding_cents > 0 ? "text-sc-gold-700" : "text-emerald-700")}>
+              Outstanding Balance
+            </span>
+            <span className={cn("tabular-nums font-bold text-base", summary.outstanding_cents > 0 ? "text-sc-gold-700" : "text-emerald-700")}>
+              {currency(summary.outstanding_cents)}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Scholarship breakdown */}

@@ -616,7 +616,7 @@ export async function getARSummary(schoolYearId: string, orgId: string): Promise
     .eq("status", "active");
 
   if (!charges || charges.length === 0) {
-    return { total_charged: 0, total_collected: 0, total_outstanding: 0, total_past_due: 0, students: [] };
+    return { total_gross_charged: 0, total_adjusted: 0, total_charged: 0, total_collected: 0, total_outstanding: 0, total_past_due: 0, students: [] };
   }
 
   type RawCharge = { id: string; student_id: string; original_amount_cents: number; due_date: string | null };
@@ -716,15 +716,19 @@ export async function getARSummary(schoolYearId: string, orgId: string): Promise
 
   rows.sort((a, b) => b.balance_due - a.balance_due);
 
-  const totalCharged   = rows.reduce((s, r) => s + r.total_charged, 0);
-  const totalCollected = rows.reduce((s, r) => s + r.total_paid, 0);
+  const totalGrossCents  = chargeList.reduce((s, c) => s + c.original_amount_cents, 0);
+  const totalAdjCents    = Array.from(adjSumByCharge.values()).reduce((s, v) => s + v, 0); // negative
+  const totalCharged     = rows.reduce((s, r) => s + r.total_charged, 0);
+  const totalCollected   = rows.reduce((s, r) => s + r.total_paid, 0);
 
   return {
-    total_charged:     totalCharged,
-    total_collected:   totalCollected,
-    total_outstanding: totalCharged - totalCollected,
-    total_past_due:    rows.reduce((s, r) => s + r.past_due, 0),
-    students:          rows,
+    total_gross_charged: totalGrossCents / 100,
+    total_adjusted:      Math.abs(totalAdjCents) / 100,
+    total_charged:       totalCharged,
+    total_collected:     totalCollected,
+    total_outstanding:   totalCharged - totalCollected,
+    total_past_due:      rows.reduce((s, r) => s + r.past_due, 0),
+    students:            rows,
   };
 }
 
