@@ -7,7 +7,7 @@ import {
   MessageSquare, Briefcase, FolderOpen, Settings, Home, Heart,
   Star, Gift, Compass, Award, Zap, Building2, X, DollarSign,
   GraduationCap, AlertTriangle, BarChart2, Calendar,
-  ClipboardList, ShieldCheck, User, Activity, Upload, BookCheck,
+  ClipboardList, ShieldCheck, User, Activity, Upload, BookCheck, ShoppingCart,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -21,7 +21,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   MessageSquare, Briefcase, FolderOpen, Settings, Home, Heart,
   Star, Gift, Compass, Award, Zap, Building2, DollarSign,
   GraduationCap, AlertTriangle, BarChart2, Calendar,
-  ClipboardList, ShieldCheck, User, Activity, Upload, BookCheck,
+  ClipboardList, ShieldCheck, User, Activity, Upload, BookCheck, ShoppingCart,
 };
 
 interface AppSidebarProps {
@@ -74,8 +74,9 @@ function NavLink({ item, onClick, messageBadge }: { item: NavItem; onClick?: () 
   );
 }
 
-const FINANCE_NAV: NavItem = { label: "Finance", href: "/dashboard/finance", icon: "DollarSign" };
-const FINANCE_REPORTS_NAV: NavItem = { label: "Finance Reports", href: "/dashboard/reports", icon: "BarChart2" };
+const FINANCE_NAV: NavItem         = { label: "Finance",         href: "/dashboard/finance",        icon: "DollarSign"    };
+const FINANCE_REPORTS_NAV: NavItem = { label: "Finance Reports", href: "/dashboard/reports",        icon: "BarChart2"     };
+const ORDERS_NAV: NavItem          = { label: "Orders",          href: "/dashboard/finance/orders", icon: "ShoppingCart"  };
 
 export function AppSidebar({ role, orgName, orgLogo, onClose, messageBadge, canViewFinances }: AppSidebarProps) {
   const baseItems = NAV_ITEMS_BY_ROLE[role] ?? [];
@@ -89,6 +90,7 @@ export function AppSidebar({ role, orgName, orgLogo, onClose, messageBadge, canV
           ...baseItems.slice(0, insertAt),
           FINANCE_NAV,
           FINANCE_REPORTS_NAV,
+          ORDERS_NAV,
           ...baseItems.slice(insertAt),
         ];
       })()
