@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, BookOpen, Search, Loader2, Package, X, Pencil, Check } from "lucide-react";
+import { Plus, BookOpen, Search, Loader2, Package, X, Pencil, Check, FileText, Send, Download, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -9,9 +9,11 @@ import {
   ORDER_STATUS_LABELS, FULFILLMENT_STATUS_LABELS,
   type StoreItem, type OrderRow, type OrderItemRow, type OrderStatus,
 } from "@/app/actions/orders-constants";
-import { getOrdersForOrg, getCatalogItems, updateOrderItem, voidOrderItem } from "@/app/actions/orders";
+import { getOrdersForOrg, getCatalogItems, updateOrderItem, voidOrderItem, sendInvoiceEmail, getInvoicePdfBase64, updateFulfillmentStatus } from "@/app/actions/orders";
 import { ItemCatalogModal } from "./ItemCatalogModal";
 import { CreateOrderModal } from "./CreateOrderModal";
+import { IssueInvoiceModal } from "./IssueInvoiceModal";
+import { PaymentPanel } from "./PaymentPanel";
 
 function currency(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -74,6 +76,9 @@ export function OrdersPage({ canManage }: Props) {
   const [showCreate,     setShowCreate]    = useState(false);
   const [expandedId,     setExpandedId]    = useState<string | null>(null);
   const [editingItem,    setEditingItem]   = useState<EditingItem | null>(null);
+  const [invoicingOrder, setInvoicingOrder] = useState<OrderRow | null>(null);
+  const [sendingEmail,   setSendingEmail]  = useState<string | null>(null);
+  const [downloading,    setDownloading]   = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +141,39 @@ export function OrdersPage({ canManage }: Props) {
     } else {
       alert(res.error ?? "Failed to void item.");
     }
+  }
+
+  async function handleSendEmail(orderId: string) {
+    setSendingEmail(orderId);
+    const res = await sendInvoiceEmail(orderId);
+    setSendingEmail(null);
+    if (res.success) {
+      alert("Invoice email sent successfully.");
+      await load();
+    } else {
+      alert(res.error ?? "Failed to send email.");
+    }
+  }
+
+  async function handleDownloadPdf(orderId: string, invoiceNumber: string) {
+    setDownloading(orderId);
+    const res = await getInvoicePdfBase64(orderId);
+    setDownloading(null);
+    if (!res.success) { alert(res.error ?? "Failed to generate PDF."); return; }
+    // Trigger browser download
+    const link = document.createElement("a");
+    link.href = `data:application/pdf;base64,${res.data.base64}`;
+    link.download = res.data.filename;
+    link.click();
+  }
+
+  async function handleFulfillment(orderId: string, current: string) {
+    const next = current === "pending" ? "partial" : current === "partial" ? "fulfilled" : "pending";
+    const label = next === "fulfilled" ? "Mark as Fulfilled" : next === "partial" ? "Mark as Partially Fulfilled" : "Reset to Pending";
+    if (!confirm(`${label}?`)) return;
+    const res = await updateFulfillmentStatus(orderId, next as any);
+    if (res.success) await load();
+    else alert(res.error ?? "Failed to update fulfillment.");
   }
 
   return (
@@ -376,9 +414,72 @@ export function OrdersPage({ canManage }: Props) {
                               <p className="text-label-sm text-sc-gray">Created by {order.created_by_name} on {formatDate(order.created_at)}</p>
                             )}
 
-                            {canManage && order.order_status === "draft" && (
-                              <div className="flex gap-2 pt-1">
-                                <span className="text-label-sm text-sc-gray italic">Invoice, payment, and fulfillment actions coming in Phase 2.</span>
+                            {/* Phase 2: Invoice & payment actions */}
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {canManage && order.order_status === "draft" && (
+                                <Button
+                                  size="sm"
+                                  className="bg-sc-teal hover:bg-sc-teal-700 text-white"
+                                  onClick={() => setInvoicingOrder(order)}
+                                >
+                                  <FileText className="size-4 mr-1.5" /> Issue Invoice
+                                </Button>
+                              )}
+                              {["invoiced","partial","paid"].includes(order.order_status) && (
+                                <>
+                                  {canManage && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={sendingEmail === order.id}
+                                      onClick={() => handleSendEmail(order.id)}
+                                    >
+                                      {sendingEmail === order.id
+                                        ? <><Loader2 className="size-4 mr-1.5 animate-spin" /> Sending…</>
+                                        : <><Send className="size-4 mr-1.5" /> Email Invoice</>}
+                                    </Button>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={downloading === order.id}
+                                    onClick={() => handleDownloadPdf(order.id, order.invoice_number!)}
+                                  >
+                                    {downloading === order.id
+                                      ? <><Loader2 className="size-4 mr-1.5 animate-spin" /> Generating…</>
+                                      : <><Download className="size-4 mr-1.5" /> Download PDF</>}
+                                  </Button>
+                                  {canManage && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleFulfillment(order.id, order.fulfillment_status)}
+                                    >
+                                      <Truck className="size-4 mr-1.5" />
+                                      {order.fulfillment_status === "pending"   ? "Mark Partially Fulfilled" :
+                                       order.fulfillment_status === "partial"   ? "Mark Fulfilled" :
+                                       "Reset Fulfillment"}
+                                    </Button>
+                                  )}
+                                </>
+                              )}
+                              {order.invoice_sent_at && (
+                                <span className="text-label-sm text-sc-gray self-center">
+                                  Last sent: {new Date(order.invoice_sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                  {order.billing_recipient_email ? ` → ${order.billing_recipient_email}` : ""}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Phase 2: Payment panel for invoiced orders */}
+                            {["invoiced","partial","paid"].includes(order.order_status) && (
+                              <div className="rounded-xl border border-sc-gray-100 bg-white p-4">
+                                <p className="text-label-sm text-sc-gray font-medium mb-3 uppercase tracking-wide">Payments</p>
+                                <PaymentPanel
+                                  order={order}
+                                  canManage={canManage}
+                                  onPaymentRecorded={load}
+                                />
                               </div>
                             )}
                           </div>
@@ -406,6 +507,16 @@ export function OrdersPage({ canManage }: Props) {
         catalog={catalog}
         onCreated={handleOrderCreated}
       />
+      {invoicingOrder && (
+        <IssueInvoiceModal
+          order={invoicingOrder}
+          onClose={() => setInvoicingOrder(null)}
+          onIssued={(invNum) => {
+            setInvoicingOrder(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -65,29 +65,32 @@ export interface OrderItemRow {
 }
 
 export interface OrderRow {
-  id:                string;
-  organization_id:   string;
-  family_account_id: string;
-  family_name:       string;         // joined from family_finance_accounts
-  guardian_email:    string | null;  // joined from profiles
-  order_status:      OrderStatus;
-  fulfillment_status: FulfillmentStatus;
-  invoice_number:    string | null;
-  invoice_date:      string | null;
-  due_date:          string | null;
-  invoice_sent_at:   string | null;
-  invoice_sent_to:   string | null;
-  cancelled_at:      string | null;
-  cancel_reason:     string | null;
-  fulfilled_at:      string | null;
-  notes:             string | null;
-  subtotal_cents:    number;         // computed: sum of non-voided line_total_cents
-  amount_paid_cents: number;         // Phase 2: sum of order_payments; 0 in Phase 1
-  balance_cents:     number;         // subtotal - amount_paid
-  item_count:        number;         // non-voided item rows
-  items:             OrderItemRow[];
-  created_at:        string;
-  created_by_name:   string | null;
+  id:                      string;
+  organization_id:         string;
+  family_account_id:       string;
+  family_name:             string;
+  guardian_email:          string | null;
+  order_status:            OrderStatus;
+  fulfillment_status:      FulfillmentStatus;
+  invoice_number:          string | null;
+  invoice_date:            string | null;
+  due_date:                string | null;
+  invoice_sent_at:         string | null;
+  invoice_sent_to:         string | null;
+  billing_recipient_id:    string | null;
+  billing_recipient_name:  string | null;
+  billing_recipient_email: string | null;
+  cancelled_at:            string | null;
+  cancel_reason:           string | null;
+  fulfilled_at:            string | null;
+  notes:                   string | null;
+  subtotal_cents:          number;
+  amount_paid_cents:       number;
+  balance_cents:           number;
+  item_count:              number;
+  items:                   OrderItemRow[];
+  created_at:              string;
+  created_by_name:         string | null;
 }
 
 export interface CreateOrderInput {
@@ -128,4 +131,65 @@ export interface UpdateStoreItemInput {
   available_sizes?: string[] | null;
   is_active?:       boolean;
   sort_order?:      number;
+}
+
+// ── Phase 2 types ─────────────────────────────────────────────────────────
+
+export type PaymentMethod = "zelle" | "cash" | "check" | "other";
+export type PaymentStatus = "pending" | "verified" | "reversed";
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  zelle: "Zelle",
+  cash:  "Cash",
+  check: "Check",
+  other: "Other",
+};
+
+export interface OrderPayment {
+  id:               string;
+  order_id:         string;
+  organization_id:  string;
+  amount_cents:     number;
+  payment_method:   PaymentMethod;
+  payment_date:     string;
+  reference_number: string | null;
+  notes:            string | null;
+  status:           PaymentStatus;
+  verified_by:      string | null;
+  verified_at:      string | null;
+  reversed_at:      string | null;
+  reversal_reason:  string | null;
+  created_by:       string;
+  created_at:       string;
+  created_by_name:  string | null;
+  verified_by_name: string | null;
+}
+
+export interface FinanceSettings {
+  organization_id:      string;
+  zelle_enabled:        boolean;
+  manual_payments_enabled: boolean;
+  zelle_recipient:      string | null;
+  zelle_type:           "phone" | "email";
+  check_payee:          string | null;
+  cash_instructions:    string | null;
+  invoice_due_days:     number;
+  invoice_footer_text:  string | null;
+}
+
+export interface IssueInvoiceInput {
+  order_id:                string;
+  billing_recipient_id:    string;
+  billing_recipient_name:  string;
+  billing_recipient_email: string;
+  due_date_override?:      string;   // ISO date; defaults to invoice_due_days from settings
+}
+
+export interface RecordPaymentInput {
+  order_id:         string;
+  amount_cents:     number;
+  payment_method:   PaymentMethod;
+  payment_date:     string;          // ISO date
+  reference_number?: string;
+  notes?:           string;
 }
