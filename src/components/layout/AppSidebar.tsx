@@ -31,6 +31,7 @@ interface AppSidebarProps {
   onClose?:         () => void; // Mobile: close drawer
   messageBadge?:    number;
   canViewFinances?: boolean;
+  ordersEnabled?:   boolean;
 }
 
 function NavLink({ item, onClick, messageBadge }: { item: NavItem; onClick?: () => void; messageBadge?: number }) {
@@ -78,19 +79,19 @@ const FINANCE_NAV: NavItem         = { label: "Finance",         href: "/dashboa
 const FINANCE_REPORTS_NAV: NavItem = { label: "Finance Reports", href: "/dashboard/reports",        icon: "BarChart2"     };
 const ORDERS_NAV: NavItem          = { label: "Orders",          href: "/dashboard/finance/orders", icon: "ShoppingCart"  };
 
-export function AppSidebar({ role, orgName, orgLogo, onClose, messageBadge, canViewFinances }: AppSidebarProps) {
+export function AppSidebar({ role, orgName, orgLogo, onClose, messageBadge, canViewFinances, ordersEnabled }: AppSidebarProps) {
   const baseItems = NAV_ITEMS_BY_ROLE[role] ?? [];
   // Finance nav is permission-gated (can_view_finances / can_manage_finances), not role-gated.
-  // Inject after the last non-settings item so it groups near admin tools.
+  // Orders nav additionally requires the ORDERS_ENABLED feature flag.
   const navItems = canViewFinances
     ? (() => {
         const settingsIdx = baseItems.findIndex((i) => i.href === "/dashboard/settings");
         const insertAt = settingsIdx >= 0 ? settingsIdx : baseItems.length;
+        const financeItems = [FINANCE_NAV, FINANCE_REPORTS_NAV];
+        if (ordersEnabled) financeItems.push(ORDERS_NAV);
         return [
           ...baseItems.slice(0, insertAt),
-          FINANCE_NAV,
-          FINANCE_REPORTS_NAV,
-          ORDERS_NAV,
+          ...financeItems,
           ...baseItems.slice(insertAt),
         ];
       })()

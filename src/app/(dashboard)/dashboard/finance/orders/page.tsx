@@ -5,6 +5,12 @@ import { OrdersPage } from "@/components/finance/orders/OrdersPage";
 export const metadata = { title: "Orders & Invoices" };
 
 export default async function OrdersRoute() {
+  // Feature flag: Orders requires NEXT_PUBLIC_ORDERS_ENABLED=true in Vercel env.
+  // Migration 00092 must also be applied to the target database before enabling.
+  if (process.env.NEXT_PUBLIC_ORDERS_ENABLED !== "true") {
+    redirect("/dashboard/home");
+  }
+
   const [user, orgId] = await Promise.all([getUser(), getActiveOrgId()]);
   if (!user || !orgId) redirect("/login");
 

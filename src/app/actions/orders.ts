@@ -442,32 +442,108 @@ export async function searchFamilyAccounts(search: string): Promise<ActionResult
 }>>> {
   try {
     const { orgId, supabase } = await assertOrdersManage();
+    const term = search.trim().toLowerCase();
+    if (!term) return { success: true, data: [] };
+
+    // Step 1: Get all active family accounts with guardian profile + students
     const { data, error } = await supabase
       .from("family_finance_accounts")
       .select(`
         id, account_name,
         profiles!inner(full_name, email),
-        guardianships!inner(
+        guardianships(
+          status, archived_at,
           students!inner(id, full_name)
         )
       `)
       .eq("organization_id", orgId)
       .eq("status", "active")
-      .ilike("account_name", `%${search}%`)
-      .limit(20);
+      .limit(200);
     if (error) throw error;
+
+    // Step 2: Filter client-side across account_name, guardian name/email, student names
+    // Deduplicates naturally since we start from family_finance_accounts
+    const matched = (data ?? []).filter((a: any) => {
+      const acctName      = (a.account_name ?? "").toLowerCase();
+      const guardianName  = (a.profiles?.full_name ?? "").toLowerCase();
+      const guardianEmail = (a.profiles?.email ?? "").toLowerCase();
+      const activeStudents: string[] = (a.guardianships ?? [])
+        .filter((g: any) => g.status === "active" && !g.archived_at)
+        .map((g: any) => (g.students?.full_name ?? "").toLowerCase());
+
+      return (
+        acctName.includes(term)      ||
+        guardianName.includes(term)  ||
+        guardianEmail.includes(term) ||
+        activeStudents.some(s => s.includes(term))
+      );
+    }).slice(0, 20);
 
     return {
       success: true,
-      data: (data ?? []).map((a: any) => ({
+      data: matched.map((a: any) => ({
         id:             a.id,
         account_name:   a.account_name ?? a.profiles?.full_name ?? "Unknown",
         guardian_email: a.profiles?.email ?? null,
         student_names:  (a.guardianships ?? [])
+          .filter((g: any) => g.status === "active" && !g.archived_at)
           .map((g: any) => g.students?.full_name)
           .filter(Boolean),
       })),
     };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+// ── Update a draft order item (qty, size, or student assignment) ──────────
+
+export async function updateOrderItem(input: {
+  order_item_id: string;
+  quantity?:     number;
+  size?:         string | null;
+  student_id?:   string | null;
+}): Promise<ActionResult<{ subtotal_cents: number }>> {
+  try {
+    const { user, orgId, supabase } = await assertOrdersManage();
+
+    // Fetch item + its order to verify org ownership and draft status
+    const { data: item, error: itemErr } = await supabase
+      .from("order_items")
+      .select("id, order_id, is_voided, orders!inner(organization_id, order_status)")
+      .eq("id", input.order_item_id)
+      .maybeSingle();
+    if (itemErr) throw itemErr;
+    if (!item) throw new Error("Order item not found");
+
+    const orderOrg    = (item as any).orders?.organization_id;
+    const orderStatus = (item as any).orders?.order_status;
+    if (orderOrg !== orgId)        throw new Error("Order item not found");
+    if ((item as any).is_voided)   throw new Error("Cannot edit a voided item");
+    if (orderStatus !== "draft")   throw new Error("Items can only be edited on draft orders");
+
+    if (input.quantity !== undefined && input.quantity < 1) {
+      throw new Error("Quantity must be at least 1");
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (input.quantity  !== undefined) updates.quantity   = input.quantity;
+    if (input.size      !== undefined) updates.size        = input.size;
+    if (input.student_id !== undefined) updates.student_id = input.student_id;
+
+    if (Object.keys(updates).length === 0) {
+      throw new Error("No fields to update");
+    }
+
+    const { error } = await supabase
+      .from("order_items")
+      .update(updates)
+      .eq("id", input.order_item_id);
+    if (error) throw error;
+
+    const { data: subtotalData } = await supabase.rpc("get_order_subtotal", { p_order_id: item.order_id });
+    revalidatePath("/dashboard/finance/orders");
+    return { success: true, data: { subtotal_cents: subtotalData ?? 0 } };
   } catch (e) {
     return { success: false, error: String(e) };
   }

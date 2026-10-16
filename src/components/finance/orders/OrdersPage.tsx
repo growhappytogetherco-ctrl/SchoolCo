@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, BookOpen, Search, Filter, Loader2, Package, X } from "lucide-react";
+import { Plus, BookOpen, Search, Loader2, Package, X, Pencil, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   ORDER_STATUS_LABELS, FULFILLMENT_STATUS_LABELS,
-  type StoreItem, type OrderRow, type OrderStatus,
+  type StoreItem, type OrderRow, type OrderItemRow, type OrderStatus,
 } from "@/app/actions/orders-constants";
-import { getOrdersForOrg, getCatalogItems } from "@/app/actions/orders";
+import { getOrdersForOrg, getCatalogItems, updateOrderItem, voidOrderItem } from "@/app/actions/orders";
 import { ItemCatalogModal } from "./ItemCatalogModal";
 import { CreateOrderModal } from "./CreateOrderModal";
 
@@ -52,6 +52,14 @@ const STATUS_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "cancelled",label: "Cancelled" },
 ];
 
+interface EditingItem {
+  id: string;
+  quantity: number;
+  size: string;
+  student_id: string | null;
+  saving: boolean;
+}
+
 interface Props {
   canManage: boolean;
 }
@@ -65,6 +73,7 @@ export function OrdersPage({ canManage }: Props) {
   const [showCatalog,    setShowCatalog]   = useState(false);
   const [showCreate,     setShowCreate]    = useState(false);
   const [expandedId,     setExpandedId]    = useState<string | null>(null);
+  const [editingItem,    setEditingItem]   = useState<EditingItem | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,6 +98,44 @@ export function OrdersPage({ canManage }: Props) {
   function handleOrderCreated(orderId: string) {
     load();
     setExpandedId(orderId);
+  }
+
+  function startEditing(item: OrderItemRow) {
+    setEditingItem({
+      id: item.id,
+      quantity: item.quantity,
+      size: item.size ?? "",
+      student_id: item.student_id ?? null,
+      saving: false,
+    });
+  }
+
+  async function saveEdit() {
+    if (!editingItem) return;
+    setEditingItem(prev => prev ? { ...prev, saving: true } : null);
+    const res = await updateOrderItem({
+      order_item_id: editingItem.id,
+      quantity: editingItem.quantity,
+      size: editingItem.size || null,
+      student_id: editingItem.student_id || null,
+    });
+    if (res.success) {
+      await load();
+      setEditingItem(null);
+    } else {
+      setEditingItem(prev => prev ? { ...prev, saving: false } : null);
+      alert(res.error ?? "Failed to save changes.");
+    }
+  }
+
+  async function handleVoidItem(itemId: string) {
+    if (!confirm("Void this item? It will remain on the order as voided.")) return;
+    const res = await voidOrderItem({ order_item_id: itemId, reason: "Corrected by staff" });
+    if (res.success) {
+      await load();
+    } else {
+      alert(res.error ?? "Failed to void item.");
+    }
   }
 
   return (
@@ -209,30 +256,113 @@ export function OrdersPage({ canManage }: Props) {
                               <table className="min-w-full text-body-md">
                                 <thead className="bg-sc-gray-100/60">
                                   <tr>
-                                    {["Item", "Size", "Student", "Qty", "Unit Price", "Line Total"].map(h => (
+                                    {["Item", "Size", "Student", "Qty", "Unit Price", "Line Total",
+                                      ...(canManage && order.order_status === "draft" ? [""] : [])
+                                    ].map(h => (
                                       <th key={h} className="px-3 py-2 text-left text-label-sm text-sc-gray font-medium">{h}</th>
                                     ))}
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-sc-gray-100">
-                                  {order.items.filter(i => !i.is_voided).map(item => (
-                                    <tr key={item.id} className="text-body-md">
-                                      <td className="px-3 py-2 text-sc-navy">{item.item_name}</td>
-                                      <td className="px-3 py-2 text-sc-gray">{item.size ?? "—"}</td>
-                                      <td className="px-3 py-2 text-sc-gray">{item.student_name ?? "Family"}</td>
-                                      <td className="px-3 py-2 text-sc-navy">{item.quantity}</td>
-                                      <td className="px-3 py-2 tabular-nums">{currency(item.unit_price_cents)}</td>
-                                      <td className="px-3 py-2 tabular-nums font-medium text-sc-navy">{currency(item.line_total_cents)}</td>
-                                    </tr>
-                                  ))}
+                                  {order.items.filter(i => !i.is_voided).map(item => {
+                                    const isEditing = editingItem?.id === item.id;
+                                    const isDraft = canManage && order.order_status === "draft";
+                                    return (
+                                      <tr key={item.id} className={cn("text-body-md", isEditing && "bg-sc-gold-50/40")}>
+                                        <td className="px-3 py-2 text-sc-navy">{item.item_name}</td>
+
+                                        {/* Size */}
+                                        <td className="px-3 py-2 text-sc-gray">
+                                          {isEditing ? (
+                                            <Input
+                                              className="h-7 w-20 text-xs"
+                                              value={editingItem.size}
+                                              onChange={e => setEditingItem(prev => prev ? { ...prev, size: e.target.value } : null)}
+                                              placeholder="e.g. M"
+                                            />
+                                          ) : (item.size ?? "—")}
+                                        </td>
+
+                                        {/* Student */}
+                                        <td className="px-3 py-2 text-sc-gray">
+                                          {isEditing ? (
+                                            <span className="text-label-sm text-sc-gray italic">{item.student_name ?? "Family"}</span>
+                                          ) : (item.student_name ?? "Family")}
+                                        </td>
+
+                                        {/* Qty */}
+                                        <td className="px-3 py-2 text-sc-navy">
+                                          {isEditing ? (
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                className="w-6 h-6 rounded border border-sc-gray-200 text-sc-gray hover:border-sc-navy flex items-center justify-center text-sm"
+                                                onClick={() => setEditingItem(prev => prev ? { ...prev, quantity: Math.max(1, prev.quantity - 1) } : null)}
+                                              >−</button>
+                                              <span className="w-6 text-center font-medium">{editingItem.quantity}</span>
+                                              <button
+                                                className="w-6 h-6 rounded border border-sc-gray-200 text-sc-gray hover:border-sc-navy flex items-center justify-center text-sm"
+                                                onClick={() => setEditingItem(prev => prev ? { ...prev, quantity: prev.quantity + 1 } : null)}
+                                              >+</button>
+                                            </div>
+                                          ) : item.quantity}
+                                        </td>
+
+                                        <td className="px-3 py-2 tabular-nums">{currency(item.unit_price_cents)}</td>
+                                        <td className="px-3 py-2 tabular-nums font-medium text-sc-navy">
+                                          {isEditing
+                                            ? currency(editingItem.quantity * item.unit_price_cents)
+                                            : currency(item.line_total_cents)}
+                                        </td>
+
+                                        {isDraft && (
+                                          <td className="px-3 py-2">
+                                            {isEditing ? (
+                                              <div className="flex items-center gap-1">
+                                                <button
+                                                  onClick={saveEdit}
+                                                  disabled={editingItem.saving}
+                                                  className="flex items-center gap-1 px-2 py-1 rounded bg-sc-teal text-white text-xs hover:bg-sc-teal-700 disabled:opacity-50"
+                                                >
+                                                  <Check className="size-3" /> Save
+                                                </button>
+                                                <button
+                                                  onClick={() => setEditingItem(null)}
+                                                  className="px-2 py-1 rounded border border-sc-gray-200 text-sc-gray text-xs hover:border-sc-navy"
+                                                >
+                                                  Cancel
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <div className="flex items-center gap-1">
+                                                <button
+                                                  onClick={() => startEditing(item)}
+                                                  className="p-1 rounded text-sc-gray hover:text-sc-navy hover:bg-sc-gray-100"
+                                                  title="Edit item"
+                                                >
+                                                  <Pencil className="size-3.5" />
+                                                </button>
+                                                <button
+                                                  onClick={() => handleVoidItem(item.id)}
+                                                  className="p-1 rounded text-sc-gray hover:text-sc-rose hover:bg-sc-rose-50"
+                                                  title="Void item"
+                                                >
+                                                  <X className="size-3.5" />
+                                                </button>
+                                              </div>
+                                            )}
+                                          </td>
+                                        )}
+                                      </tr>
+                                    );
+                                  })}
                                   {order.items.filter(i => i.is_voided).map(item => (
                                     <tr key={item.id} className="opacity-40 text-body-md">
-                                      <td className="px-3 py-2 line-through text-sc-gray" colSpan={5}>{item.item_name} — voided</td>
+                                      <td className="px-3 py-2 line-through text-sc-gray" colSpan={canManage && order.order_status === "draft" ? 6 : 5}>{item.item_name} — voided</td>
                                       <td className="px-3 py-2 line-through text-sc-gray tabular-nums">{currency(item.line_total_cents)}</td>
                                     </tr>
                                   ))}
                                   <tr className="bg-sc-gray-100/40 font-semibold">
-                                    <td colSpan={5} className="px-3 py-2 text-right text-sc-navy">Order Total</td>
+                                    <td colSpan={canManage && order.order_status === "draft" ? 6 : 5} className="px-3 py-2 text-right text-sc-navy">Order Total</td>
                                     <td className="px-3 py-2 tabular-nums text-sc-navy">{currency(order.subtotal_cents)}</td>
                                   </tr>
                                 </tbody>
@@ -246,7 +376,6 @@ export function OrdersPage({ canManage }: Props) {
                               <p className="text-label-sm text-sc-gray">Created by {order.created_by_name} on {formatDate(order.created_at)}</p>
                             )}
 
-                            {/* Actions placeholder for Phase 2 */}
                             {canManage && order.order_status === "draft" && (
                               <div className="flex gap-2 pt-1">
                                 <span className="text-label-sm text-sc-gray italic">Invoice, payment, and fulfillment actions coming in Phase 2.</span>

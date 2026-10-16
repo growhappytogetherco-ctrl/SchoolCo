@@ -24,6 +24,7 @@ interface UserContext {
   org:             OrgContext;
   hasParentAccess: boolean;
   canViewFinances: boolean;
+  ordersEnabled:   boolean;
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -117,6 +118,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         org,
         hasParentAccess,
         canViewFinances: !!(mem.can_view_finances || mem.can_manage_finances),
+        // ORDERS_ENABLED is a build-time env var. Set NEXT_PUBLIC_ORDERS_ENABLED=true
+        // in Vercel staging env to enable. Leave unset in production until migration approved.
+        ordersEnabled: process.env.NEXT_PUBLIC_ORDERS_ENABLED === "true",
       });
 
       // Initial unread count — conversation-based, not notification-based
@@ -177,6 +181,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           orgLogo={ctx.org.logo_url}
           messageBadge={messageBadge}
           canViewFinances={ctx.canViewFinances}
+          ordersEnabled={ctx.ordersEnabled}
         />
       </div>
 
@@ -197,6 +202,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onClose={() => setSidebar(false)}
               messageBadge={messageBadge}
               canViewFinances={ctx.canViewFinances}
+              ordersEnabled={ctx.ordersEnabled}
             />
           </div>
         </>
