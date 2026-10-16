@@ -333,6 +333,7 @@ export async function getOrdersForOrg(filters?: {
         invoice_date:       o.invoiced_at ? o.invoiced_at.slice(0, 10) : null,
         due_date:           o.due_date,
         invoice_sent_at:    o.invoice_sent_at,
+        invoice_sent_count: o.invoice_sent_count ?? 0,
         invoice_sent_to:    o.billing_recipient_email ?? null,
         billing_recipient_name:  o.billing_recipient_name ?? null,
         billing_recipient_email: o.billing_recipient_email ?? null,
@@ -427,6 +428,7 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
         invoice_date:      o.invoice_date,
         due_date:          o.due_date,
         invoice_sent_at:   o.invoice_sent_at,
+        invoice_sent_count: o.invoice_sent_count ?? 0,
         invoice_sent_to:   o.invoice_sent_to,
         cancelled_at:      o.cancelled_at,
         cancel_reason:     o.cancel_reason,
@@ -851,20 +853,16 @@ export async function sendInvoiceEmail(orderId: string): Promise<ActionResult<{ 
 
     if (emailResult.error) throw new Error(`Email failed: ${emailResult.error}`);
 
-    // Update sent timestamp and count
+    // Update sent timestamp and increment send count
+    const currentCount = order.invoice_sent_count ?? 0;
     await supabase
       .from("orders")
       .update({
         invoice_sent_at:    new Date().toISOString(),
-        invoice_sent_count: order.amount_paid_cents, // reuse: increment via SQL would need RPC; approximate here
+        invoice_sent_count: currentCount + 1,
         updated_by:         user.id,
       })
       .eq("id", orderId);
-
-    // Increment sent count properly
-    await supabase.rpc("increment_invoice_sent_count", { p_order_id: orderId }).catch(() => {
-      // Function may not exist yet — not fatal
-    });
 
     revalidatePath("/dashboard/finance/orders");
     return { success: true, data: { email_id: emailResult.id ?? "sent" } };

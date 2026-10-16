@@ -36,13 +36,9 @@ export function IssueInvoiceModal({ order, onClose, onIssued }: Props) {
     setSaving(true);
     setError(null);
 
-    // Look up the billing_recipient_id from email if possible
-    // For now we pass the guardian's id if this is the default email
-    const billingId = order.billing_recipient_id ?? "00000000-0000-0000-0000-000000000000";
-
     const res = await issueInvoice({
       order_id:                order.id,
-      billing_recipient_id:    billingId,
+      billing_recipient_id:    order.billing_recipient_id ?? null,
       billing_recipient_name:  recipientName.trim(),
       billing_recipient_email: recipientEmail.trim(),
       due_date_override:       dueDateOverride || undefined,

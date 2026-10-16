@@ -76,6 +76,7 @@ export interface OrderRow {
   invoice_date:            string | null;
   due_date:                string | null;
   invoice_sent_at:         string | null;
+  invoice_sent_count:      number;
   invoice_sent_to:         string | null;
   billing_recipient_id:    string | null;
   billing_recipient_name:  string | null;
@@ -179,7 +180,7 @@ export interface FinanceSettings {
 
 export interface IssueInvoiceInput {
   order_id:                string;
-  billing_recipient_id:    string;
+  billing_recipient_id:    string | null;
   billing_recipient_name:  string;
   billing_recipient_email: string;
   due_date_override?:      string;   // ISO date; defaults to invoice_due_days from settings
