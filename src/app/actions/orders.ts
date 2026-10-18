@@ -316,9 +316,9 @@ export async function getOrdersForOrg(filters?: {
       const fam           = o.family_finance_accounts;
       const profile       = fam?.profiles;
 
-      // Sum non-reversed payments
+      // Only verified payments reduce the balance; pending and reversed do not
       const paid = (o.order_payments ?? [])
-        .filter((p: any) => p.status !== "reversed")
+        .filter((p: any) => p.status === "verified")
         .reduce((s: number, p: any) => s + (p.amount_cents ?? 0), 0);
 
       return {
