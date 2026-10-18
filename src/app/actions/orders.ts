@@ -819,6 +819,21 @@ export async function sendInvoiceEmail(orderId: string): Promise<ActionResult<{ 
       invoice_footer_text:     settings.invoice_footer_text ?? undefined,
     });
 
+    // Email delivery is disabled until live Resend delivery is verified.
+    // Set ORDERS_EMAIL_ENABLED=true in Vercel env to re-enable.
+    if (!process.env.ORDERS_EMAIL_ENABLED) {
+      await supabase.from("order_email_log").insert({
+        order_id:        orderId,
+        organization_id: orgId,
+        recipient_email: order.billing_recipient_email,
+        resend_id:       null,
+        status:          "failed",
+        error_message:   "Email delivery not yet enabled for this environment",
+        sent_by:         user.id,
+      });
+      throw new Error("Invoice email delivery is not yet enabled. The PDF can still be downloaded and shared manually.");
+    }
+
     // Send email
     const { sendInvoiceEmail: sendEmail } = await import("@/lib/email/invoice-email");
     const emailResult = await sendEmail({
