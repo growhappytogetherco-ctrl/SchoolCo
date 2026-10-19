@@ -6,31 +6,31 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Search, X, Plus, Minus, User, AlertCircle } from "lucide-react";
+import { Loader2, Search, X, Plus, Minus, User, AlertCircle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   ITEM_CATEGORY_LABELS,
-  type StoreItem, type OrderItemRow,
+  type StoreItem,
 } from "@/app/actions/orders-constants";
 import {
-  createOrder, addOrderItem, getActiveStudentsForOrg, getStudentsForFamily,
+  createOrder, addOrderItem, getEnrolledStudents, getBillingContactsForStudent, getStudentsForFamily,
 } from "@/app/actions/orders";
 
 function currency(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
-interface BillingAccount {
-  id:    string;
-  name:  string;
-  email: string | null;
-}
-
-interface StudentSearchResult {
+interface StudentResult {
   id:           string;
   display_name: string;
   grade_level:  string | null;
-  accounts:     BillingAccount[];
+}
+
+interface BillingContact {
+  account_id:       string;
+  account_name:     string;
+  email:            string | null;
+  has_portal_login: boolean;
 }
 
 interface PendingItem {
@@ -58,34 +58,52 @@ interface Props {
 }
 
 export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
-  const [allStudents,    setAllStudents]   = useState<StudentSearchResult[]>([]);
+  // Student search state
+  const [allStudents,     setAllStudents]     = useState<StudentResult[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
-  const [search,         setSearch]        = useState("");
-  const [dropdownOpen,   setDropdownOpen]  = useState(false);
-  const [selected,       setSelected]      = useState<StudentSearchResult | null>(null);
-  const [selectedAccount, setSelectedAccount] = useState<BillingAccount | null>(null);
-  const [siblings,       setSiblings]      = useState<SiblingStudent[]>([]);
-  const [items,          setItems]         = useState<PendingItem[]>([]);
-  const [notes,          setNotes]         = useState("");
-  const [saving,         setSaving]        = useState(false);
-  const [error,          setError]         = useState<string | null>(null);
+  const [studentError,    setStudentError]    = useState<string | null>(null);
+  const [search,          setSearch]          = useState("");
+  const [dropdownOpen,    setDropdownOpen]    = useState(false);
+  const [selected,        setSelected]        = useState<StudentResult | null>(null);
+
+  // Billing contact state (loaded separately after student selection)
+  const [billingContacts,  setBillingContacts]  = useState<BillingContact[]>([]);
+  const [loadingBilling,   setLoadingBilling]   = useState(false);
+  const [billingError,     setBillingError]     = useState<string | null>(null);
+  const [selectedContact,  setSelectedContact]  = useState<BillingContact | null>(null);
+
+  // Siblings (for per-item student assignment)
+  const [siblings, setSiblings] = useState<SiblingStudent[]>([]);
+
+  // Order state
+  const [items,  setItems]  = useState<PendingItem[]>([]);
+  const [notes,  setNotes]  = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Load all active enrolled students on open
+  // Load all enrolled students when modal opens
   useEffect(() => {
     if (!open) {
       setAllStudents([]); setSearch(""); setDropdownOpen(false); setSelected(null);
-      setSelectedAccount(null); setSiblings([]); setItems([]); setNotes(""); setError(null);
+      setBillingContacts([]); setSelectedContact(null); setLoadingBilling(false); setBillingError(null);
+      setSiblings([]); setItems([]); setNotes(""); setError(null); setStudentError(null);
       return;
     }
     setLoadingStudents(true);
-    getActiveStudentsForOrg().then(r => {
-      setAllStudents(r.success ? r.data : []);
+    setStudentError(null);
+    getEnrolledStudents().then(r => {
+      if (r.success) {
+        setAllStudents(r.data);
+      } else {
+        setStudentError(r.error ?? "Could not load students");
+        setAllStudents([]);
+      }
       setLoadingStudents(false);
     });
   }, [open]);
 
-  // Filtered student list for the dropdown
+  // Filtered list for dropdown
   const filteredStudents = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return allStudents;
@@ -95,33 +113,48 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
     );
   }, [allStudents, search]);
 
-  async function selectStudent(s: StudentSearchResult) {
+  async function selectStudent(s: StudentResult) {
     setSelected(s);
     setSearch(s.display_name);
     setDropdownOpen(false);
     setItems([]);
-    // Auto-select if only one account; otherwise require explicit selection
-    const autoAccount = s.accounts.length === 1 ? s.accounts[0] : null;
-    setSelectedAccount(autoAccount);
-    // Load siblings for the auto-selected account
-    if (autoAccount) {
-      const r = await getStudentsForFamily(autoAccount.id);
-      setSiblings(r.success ? r.data : [{ id: s.id, full_name: s.display_name, grade_level: s.grade_level }]);
+    setBillingContacts([]);
+    setSelectedContact(null);
+    setBillingError(null);
+    setSiblings([{ id: s.id, full_name: s.display_name, grade_level: s.grade_level }]);
+
+    // Load billing contacts separately — student display is already complete
+    setLoadingBilling(true);
+    const r = await getBillingContactsForStudent(s.id);
+    setLoadingBilling(false);
+    if (r.success) {
+      setBillingContacts(r.data);
+      // Auto-select only when exactly one contact
+      if (r.data.length === 1) {
+        setSelectedContact(r.data[0]);
+        loadSiblings(r.data[0].account_id);
+      }
     } else {
-      setSiblings([{ id: s.id, full_name: s.display_name, grade_level: s.grade_level }]);
+      setBillingError("Could not load billing contacts. You can still select a billing account manually.");
     }
   }
 
-  async function handleAccountSelect(acct: BillingAccount) {
-    setSelectedAccount(acct);
+  async function loadSiblings(accountId: string) {
+    const r = await getStudentsForFamily(accountId);
+    if (r.success && r.data.length > 0) setSiblings(r.data);
+  }
+
+  async function handleContactSelect(c: BillingContact) {
+    setSelectedContact(c);
     setItems([]);
-    const r = await getStudentsForFamily(acct.id);
-    setSiblings(r.success ? r.data : selected ? [{ id: selected.id, full_name: selected.display_name, grade_level: selected.grade_level }] : []);
+    loadSiblings(c.account_id);
   }
 
   function clearSelection() {
     setSelected(null);
-    setSelectedAccount(null);
+    setSelectedContact(null);
+    setBillingContacts([]);
+    setBillingError(null);
     setSearch("");
     setSiblings([]);
     setItems([]);
@@ -152,8 +185,8 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
   const subtotal = items.reduce((s, i) => s + i.quantity * i.unit_price_cents, 0);
 
   async function handleSubmit() {
-    if (!selectedAccount) {
-      setError("Select a billing account first");
+    if (!selectedContact) {
+      setError("Select a billing contact before saving");
       return;
     }
     if (items.length === 0) { setError("Add at least one item"); return; }
@@ -161,7 +194,7 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
     setSaving(true);
     try {
       const orderResult = await createOrder({
-        family_account_id: selectedAccount.id,
+        family_account_id: selectedContact.account_id,
         notes: notes || undefined,
       });
       if (!orderResult.success) { setError(orderResult.error); return; }
@@ -206,7 +239,7 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
             <Input
               ref={inputRef}
               className="pl-9 pr-9"
-              placeholder={loadingStudents ? "Loading students…" : "Search by student name or grade…"}
+              placeholder={loadingStudents ? "Loading students…" : "Search by name or grade…"}
               value={search}
               disabled={loadingStudents}
               onChange={e => { setSearch(e.target.value); if (!selected) setDropdownOpen(true); }}
@@ -226,12 +259,19 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
             )}
           </div>
 
-          {/* Dropdown list */}
-          {dropdownOpen && !selected && filteredStudents.length > 0 && (
+          {studentError && !loadingStudents && (
+            <p className="text-sc-rose-700 text-label-sm flex items-center gap-1.5">
+              <AlertCircle className="size-3.5 shrink-0" />
+              {studentError}
+            </p>
+          )}
+
+          {/* Dropdown */}
+          {dropdownOpen && !selected && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setDropdownOpen(false)} />
               <div className="relative z-20 rounded-xl border border-sc-gray-100 bg-white divide-y divide-sc-gray-100 shadow-card max-h-64 overflow-y-auto">
-                {filteredStudents.map(s => (
+                {filteredStudents.length > 0 ? filteredStudents.map(s => (
                   <button
                     key={s.id}
                     onClick={() => selectStudent(s)}
@@ -245,79 +285,105 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
                         </span>
                       )}
                     </div>
-                    <div className="text-sc-gray text-label-sm mt-0.5">
-                      {s.accounts.length === 0
-                        ? <span className="text-sc-rose-700">No billing account linked</span>
-                        : s.accounts.length === 1
-                          ? `Billing: ${s.accounts[0].name}`
-                          : `${s.accounts.length} billing accounts`
-                      }
-                    </div>
                   </button>
-                ))}
+                )) : !loadingStudents && (
+                  <p className="px-4 py-3 text-sc-gray text-label-sm">
+                    {search.trim() ? `No students match "${search}"` : "No enrolled students found"}
+                  </p>
+                )}
               </div>
             </>
           )}
 
-          {dropdownOpen && !selected && !loadingStudents && filteredStudents.length === 0 && search.trim() && (
-            <p className="text-sc-gray text-label-sm px-1">No enrolled students match "{search}"</p>
-          )}
-
-          {/* Selected student card + billing account picker */}
+          {/* Selected student chip */}
           {selected && (
-            <div className="rounded-xl border border-sc-teal/30 bg-sc-teal/5 px-4 py-3 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-medium text-sc-navy">
-                  {selected.display_name}
-                  {selected.grade_level && (
-                    <span className="ml-2 text-xs text-sc-gray font-normal">{selected.grade_level}</span>
-                  )}
-                </div>
+            <div className="rounded-xl border border-sc-teal/30 bg-sc-teal/5 px-4 py-3">
+              <div className="font-medium text-sc-navy">
+                {selected.display_name}
+                {selected.grade_level && (
+                  <span className="ml-2 text-xs text-sc-gray font-normal">{selected.grade_level}</span>
+                )}
               </div>
-
-              {selected.accounts.length === 0 ? (
-                <div className="flex items-center gap-1.5 text-label-sm text-sc-rose-700">
-                  <AlertCircle className="size-3.5 shrink-0" />
-                  No billing account linked. Contact admin before creating an order.
-                </div>
-              ) : selected.accounts.length === 1 ? (
-                <div className="text-label-sm text-sc-gray">
-                  <span className="font-medium text-sc-teal-700">Billing: </span>
-                  {selected.accounts[0].name}
-                  {selected.accounts[0].email && <span> · {selected.accounts[0].email}</span>}
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <Label className="text-label-sm">Bill to</Label>
-                  <div className="grid gap-1.5">
-                    {selected.accounts.map(acct => (
-                      <button
-                        key={acct.id}
-                        type="button"
-                        onClick={() => handleAccountSelect(acct)}
-                        className={cn(
-                          "text-left rounded-lg border px-3 py-2 text-label-sm transition-colors",
-                          selectedAccount?.id === acct.id
-                            ? "border-sc-teal bg-sc-teal/10 text-sc-teal-700 font-medium"
-                            : "border-sc-gray-200 bg-white text-sc-navy hover:border-sc-teal/50"
-                        )}
-                      >
-                        {acct.name}
-                        {acct.email && <span className="ml-2 text-sc-gray font-normal">{acct.email}</span>}
-                      </button>
-                    ))}
-                  </div>
-                  {!selectedAccount && (
-                    <p className="text-label-sm text-sc-rose-700">Select a billing account to continue</p>
-                  )}
-                </div>
-              )}
             </div>
           )}
         </div>
 
-        {/* Step 2: Item selection (only if student + billing account are resolved) */}
-        {selected && selectedAccount && (
+        {/* Step 2: Billing contact selection */}
+        {selected && (
+          <div className="space-y-2">
+            <Label>Bill To</Label>
+
+            {loadingBilling && (
+              <div className="flex items-center gap-2 text-sc-gray text-label-sm">
+                <Loader2 className="size-3.5 animate-spin" />
+                Loading billing contacts…
+              </div>
+            )}
+
+            {billingError && !loadingBilling && (
+              <p className="text-sc-rose-700 text-label-sm flex items-center gap-1.5">
+                <AlertCircle className="size-3.5 shrink-0" />
+                {billingError}
+              </p>
+            )}
+
+            {!loadingBilling && billingContacts.length === 0 && !billingError && (
+              <p className="text-sc-rose-700 text-label-sm flex items-center gap-1.5">
+                <AlertCircle className="size-3.5 shrink-0" />
+                No billing accounts linked to this student. Contact admin to set up a family account first.
+              </p>
+            )}
+
+            {!loadingBilling && billingContacts.length > 0 && (
+              <div className="grid gap-1.5">
+                {billingContacts.map(c => (
+                  <button
+                    key={c.account_id}
+                    type="button"
+                    onClick={() => handleContactSelect(c)}
+                    className={cn(
+                      "text-left rounded-xl border px-4 py-3 transition-colors",
+                      selectedContact?.account_id === c.account_id
+                        ? "border-sc-teal bg-sc-teal/10"
+                        : "border-sc-gray-200 bg-white hover:border-sc-teal/50"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className={cn("font-medium text-body-md",
+                          selectedContact?.account_id === c.account_id ? "text-sc-teal-700" : "text-sc-navy"
+                        )}>
+                          {c.account_name}
+                        </div>
+                        {c.email && (
+                          <div className="text-label-sm text-sc-gray mt-0.5">{c.email}</div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                        {c.has_portal_login && (
+                          <span className="flex items-center gap-1 text-sc-teal-700 text-xs font-medium">
+                            <CheckCircle2 className="size-3.5" />
+                            Portal login
+                          </span>
+                        )}
+                        {selectedContact?.account_id === c.account_id && (
+                          <span className="text-xs text-sc-teal-700 font-medium">Selected</span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {billingContacts.length > 1 && !selectedContact && (
+              <p className="text-sc-rose-700 text-label-sm">Select the billing contact to continue</p>
+            )}
+          </div>
+        )}
+
+        {/* Step 3: Item selection */}
+        {selected && selectedContact && (
           <>
             <div className="border-t border-sc-gray-100 pt-4 space-y-4">
               <h3 className="text-label-md font-semibold text-sc-navy">Add Items from Catalog</h3>
@@ -399,8 +465,8 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
                           </select>
                         )}
 
-                        {/* Student assignment — siblings from same family */}
-                        {siblings.length > 0 && (
+                        {/* Student assignment */}
+                        {siblings.length > 1 && (
                           <div className="flex items-center gap-1.5">
                             <User className="size-3.5 text-sc-gray" />
                             <select
@@ -432,7 +498,6 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
                   );
                 })}
 
-                {/* Subtotal */}
                 <div className="flex justify-between px-3 py-2 rounded-xl bg-sc-navy/5 border border-sc-navy/10">
                   <span className="font-semibold text-sc-navy text-body-md">Order Total</span>
                   <span className="tabular-nums font-bold text-sc-navy text-base">{currency(subtotal)}</span>
@@ -460,7 +525,7 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button
             onClick={handleSubmit}
-            disabled={saving || !selectedAccount || items.length === 0}
+            disabled={saving || !selectedContact || items.length === 0}
             className="bg-sc-teal hover:bg-sc-teal-700 text-white"
           >
             {saving && <Loader2 className="size-4 mr-1.5 animate-spin" />}

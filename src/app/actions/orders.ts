@@ -449,91 +449,93 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
   }
 }
 
-// ── Active students for order creation (student-first selection) ──────────
-//
-// Join path: students → guardianships (student_id) → family_finance_accounts (profile_id)
-// students.family_id references the `families` demographic table, NOT family_finance_accounts.
+// ── Enrolled students for order creation dropdown ─────────────────────────
+// Deliberately returns ONLY student data — no billing queries.
+// Billing contacts are fetched separately after student selection.
 
-export async function getActiveStudentsForOrg(): Promise<ActionResult<Array<{
+export async function getEnrolledStudents(): Promise<ActionResult<Array<{
   id:           string;
   display_name: string;
   grade_level:  string | null;
-  accounts:     Array<{ id: string; name: string; email: string | null }>;
 }>>> {
   try {
-    const { orgId, supabase } = await assertOrdersManage();
-
-    // Step 1: all enrolled students
-    const { data: students, error: sErr } = await supabase
+    const { orgId, supabase } = await assertOrdersView();
+    const { data, error } = await supabase
       .from("students")
       .select("id, first_name, last_name, grade_level")
       .eq("organization_id", orgId)
       .eq("enrollment_status", "enrolled")
       .order("last_name", { ascending: true })
       .order("first_name", { ascending: true });
-    if (sErr) throw sErr;
-    if (!students || students.length === 0) return { success: true, data: [] };
+    if (error) throw error;
+    return {
+      success: true,
+      data: (data ?? []).map((s: any) => ({
+        id:           s.id,
+        display_name: `${s.first_name} ${s.last_name}`.trim(),
+        grade_level:  s.grade_level ?? null,
+      })),
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : (e as any)?.message ?? String(e);
+    return { success: false, error: msg };
+  }
+}
 
-    // Step 2: active guardianships for these students
-    const studentIds = students.map((s: any) => s.id);
-    const { data: guardianships, error: gErr } = await supabase
+// ── Billing contacts for a student ───────────────────────────────────────
+// Join path: students → guardianships (student_id) → family_finance_accounts (profile_id)
+// students.family_id → families (demographic table), NOT family_finance_accounts.
+// Uses !family_finance_accounts_profile_id_fkey to disambiguate multiple FKs to profiles.
+
+export async function getBillingContactsForStudent(studentId: string): Promise<ActionResult<Array<{
+  account_id:          string;
+  account_name:        string;
+  email:               string | null;
+  has_portal_login:    boolean;   // has active parent role in org_members
+}>>> {
+  try {
+    const { orgId, supabase } = await assertOrdersView();
+
+    // Guardianships for this student
+    const { data: guards, error: gErr } = await supabase
       .from("guardianships")
-      .select("student_id, profile_id")
-      .in("student_id", studentIds)
+      .select("profile_id")
+      .eq("student_id", studentId)
       .eq("organization_id", orgId)
       .eq("status", "active");
     if (gErr) throw gErr;
+    if (!guards || guards.length === 0) return { success: true, data: [] };
 
-    // Step 3: active family_finance_accounts for those profiles
-    const profileIds = Array.from(new Set((guardianships ?? []).map((g: any) => g.profile_id as string)));
-    let accountsByProfileId: Record<string, { id: string; name: string; email: string | null }> = {};
-    if (profileIds.length > 0) {
-      const { data: accounts, error: aErr } = await supabase
-        .from("family_finance_accounts")
-        .select("id, account_name, profile_id, profiles(email)")
-        .in("profile_id", profileIds)
-        .eq("organization_id", orgId)
-        .eq("status", "active");
-      if (aErr) throw aErr;
-      for (const a of (accounts ?? [])) {
-        accountsByProfileId[(a as any).profile_id] = {
-          id:    (a as any).id,
-          name:  (a as any).account_name,
-          email: (a as any).profiles?.email ?? null,
-        };
-      }
-    }
+    const profileIds = Array.from(new Set((guards ?? []).map((g: any) => g.profile_id as string)));
 
-    // Build student_id → [account, ...] map via guardianships
-    const guardByStudentId: Record<string, string[]> = {};
-    for (const g of (guardianships ?? [])) {
-      const sid = (g as any).student_id;
-      const pid = (g as any).profile_id;
-      if (!guardByStudentId[sid]) guardByStudentId[sid] = [];
-      guardByStudentId[sid].push(pid);
-    }
+    // Billing accounts — disambiguate FK with explicit hint
+    const { data: accounts, error: aErr } = await supabase
+      .from("family_finance_accounts")
+      .select("id, account_name, profile_id, profiles!family_finance_accounts_profile_id_fkey(email)")
+      .in("profile_id", profileIds)
+      .eq("organization_id", orgId)
+      .eq("status", "active");
+    if (aErr) throw aErr;
 
-    return {
-      success: true,
-      data: (students ?? []).map((s: any) => {
-        const profileIds = guardByStudentId[s.id] ?? [];
-        const seen = new Set<string>();
-        const accounts: Array<{ id: string; name: string; email: string | null }> = [];
-        for (const pid of profileIds) {
-          const acct = accountsByProfileId[pid];
-          if (acct && !seen.has(acct.id)) {
-            seen.add(acct.id);
-            accounts.push(acct);
-          }
-        }
-        return {
-          id:           s.id,
-          display_name: `${s.first_name} ${s.last_name}`.trim(),
-          grade_level:  s.grade_level ?? null,
-          accounts,
-        };
-      }),
-    };
+    // Active parent portal logins — which profile_ids have a parent org_member entry
+    const { data: members } = await supabase
+      .from("organization_members")
+      .select("profile_id")
+      .in("profile_id", profileIds)
+      .eq("organization_id", orgId)
+      .eq("status", "active")
+      .eq("role", "parent");
+    const parentProfileIds = new Set((members ?? []).map((m: any) => m.profile_id as string));
+
+    // Sort: portal logins first
+    const result = (accounts ?? []).map((a: any) => ({
+      account_id:       a.id,
+      account_name:     a.account_name,
+      email:            (a as any).profiles?.email ?? null,
+      has_portal_login: parentProfileIds.has(a.profile_id),
+    })).sort((a, b) => Number(b.has_portal_login) - Number(a.has_portal_login));
+
+    return { success: true, data: result };
   } catch (e) {
     const msg = e instanceof Error ? e.message : (e as any)?.message ?? String(e);
     return { success: false, error: msg };
