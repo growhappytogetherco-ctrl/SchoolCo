@@ -2,11 +2,10 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getUser, getProfile } from "@/lib/supabase/server";
 import { getActiveOrgId, getActiveRole, HAS_PARENT_COOKIE_NAME, PORTAL_VIEW_COOKIE_NAME } from "@/lib/supabase/org-context";
-import { setPortalView } from "@/app/actions/org";
-import { signOutAction } from "@/app/actions/auth";
+import { PortalHeaderAccount } from "@/components/layout/PortalHeader";
 import { PortalMessagesLink } from "@/components/messages/PortalMessagesLink";
 import { getParentUnreadForWidget } from "@/app/actions/messages";
-import { Home, User, GraduationCap, Calendar, BookOpen, LayoutDashboard, LogOut, BarChart2, DollarSign } from "lucide-react";
+import { Home, GraduationCap, Calendar, BookOpen, BarChart2, DollarSign } from "lucide-react";
 import { cookies } from "next/headers";
 
 /**
@@ -33,9 +32,26 @@ export default async function PortalLayout({ children }: { children: React.React
   const isAllowed = role === "parent" || (hasParent && portalView === "parent");
   if (!isAllowed) redirect("/dashboard/home");
 
-  const isMultiRole = hasParent;
-
+  // Verify staff access via DB (not just the cookie) before offering the switch button.
+  // A parent-only user will have no staff roles in the `roles` column.
+  const { createClient } = await import("@/lib/supabase/server");
+  const supabase = await createClient();
   const profile = await getProfile(user.id);
+  const { data: membership } = await supabase
+    .from("organization_members")
+    .select("roles, role")
+    .eq("profile_id", profile?.id ?? "")
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+
+  const allRoles = (membership?.roles as string[] | null) ?? [membership?.role as string];
+  const hasStaffAccess = allRoles.some(
+    (r) => !["parent", "student_future"].includes(r)
+  );
+  // isMultiRole: user has both parent access AND at least one staff role
+  const isMultiRole = hasParent && hasStaffAccess;
+
   const firstName = (profile?.full_name as string | null)?.split(" ")[0] ?? null;
 
   // Unread conversation count for the Messages badge — conversation-based, parent_visible-filtered
@@ -52,108 +68,72 @@ export default async function PortalLayout({ children }: { children: React.React
             <span className="text-sc-gray text-label-sm hidden sm:block">· Family Portal</span>
           </Link>
 
-          {/* Scrollable page-nav links — may overflow on narrow screens */}
-          <nav className="flex items-center gap-1 sm:gap-2 overflow-x-auto shrink min-w-0 scrollbar-none">
+          {/* Page-nav links — 8 items fit on all screen sizes as icons */}
+          <nav className="flex items-center gap-0.5 sm:gap-1">
             <Link
               href="/portal/home"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
               title="Home"
             >
               <Home className="size-4" />
-              <span className="hidden sm:block">Home</span>
+              <span className="hidden md:block">Home</span>
             </Link>
             <Link
               href="/portal/children"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
               title="My Children"
             >
               <GraduationCap className="size-4" />
-              <span className="hidden sm:block">Children</span>
+              <span className="hidden md:block">Children</span>
             </Link>
             <Link
               href="/portal/calendar"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
               title="Calendar"
             >
               <Calendar className="size-4" />
-              <span className="hidden sm:block">Calendar</span>
+              <span className="hidden md:block">Calendar</span>
             </Link>
             <Link
               href="/portal/attendance"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
               title="Attendance"
             >
               <Calendar className="size-4" />
-              <span className="hidden sm:block">Attendance</span>
+              <span className="hidden md:block">Attendance</span>
             </Link>
             <Link
               href="/portal/grades"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
               title="Grades"
             >
               <BarChart2 className="size-4" />
-              <span className="hidden sm:block">Grades</span>
+              <span className="hidden md:block">Grades</span>
             </Link>
             <Link
               href="/portal/academics"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
               title="Academics"
             >
               <BookOpen className="size-4" />
-              <span className="hidden sm:block">Academics</span>
+              <span className="hidden md:block">Academics</span>
             </Link>
             <Link
               href="/portal/finance"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
               title="Finance"
             >
               <DollarSign className="size-4" />
-              <span className="hidden sm:block">Finance</span>
+              <span className="hidden md:block">Finance</span>
             </Link>
             <PortalMessagesLink userId={user.id} initialCount={initialUnread} />
-            <Link
-              href="/portal/settings"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
-              title={firstName ?? "Account"}
-            >
-              <User className="size-4" />
-              <span className="hidden md:block">{firstName ?? "Account"}</span>
-            </Link>
           </nav>
 
-          {/* Fixed action controls — always visible, never scroll off screen */}
-          <div className="flex items-center gap-1 shrink-0 ml-1 pl-1 border-l border-sc-gray-100">
-            {/* Multi-role: Switch to Staff Dashboard */}
-            {isMultiRole && (
-              <form action={async () => {
-                "use server";
-                const form = new FormData();
-                form.set("view", "staff");
-                await setPortalView(form);
-              }}>
-                <button
-                  type="submit"
-                  className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-teal font-medium hover:text-sc-teal-700 hover:bg-sc-teal-50 transition-colors"
-                  title="Switch to Staff Dashboard"
-                >
-                  <LayoutDashboard className="size-4" />
-                  <span className="hidden sm:block">Staff View</span>
-                </button>
-              </form>
-            )}
-
-            {/* Sign Out */}
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-rose hover:text-sc-rose-700 hover:bg-sc-rose-50 transition-colors"
-                title="Sign Out"
-              >
-                <LogOut className="size-4" />
-                <span className="hidden sm:block">Sign Out</span>
-              </button>
-            </form>
-          </div>
+          {/* Account dropdown — contains My Account, Switch to Staff Portal, Sign Out */}
+          <PortalHeaderAccount
+            userName={firstName ?? "Account"}
+            isMultiRole={isMultiRole}
+          />
         </div>
       </header>
 
