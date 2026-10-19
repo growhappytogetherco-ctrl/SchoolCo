@@ -20,13 +20,17 @@ function currency(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+interface BillingAccount {
+  id:    string;
+  name:  string;
+  email: string | null;
+}
+
 interface StudentSearchResult {
-  id:                  string;
-  display_name:        string;
-  grade_level:         string | null;
-  family_account_id:   string | null;
-  family_account_name: string | null;
-  guardian_email:      string | null;
+  id:           string;
+  display_name: string;
+  grade_level:  string | null;
+  accounts:     BillingAccount[];
 }
 
 interface PendingItem {
@@ -59,6 +63,7 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
   const [search,         setSearch]        = useState("");
   const [dropdownOpen,   setDropdownOpen]  = useState(false);
   const [selected,       setSelected]      = useState<StudentSearchResult | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<BillingAccount | null>(null);
   const [siblings,       setSiblings]      = useState<SiblingStudent[]>([]);
   const [items,          setItems]         = useState<PendingItem[]>([]);
   const [notes,          setNotes]         = useState("");
@@ -70,7 +75,7 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
   useEffect(() => {
     if (!open) {
       setAllStudents([]); setSearch(""); setDropdownOpen(false); setSelected(null);
-      setSiblings([]); setItems([]); setNotes(""); setError(null);
+      setSelectedAccount(null); setSiblings([]); setItems([]); setNotes(""); setError(null);
       return;
     }
     setLoadingStudents(true);
@@ -94,17 +99,29 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
     setSelected(s);
     setSearch(s.display_name);
     setDropdownOpen(false);
-    // Load sibling students from the same family account
-    if (s.family_account_id) {
-      const r = await getStudentsForFamily(s.family_account_id);
+    setItems([]);
+    // Auto-select if only one account; otherwise require explicit selection
+    const autoAccount = s.accounts.length === 1 ? s.accounts[0] : null;
+    setSelectedAccount(autoAccount);
+    // Load siblings for the auto-selected account
+    if (autoAccount) {
+      const r = await getStudentsForFamily(autoAccount.id);
       setSiblings(r.success ? r.data : [{ id: s.id, full_name: s.display_name, grade_level: s.grade_level }]);
     } else {
       setSiblings([{ id: s.id, full_name: s.display_name, grade_level: s.grade_level }]);
     }
   }
 
+  async function handleAccountSelect(acct: BillingAccount) {
+    setSelectedAccount(acct);
+    setItems([]);
+    const r = await getStudentsForFamily(acct.id);
+    setSiblings(r.success ? r.data : selected ? [{ id: selected.id, full_name: selected.display_name, grade_level: selected.grade_level }] : []);
+  }
+
   function clearSelection() {
     setSelected(null);
+    setSelectedAccount(null);
     setSearch("");
     setSiblings([]);
     setItems([]);
@@ -135,8 +152,8 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
   const subtotal = items.reduce((s, i) => s + i.quantity * i.unit_price_cents, 0);
 
   async function handleSubmit() {
-    if (!selected?.family_account_id) {
-      setError("Select a student with a linked billing account first");
+    if (!selectedAccount) {
+      setError("Select a billing account first");
       return;
     }
     if (items.length === 0) { setError("Add at least one item"); return; }
@@ -144,7 +161,7 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
     setSaving(true);
     try {
       const orderResult = await createOrder({
-        family_account_id: selected.family_account_id,
+        family_account_id: selectedAccount.id,
         notes: notes || undefined,
       });
       if (!orderResult.success) { setError(orderResult.error); return; }
@@ -229,9 +246,11 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
                       )}
                     </div>
                     <div className="text-sc-gray text-label-sm mt-0.5">
-                      {s.family_account_name
-                        ? `Billing: ${s.family_account_name}`
-                        : <span className="text-sc-rose-700">No billing account linked</span>
+                      {s.accounts.length === 0
+                        ? <span className="text-sc-rose-700">No billing account linked</span>
+                        : s.accounts.length === 1
+                          ? `Billing: ${s.accounts[0].name}`
+                          : `${s.accounts.length} billing accounts`
                       }
                     </div>
                   </button>
@@ -244,42 +263,61 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
             <p className="text-sc-gray text-label-sm px-1">No enrolled students match "{search}"</p>
           )}
 
-          {/* Selected student card */}
+          {/* Selected student card + billing account picker */}
           {selected && (
-            <div className={cn(
-              "rounded-xl border px-4 py-3",
-              selected.family_account_id
-                ? "border-sc-teal/30 bg-sc-teal/5"
-                : "border-sc-rose-200 bg-sc-rose-50"
-            )}>
+            <div className="rounded-xl border border-sc-teal/30 bg-sc-teal/5 px-4 py-3 space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="font-medium text-sc-navy">
-                    {selected.display_name}
-                    {selected.grade_level && (
-                      <span className="ml-2 text-xs text-sc-gray font-normal">{selected.grade_level}</span>
-                    )}
-                  </div>
-                  {selected.family_account_id ? (
-                    <div className="text-label-sm text-sc-gray mt-0.5">
-                      <span className="font-medium text-sc-teal-700">Billing: </span>
-                      {selected.family_account_name}
-                      {selected.guardian_email && <span> · {selected.guardian_email}</span>}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-label-sm text-sc-rose-700 mt-0.5">
-                      <AlertCircle className="size-3.5" />
-                      No billing account linked to this student. Contact admin to set up their family account before creating an order.
-                    </div>
+                <div className="font-medium text-sc-navy">
+                  {selected.display_name}
+                  {selected.grade_level && (
+                    <span className="ml-2 text-xs text-sc-gray font-normal">{selected.grade_level}</span>
                   )}
                 </div>
               </div>
+
+              {selected.accounts.length === 0 ? (
+                <div className="flex items-center gap-1.5 text-label-sm text-sc-rose-700">
+                  <AlertCircle className="size-3.5 shrink-0" />
+                  No billing account linked. Contact admin before creating an order.
+                </div>
+              ) : selected.accounts.length === 1 ? (
+                <div className="text-label-sm text-sc-gray">
+                  <span className="font-medium text-sc-teal-700">Billing: </span>
+                  {selected.accounts[0].name}
+                  {selected.accounts[0].email && <span> · {selected.accounts[0].email}</span>}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label className="text-label-sm">Bill to</Label>
+                  <div className="grid gap-1.5">
+                    {selected.accounts.map(acct => (
+                      <button
+                        key={acct.id}
+                        type="button"
+                        onClick={() => handleAccountSelect(acct)}
+                        className={cn(
+                          "text-left rounded-lg border px-3 py-2 text-label-sm transition-colors",
+                          selectedAccount?.id === acct.id
+                            ? "border-sc-teal bg-sc-teal/10 text-sc-teal-700 font-medium"
+                            : "border-sc-gray-200 bg-white text-sc-navy hover:border-sc-teal/50"
+                        )}
+                      >
+                        {acct.name}
+                        {acct.email && <span className="ml-2 text-sc-gray font-normal">{acct.email}</span>}
+                      </button>
+                    ))}
+                  </div>
+                  {!selectedAccount && (
+                    <p className="text-label-sm text-sc-rose-700">Select a billing account to continue</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Step 2: Item selection (only if family account is resolved) */}
-        {selected?.family_account_id && (
+        {/* Step 2: Item selection (only if student + billing account are resolved) */}
+        {selected && selectedAccount && (
           <>
             <div className="border-t border-sc-gray-100 pt-4 space-y-4">
               <h3 className="text-label-md font-semibold text-sc-navy">Add Items from Catalog</h3>
@@ -422,7 +460,7 @@ export function CreateOrderModal({ open, onClose, catalog, onCreated }: Props) {
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button
             onClick={handleSubmit}
-            disabled={saving || !selected?.family_account_id || items.length === 0}
+            disabled={saving || !selectedAccount || items.length === 0}
             className="bg-sc-teal hover:bg-sc-teal-700 text-white"
           >
             {saving && <Loader2 className="size-4 mr-1.5 animate-spin" />}

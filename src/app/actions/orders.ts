@@ -450,46 +450,87 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
 }
 
 // ── Active students for order creation (student-first selection) ──────────
+//
+// Join path: students → guardianships (student_id) → family_finance_accounts (profile_id)
+// students.family_id references the `families` demographic table, NOT family_finance_accounts.
 
 export async function getActiveStudentsForOrg(): Promise<ActionResult<Array<{
-  id:                  string;
-  display_name:        string;   // "First Last"
-  grade_level:         string | null;
-  family_account_id:   string | null;
-  family_account_name: string | null;
-  guardian_email:      string | null;
+  id:           string;
+  display_name: string;
+  grade_level:  string | null;
+  accounts:     Array<{ id: string; name: string; email: string | null }>;
 }>>> {
   try {
     const { orgId, supabase } = await assertOrdersManage();
 
-    // Students carry a direct family_id FK → family_finance_accounts.
-    // first_name + last_name (no full_name column on students).
-    const { data, error } = await supabase
+    // Step 1: all enrolled students
+    const { data: students, error: sErr } = await supabase
       .from("students")
-      .select(`
-        id, first_name, last_name, grade_level,
-        family_finance_accounts!students_family_id_fkey(
-          id, account_name,
-          profiles!inner(email)
-        )
-      `)
+      .select("id, first_name, last_name, grade_level")
       .eq("organization_id", orgId)
       .eq("enrollment_status", "enrolled")
       .order("last_name", { ascending: true })
       .order("first_name", { ascending: true });
-    if (error) throw error;
+    if (sErr) throw sErr;
+    if (!students || students.length === 0) return { success: true, data: [] };
+
+    // Step 2: active guardianships for these students
+    const studentIds = students.map((s: any) => s.id);
+    const { data: guardianships, error: gErr } = await supabase
+      .from("guardianships")
+      .select("student_id, profile_id")
+      .in("student_id", studentIds)
+      .eq("organization_id", orgId)
+      .eq("status", "active");
+    if (gErr) throw gErr;
+
+    // Step 3: active family_finance_accounts for those profiles
+    const profileIds = Array.from(new Set((guardianships ?? []).map((g: any) => g.profile_id as string)));
+    let accountsByProfileId: Record<string, { id: string; name: string; email: string | null }> = {};
+    if (profileIds.length > 0) {
+      const { data: accounts, error: aErr } = await supabase
+        .from("family_finance_accounts")
+        .select("id, account_name, profile_id, profiles(email)")
+        .in("profile_id", profileIds)
+        .eq("organization_id", orgId)
+        .eq("status", "active");
+      if (aErr) throw aErr;
+      for (const a of (accounts ?? [])) {
+        accountsByProfileId[(a as any).profile_id] = {
+          id:    (a as any).id,
+          name:  (a as any).account_name,
+          email: (a as any).profiles?.email ?? null,
+        };
+      }
+    }
+
+    // Build student_id → [account, ...] map via guardianships
+    const guardByStudentId: Record<string, string[]> = {};
+    for (const g of (guardianships ?? [])) {
+      const sid = (g as any).student_id;
+      const pid = (g as any).profile_id;
+      if (!guardByStudentId[sid]) guardByStudentId[sid] = [];
+      guardByStudentId[sid].push(pid);
+    }
 
     return {
       success: true,
-      data: (data ?? []).map((s: any) => {
-        const ffa = s.family_finance_accounts;
+      data: (students ?? []).map((s: any) => {
+        const profileIds = guardByStudentId[s.id] ?? [];
+        const seen = new Set<string>();
+        const accounts: Array<{ id: string; name: string; email: string | null }> = [];
+        for (const pid of profileIds) {
+          const acct = accountsByProfileId[pid];
+          if (acct && !seen.has(acct.id)) {
+            seen.add(acct.id);
+            accounts.push(acct);
+          }
+        }
         return {
-          id:                  s.id,
-          display_name:        `${s.first_name} ${s.last_name}`.trim(),
-          grade_level:         s.grade_level ?? null,
-          family_account_id:   ffa?.id ?? null,
-          family_account_name: ffa?.account_name ?? null,
-          guardian_email:      ffa?.profiles?.email ?? null,
+          id:           s.id,
+          display_name: `${s.first_name} ${s.last_name}`.trim(),
+          grade_level:  s.grade_level ?? null,
+          accounts,
         };
       }),
     };
@@ -618,12 +659,33 @@ export async function getStudentsForFamily(familyAccountId: string): Promise<Act
   try {
     const { orgId, supabase } = await assertOrdersView();
 
-    // Students link to family via family_id (direct FK).
-    // Students table has first_name + last_name, not full_name.
+    // familyAccountId is a family_finance_accounts.id.
+    // Path: family_finance_accounts → profile_id → guardianships → students
+    const { data: acct, error: aErr } = await supabase
+      .from("family_finance_accounts")
+      .select("profile_id")
+      .eq("id", familyAccountId)
+      .eq("organization_id", orgId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (aErr) throw aErr;
+    if (!acct) return { success: true, data: [] };
+
+    const { data: guardianships, error: gErr } = await supabase
+      .from("guardianships")
+      .select("student_id")
+      .eq("profile_id", (acct as any).profile_id)
+      .eq("organization_id", orgId)
+      .eq("status", "active");
+    if (gErr) throw gErr;
+
+    const studentIds = (guardianships ?? []).map((g: any) => g.student_id);
+    if (studentIds.length === 0) return { success: true, data: [] };
+
     const { data, error } = await supabase
       .from("students")
       .select("id, first_name, last_name, grade_level")
-      .eq("family_id", familyAccountId)
+      .in("id", studentIds)
       .eq("organization_id", orgId)
       .eq("enrollment_status", "enrolled")
       .order("last_name", { ascending: true })
