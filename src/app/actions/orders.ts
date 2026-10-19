@@ -272,11 +272,11 @@ export async function getOrdersForOrg(filters?: {
         invoice_number, invoiced_at, due_date, invoice_sent_at, invoice_sent_count,
         billing_recipient_id, billing_recipient_name, billing_recipient_email,
         cancelled_at, cancel_reason, fulfilled_at, notes, created_at,
-        family_finance_accounts!inner(account_name, profiles!inner(full_name, email)),
+        family_finance_accounts!inner(account_name, profiles!family_finance_accounts_profile_id_fkey(full_name, email)),
         created_by_profile:profiles!orders_created_by_fkey(full_name),
         order_items(id, item_name, size, quantity, unit_price_cents, line_total_cents, student_id, is_voided,
           voided_at, void_reason, created_at,
-          students!order_items_student_id_fkey(full_name)),
+          students!order_items_student_id_fkey(first_name, last_name)),
         order_payments(id, amount_cents, payment_method, payment_date, status, reference_number,
           created_by_profile:profiles!order_payments_created_by_fkey(full_name),
           verified_by_profile:profiles!order_payments_verified_by_fkey(full_name))
@@ -305,7 +305,7 @@ export async function getOrdersForOrg(filters?: {
         unit_price_cents: i.unit_price_cents,
         line_total_cents: i.line_total_cents,
         student_id:       i.student_id,
-        student_name:     i.students?.full_name ?? null,
+        student_name:     i.students ? `${i.students.first_name} ${i.students.last_name}`.trim() : null,
         is_voided:        i.is_voided,
         voided_at:        i.voided_at ?? null,
         void_reason:      i.void_reason ?? null,
@@ -381,10 +381,10 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
         id, organization_id, family_account_id, order_status, fulfillment_status,
         invoice_number, invoice_date, due_date, invoice_sent_at, invoice_sent_to,
         cancelled_at, cancel_reason, fulfilled_at, notes, created_at,
-        family_finance_accounts!inner(account_name, profiles!inner(full_name, email)),
+        family_finance_accounts!inner(account_name, profiles!family_finance_accounts_profile_id_fkey(full_name, email)),
         created_by_profile:profiles!orders_created_by_fkey(full_name),
         order_items(id, item_name, size, quantity, unit_price_cents, line_total_cents, student_id, is_voided, voided_at, void_reason, created_at,
-          students!order_items_student_id_fkey(full_name))
+          students!order_items_student_id_fkey(first_name, last_name))
       `)
       .eq("id", orderId)
       .eq("organization_id", orgId)
@@ -403,7 +403,7 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
       unit_price_cents: i.unit_price_cents,
       line_total_cents: i.line_total_cents,
       student_id:       i.student_id,
-      student_name:     i.students?.full_name ?? null,
+      student_name:     i.students ? `${i.students.first_name} ${i.students.last_name}`.trim() : null,
       is_voided:        i.is_voided,
       voided_at:        i.voided_at ?? null,
       void_reason:      i.void_reason ?? null,
