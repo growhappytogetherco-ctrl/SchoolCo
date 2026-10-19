@@ -52,10 +52,11 @@ export default async function PortalLayout({ children }: { children: React.React
             <span className="text-sc-gray text-label-sm hidden sm:block">· Family Portal</span>
           </Link>
 
-          <nav className="flex items-center gap-1 sm:gap-2">
+          {/* Scrollable page-nav links — may overflow on narrow screens */}
+          <nav className="flex items-center gap-1 sm:gap-2 overflow-x-auto shrink min-w-0 scrollbar-none">
             <Link
               href="/portal/home"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
               title="Home"
             >
               <Home className="size-4" />
@@ -63,7 +64,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
             <Link
               href="/portal/children"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
               title="My Children"
             >
               <GraduationCap className="size-4" />
@@ -71,7 +72,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
             <Link
               href="/portal/calendar"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
               title="Calendar"
             >
               <Calendar className="size-4" />
@@ -79,7 +80,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
             <Link
               href="/portal/attendance"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
               title="Attendance"
             >
               <Calendar className="size-4" />
@@ -87,7 +88,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
             <Link
               href="/portal/grades"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
               title="Grades"
             >
               <BarChart2 className="size-4" />
@@ -95,7 +96,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
             <Link
               href="/portal/academics"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
               title="Academics"
             >
               <BookOpen className="size-4" />
@@ -103,7 +104,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
             <Link
               href="/portal/finance"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
               title="Finance"
             >
               <DollarSign className="size-4" />
@@ -112,13 +113,16 @@ export default async function PortalLayout({ children }: { children: React.React
             <PortalMessagesLink userId={user.id} initialCount={initialUnread} />
             <Link
               href="/portal/settings"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors shrink-0"
               title={firstName ?? "Account"}
             >
               <User className="size-4" />
               <span className="hidden md:block">{firstName ?? "Account"}</span>
             </Link>
+          </nav>
 
+          {/* Fixed action controls — always visible, never scroll off screen */}
+          <div className="flex items-center gap-1 shrink-0 ml-1 pl-1 border-l border-sc-gray-100">
             {/* Multi-role: Switch to Staff Dashboard */}
             {isMultiRole && (
               <form action={async () => {
@@ -133,7 +137,7 @@ export default async function PortalLayout({ children }: { children: React.React
                   title="Switch to Staff Dashboard"
                 >
                   <LayoutDashboard className="size-4" />
-                  <span className="hidden lg:block">Staff View</span>
+                  <span className="hidden sm:block">Staff View</span>
                 </button>
               </form>
             )}
@@ -146,10 +150,10 @@ export default async function PortalLayout({ children }: { children: React.React
                 title="Sign Out"
               >
                 <LogOut className="size-4" />
-                <span className="hidden lg:block">Sign Out</span>
+                <span className="hidden sm:block">Sign Out</span>
               </button>
             </form>
-          </nav>
+          </div>
         </div>
       </header>
 
