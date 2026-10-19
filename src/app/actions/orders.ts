@@ -278,8 +278,7 @@ export async function getOrdersForOrg(filters?: {
           voided_at, void_reason, created_at,
           students!order_items_student_id_fkey(first_name, last_name)),
         order_payments(id, amount_cents, payment_method, payment_date, status, reference_number,
-          created_by_profile:profiles!order_payments_created_by_fkey(full_name),
-          verified_by_profile:profiles!order_payments_verified_by_fkey(full_name))
+          created_by, verified_by)
       `)
       .eq("organization_id", orgId)
       .order("created_at", { ascending: false });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, BookOpen, Search, Loader2, Package, X, Pencil, Check, FileText, Send, Download, Truck } from "lucide-react";
+import { Plus, BookOpen, Search, Loader2, Package, X, Pencil, Check, FileText, Send, Download, Truck, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -70,6 +70,7 @@ export function OrdersPage({ canManage }: Props) {
   const [orders,         setOrders]        = useState<OrderRow[]>([]);
   const [catalog,        setCatalog]       = useState<StoreItem[]>([]);
   const [loading,        setLoading]       = useState(true);
+  const [loadError,      setLoadError]     = useState<string | null>(null);
   const [statusFilter,   setStatusFilter]  = useState("all");
   const [search,         setSearch]        = useState("");
   const [showCatalog,    setShowCatalog]   = useState(false);
@@ -82,11 +83,16 @@ export function OrdersPage({ canManage }: Props) {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     const [ordersRes, catalogRes] = await Promise.all([
       getOrdersForOrg({ status: statusFilter, search: search || undefined, limit: 100 }),
       getCatalogItems(),
     ]);
-    if (ordersRes.success)  setOrders(ordersRes.data);
+    if (!ordersRes.success) {
+      setLoadError(ordersRes.error ?? "Failed to load orders. Please try again.");
+    } else {
+      setOrders(ordersRes.data);
+    }
     if (catalogRes.success) setCatalog(catalogRes.data);
     setLoading(false);
   }, [statusFilter, search]);
@@ -234,6 +240,15 @@ export function OrdersPage({ canManage }: Props) {
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="size-6 text-sc-gray animate-spin" />
+        </div>
+      ) : loadError ? (
+        <div className="flex flex-col items-center justify-center py-16 space-y-3">
+          <AlertCircle className="size-10 text-sc-rose" />
+          <p className="text-sc-navy font-medium">Could not load orders</p>
+          <p className="text-body-md text-sc-gray max-w-md text-center">{loadError}</p>
+          <Button size="sm" variant="outline" onClick={load}>
+            <RefreshCw className="size-4 mr-1.5" /> Retry
+          </Button>
         </div>
       ) : orders.length === 0 ? (
         <div className="text-center py-16 space-y-3">
