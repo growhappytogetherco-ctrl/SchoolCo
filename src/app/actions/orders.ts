@@ -72,7 +72,8 @@ export async function createCatalogItem(input: CreateStoreItemInput): Promise<Ac
     revalidatePath("/dashboard/finance/orders");
     return { success: true, data: data as StoreItem };
   } catch (e) {
-    return { success: false, error: String(e) };
+    const msg = e instanceof Error ? e.message : (e as any)?.message ?? String(e);
+    return { success: false, error: msg };
   }
 }
 
@@ -448,7 +449,57 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
   }
 }
 
-// ── Family account search (for order creation modal) ──────────────────────
+// ── Active students for order creation (student-first selection) ──────────
+
+export async function getActiveStudentsForOrg(): Promise<ActionResult<Array<{
+  id:                  string;
+  display_name:        string;   // "First Last"
+  grade_level:         string | null;
+  family_account_id:   string | null;
+  family_account_name: string | null;
+  guardian_email:      string | null;
+}>>> {
+  try {
+    const { orgId, supabase } = await assertOrdersManage();
+
+    // Students carry a direct family_id FK → family_finance_accounts.
+    // first_name + last_name (no full_name column on students).
+    const { data, error } = await supabase
+      .from("students")
+      .select(`
+        id, first_name, last_name, grade_level,
+        family_finance_accounts!students_family_id_fkey(
+          id, account_name,
+          profiles!inner(email)
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("enrollment_status", "enrolled")
+      .order("last_name", { ascending: true })
+      .order("first_name", { ascending: true });
+    if (error) throw error;
+
+    return {
+      success: true,
+      data: (data ?? []).map((s: any) => {
+        const ffa = s.family_finance_accounts;
+        return {
+          id:                  s.id,
+          display_name:        `${s.first_name} ${s.last_name}`.trim(),
+          grade_level:         s.grade_level ?? null,
+          family_account_id:   ffa?.id ?? null,
+          family_account_name: ffa?.account_name ?? null,
+          guardian_email:      ffa?.profiles?.email ?? null,
+        };
+      }),
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : (e as any)?.message ?? String(e);
+    return { success: false, error: msg };
+  }
+}
+
+// ── Family account search (legacy — kept for direct family lookup if needed) ──
 
 export async function searchFamilyAccounts(search: string): Promise<ActionResult<Array<{
   id: string;
@@ -461,37 +512,31 @@ export async function searchFamilyAccounts(search: string): Promise<ActionResult
     const term = search.trim().toLowerCase();
     if (!term) return { success: true, data: [] };
 
-    // Step 1: Get all active family accounts with guardian profile + students
+    // Query family accounts with profile. Students joined via family_id (not full_name column).
     const { data, error } = await supabase
       .from("family_finance_accounts")
       .select(`
         id, account_name,
-        profiles!inner(full_name, email),
-        guardianships(
-          status, archived_at,
-          students!inner(id, full_name)
-        )
+        profiles(full_name, email),
+        students!students_family_id_fkey(id, first_name, last_name)
       `)
       .eq("organization_id", orgId)
       .eq("status", "active")
       .limit(200);
     if (error) throw error;
 
-    // Step 2: Filter client-side across account_name, guardian name/email, student names
-    // Deduplicates naturally since we start from family_finance_accounts
     const matched = (data ?? []).filter((a: any) => {
       const acctName      = (a.account_name ?? "").toLowerCase();
       const guardianName  = (a.profiles?.full_name ?? "").toLowerCase();
       const guardianEmail = (a.profiles?.email ?? "").toLowerCase();
-      const activeStudents: string[] = (a.guardianships ?? [])
-        .filter((g: any) => g.status === "active" && !g.archived_at)
-        .map((g: any) => (g.students?.full_name ?? "").toLowerCase());
+      const studentNames: string[] = (a.students ?? [])
+        .map((s: any) => `${s.first_name ?? ""} ${s.last_name ?? ""}`.toLowerCase());
 
       return (
-        acctName.includes(term)      ||
-        guardianName.includes(term)  ||
-        guardianEmail.includes(term) ||
-        activeStudents.some(s => s.includes(term))
+        acctName.includes(term)     ||
+        guardianName.includes(term) ||
+        guardianEmail.includes(term)||
+        studentNames.some(s => s.includes(term))
       );
     }).slice(0, 20);
 
@@ -501,14 +546,12 @@ export async function searchFamilyAccounts(search: string): Promise<ActionResult
         id:             a.id,
         account_name:   a.account_name ?? a.profiles?.full_name ?? "Unknown",
         guardian_email: a.profiles?.email ?? null,
-        student_names:  (a.guardianships ?? [])
-          .filter((g: any) => g.status === "active" && !g.archived_at)
-          .map((g: any) => g.students?.full_name)
-          .filter(Boolean),
+        student_names:  (a.students ?? []).map((s: any) => `${s.first_name} ${s.last_name}`.trim()),
       })),
     };
   } catch (e) {
-    return { success: false, error: String(e) };
+    const msg = e instanceof Error ? e.message : (e as any)?.message ?? String(e);
+    return { success: false, error: msg };
   }
 }
 
@@ -574,31 +617,30 @@ export async function getStudentsForFamily(familyAccountId: string): Promise<Act
 }>>> {
   try {
     const { orgId, supabase } = await assertOrdersView();
-    const { data: acct } = await supabase
-      .from("family_finance_accounts")
-      .select("profile_id")
-      .eq("id", familyAccountId)
-      .eq("organization_id", orgId)
-      .maybeSingle();
-    if (!acct) throw new Error("Family account not found");
 
+    // Students link to family via family_id (direct FK).
+    // Students table has first_name + last_name, not full_name.
     const { data, error } = await supabase
-      .from("guardianships")
-      .select("students!inner(id, full_name, grade_level)")
-      .eq("profile_id", (acct as any).profile_id)
+      .from("students")
+      .select("id, first_name, last_name, grade_level")
+      .eq("family_id", familyAccountId)
       .eq("organization_id", orgId)
-      .eq("status", "active");
+      .eq("enrollment_status", "enrolled")
+      .order("last_name", { ascending: true })
+      .order("first_name", { ascending: true });
     if (error) throw error;
 
     return {
       success: true,
-      data: (data ?? [])
-        .map((g: any) => g.students)
-        .filter(Boolean)
-        .map((s: any) => ({ id: s.id, full_name: s.full_name, grade_level: s.grade_level ?? null })),
+      data: (data ?? []).map((s: any) => ({
+        id:          s.id,
+        full_name:   `${s.first_name} ${s.last_name}`.trim(),
+        grade_level: s.grade_level ?? null,
+      })),
     };
   } catch (e) {
-    return { success: false, error: String(e) };
+    const msg = e instanceof Error ? e.message : (e as any)?.message ?? String(e);
+    return { success: false, error: msg };
   }
 }
 

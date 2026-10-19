@@ -111,9 +111,12 @@ export function ItemCatalogModal({ open, onClose, items, onSaved }: Props) {
           available_sizes:  form.sizes.length > 0 ? form.sizes : null,
         };
         const result = await createCatalogItem(input);
-        if (!result.success) { setError(result.error); return; }
+        if (!result.success) { setError(result.error ?? "Failed to save item"); return; }
         onSaved(result.data);
       }
+      // Reset form so the next item starts fresh
+      setForm(EMPTY);
+      setEditing(null);
       setShowForm(false);
     } finally {
       setSaving(false);
