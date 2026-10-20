@@ -920,7 +920,7 @@ export async function sendInvoiceEmail(orderId: string): Promise<ActionResult<{ 
       zelle_recipient:         settings.zelle_recipient ?? "321-795-9724",
       zelle_type:              settings.zelle_type ?? "phone",
       check_payee:             settings.check_payee ?? "Healing Through Christ Foundation",
-      cash_instructions:       settings.cash_instructions ?? "Bring to front office",
+      cash_instructions:       settings.cash_instructions ?? "Submit payment to the RLA front office in a labeled envelope. Include the student's name and invoice number.",
       invoice_footer_text:     settings.invoice_footer_text ?? undefined,
     });
 
@@ -955,7 +955,7 @@ export async function sendInvoiceEmail(orderId: string): Promise<ActionResult<{ 
       zelleRecipient:         settings.zelle_recipient ?? "321-795-9724",
       zelleType:              settings.zelle_type ?? "phone",
       checkPayee:             settings.check_payee ?? "Healing Through Christ Foundation",
-      cashInstructions:       settings.cash_instructions ?? "Bring to front office",
+      cashInstructions:       settings.cash_instructions ?? "Submit payment to the RLA front office in a labeled envelope. Include the student's name and invoice number.",
       pdfBytes,
       staffName,
     });
@@ -1037,7 +1037,7 @@ export async function getInvoicePdfBase64(orderId: string): Promise<ActionResult
       zelle_recipient:   settings.zelle_recipient ?? "321-795-9724",
       zelle_type:        settings.zelle_type ?? "phone",
       check_payee:       settings.check_payee ?? "Healing Through Christ Foundation",
-      cash_instructions: settings.cash_instructions ?? "Bring to front office",
+      cash_instructions: settings.cash_instructions ?? "Submit payment to the RLA front office in a labeled envelope. Include the student's name and invoice number.",
       invoice_footer_text: settings.invoice_footer_text ?? undefined,
     });
 

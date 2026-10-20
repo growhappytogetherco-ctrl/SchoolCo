@@ -4,6 +4,9 @@
  * Server-only: never import in client components.
  */
 import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 // ── Brand colours ─────────────────────────────────────────────────────────
 const NAVY  = rgb(0.043, 0.090, 0.278);   // #0B1747
@@ -69,13 +72,15 @@ function drawPageHeader(
   page: PDFPage,
   boldFont: PDFFont,
   regularFont: PDFFont,
+  serifFont: PDFFont,
 ) {
   drawRect(page, 0, PAGE_H - 90, PAGE_W, 90, NAVY);
+  // Serif heading — Playfair Display Bold gives an elegant, refined look
   page.drawText("Rising Leaders Academy", {
-    x: MARGIN, y: PAGE_H - 34, size: 18, font: boldFont, color: WHITE,
+    x: MARGIN, y: PAGE_H - 36, size: 22, font: serifFont, color: WHITE,
   });
   page.drawText("A Program of Healing Through Christ Foundation", {
-    x: MARGIN, y: PAGE_H - 52, size: 9, font: regularFont, color: rgb(0.75, 0.85, 0.87),
+    x: MARGIN, y: PAGE_H - 54, size: 9, font: regularFont, color: rgb(0.75, 0.85, 0.87),
   });
   page.drawText("INVOICE", {
     x: COL_R - 64, y: PAGE_H - 38, size: 22, font: boldFont, color: TEAL,
@@ -124,10 +129,16 @@ export interface InvoiceData {
 
 export async function generateInvoicePdf(data: InvoiceData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
 
   const boldFont    = await doc.embedFont(StandardFonts.HelveticaBold);
   const regularFont = await doc.embedFont(StandardFonts.Helvetica);
   const oblFont     = await doc.embedFont(StandardFonts.HelveticaOblique);
+
+  // Playfair Display Bold — used only for the "Rising Leaders Academy" heading.
+  // Embedded directly so the PDF renders identically on all devices and when printed.
+  const serifFontBytes = readFileSync(join(process.cwd(), "src/lib/fonts/PlayfairDisplay-Bold.ttf"));
+  const serifFont = await doc.embedFont(serifFontBytes);
 
   const balance = data.subtotal_cents - data.paid_cents;
   const orgContact = data.org_contact ?? data.invoice_footer_text;
@@ -135,7 +146,7 @@ export async function generateInvoicePdf(data: InvoiceData): Promise<Uint8Array>
   // ── Helper: add a fresh page with header + footer ──────────────────────
   function addPage(): { page: PDFPage; y: number } {
     const page = doc.addPage([PAGE_W, PAGE_H]);
-    drawPageHeader(page, boldFont, regularFont);
+    drawPageHeader(page, boldFont, regularFont, serifFont);
     drawFooterBar(page, boldFont, regularFont, orgContact);
     return { page, y: CONTENT_TOP };
   }
