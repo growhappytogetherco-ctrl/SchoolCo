@@ -1076,6 +1076,9 @@ export async function recordPayment(input: RecordPaymentInput): Promise<ActionRe
 
     if (input.amount_cents < 1) throw new Error("Payment amount must be positive");
 
+    const insertStatus = input.initial_status ?? "pending";
+    const now = new Date().toISOString();
+
     const { data: payment, error: payErr } = await supabase
       .from("order_payments")
       .insert({
@@ -1086,8 +1089,9 @@ export async function recordPayment(input: RecordPaymentInput): Promise<ActionRe
         payment_date:     input.payment_date,
         reference_number: input.reference_number?.trim() ?? null,
         notes:            input.notes?.trim() ?? null,
-        status:           "pending",
+        status:           insertStatus,
         created_by:       user.id,
+        ...(insertStatus === "verified" ? { verified_by: user.id, verified_at: now } : {}),
       })
       .select("*")
       .single();
@@ -1098,12 +1102,12 @@ export async function recordPayment(input: RecordPaymentInput): Promise<ActionRe
       throw payErr;
     }
 
-    // Update order status based on new paid total
+    // Update order status based on new verified paid total
     const { data: paidData } = await supabase.rpc("get_order_paid_cents", { p_order_id: input.order_id });
     const { data: subtotalData } = await supabase.rpc("get_order_subtotal", { p_order_id: input.order_id });
     const paid     = paidData ?? 0;
     const subtotal = subtotalData ?? 0;
-    const newStatus = paid >= subtotal ? "paid" : "partial";
+    const newStatus = paid <= 0 ? "invoiced" : paid >= subtotal ? "paid" : "partial";
 
     await supabase
       .from("orders")
@@ -1150,6 +1154,17 @@ export async function verifyPayment(paymentId: string): Promise<ActionResult<voi
       .update({ status: "verified", verified_by: user.id, verified_at: new Date().toISOString() })
       .eq("id", paymentId);
     if (upErr) throw upErr;
+
+    // Recalculate order status now that this payment is verified
+    const { data: paidData }     = await supabase.rpc("get_order_paid_cents", { p_order_id: (pmt as any).order_id });
+    const { data: subtotalData } = await supabase.rpc("get_order_subtotal",   { p_order_id: (pmt as any).order_id });
+    const paid     = paidData     ?? 0;
+    const subtotal = subtotalData ?? 0;
+    const newStatus = paid <= 0 ? "invoiced" : paid >= subtotal ? "paid" : "partial";
+    await supabase
+      .from("orders")
+      .update({ order_status: newStatus, updated_by: user.id })
+      .eq("id", (pmt as any).order_id);
 
     await logAudit({
       action: "order.payment.verify",

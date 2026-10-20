@@ -193,4 +193,5 @@ export interface RecordPaymentInput {
   payment_date:     string;          // ISO date
   reference_number?: string;
   notes?:           string;
+  initial_status?:  "pending" | "verified";  // defaults to "pending"
 }
