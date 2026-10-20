@@ -161,13 +161,22 @@ export async function generateInvoicePdf(data: InvoiceData): Promise<Uint8Array>
   y -= 52 + 16;
 
   // ── Bill To ────────────────────────────────────────────────────────────
+  // Show billing_recipient_name as the primary name.
+  // Only add a second name line when family_name differs (e.g. "Young Family" vs "Kate Young").
+  // Show email below the name, or skip entirely if absent.
   page.drawText("BILL TO", { x: MARGIN, y, size: 7, font: boldFont, color: GRAY });
   y -= 14;
-  page.drawText(data.family_name, { x: MARGIN, y, size: 13, font: boldFont,    color: BLACK });
+  page.drawText(data.billing_recipient_name, { x: MARGIN, y, size: 13, font: boldFont, color: BLACK });
   y -= 16;
-  page.drawText(data.billing_recipient_name,  { x: MARGIN, y, size: 10, font: regularFont, color: BLACK });
-  y -= 14;
-  page.drawText(data.billing_recipient_email, { x: MARGIN, y, size: 9,  font: regularFont, color: TEAL  });
+  const showFamilyLine = data.family_name && data.family_name.trim() !== data.billing_recipient_name.trim();
+  if (showFamilyLine) {
+    page.drawText(data.family_name, { x: MARGIN, y, size: 10, font: regularFont, color: BLACK });
+    y -= 14;
+  }
+  if (data.billing_recipient_email) {
+    page.drawText(data.billing_recipient_email, { x: MARGIN, y, size: 9, font: regularFont, color: TEAL });
+    y -= 14;
+  }
 
   y -= 24;
   drawLine(page, y, TEAL, 1.5);
