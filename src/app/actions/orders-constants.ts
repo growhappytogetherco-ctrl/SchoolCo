@@ -91,8 +91,21 @@ export interface OrderRow {
   balance_cents:           number;
   item_count:              number;
   items:                   OrderItemRow[];
+  payments:                OrderPaymentSummary[];
   created_at:              string;
   created_by_name:         string | null;
+}
+
+export interface OrderPaymentSummary {
+  id:               string;
+  amount_cents:     number;
+  payment_method:   PaymentMethod;
+  payment_date:     string;
+  status:           PaymentStatus;
+  reference_number: string | null;
+  notes:            string | null;
+  verified_at:      string | null;
+  created_at:       string;
 }
 
 export interface CreateOrderInput {

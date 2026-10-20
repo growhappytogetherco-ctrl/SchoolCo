@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { DollarSign, Plus, Check, RotateCcw, Loader2, ChevronDown, ChevronUp, Clock, ShieldCheck } from "lucide-react";
+import { DollarSign, Plus, Check, RotateCcw, Loader2, ChevronDown, ChevronUp, Clock, ShieldCheck, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -9,7 +9,7 @@ import {
   PAYMENT_METHOD_LABELS,
   type OrderPayment, type PaymentMethod, type PaymentStatus, type OrderRow,
 } from "@/app/actions/orders-constants";
-import { getOrderPayments, recordPayment, verifyPayment, reversePayment } from "@/app/actions/orders";
+import { getOrderPayments, recordPayment, verifyPayment, reversePayment, getReceiptPdfBase64 } from "@/app/actions/orders";
 
 function currency(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -37,8 +37,9 @@ export function PaymentPanel({ order, canManage, onPaymentRecorded }: Props) {
   const [showForm,    setShowForm]   = useState(false);
   const [saving,      setSaving]     = useState(false);
   const [error,       setError]      = useState<string | null>(null);
-  const [verifyingId, setVerifyingId] = useState<string | null>(null);
-  const [reverseId,   setReverseId]  = useState<string | null>(null);
+  const [verifyingId,    setVerifyingId]    = useState<string | null>(null);
+  const [reverseId,      setReverseId]      = useState<string | null>(null);
+  const [downloadingId,  setDownloadingId]  = useState<string | null>(null);
   const [reverseReason, setReverseReason] = useState("");
 
   // New payment form state
@@ -90,6 +91,17 @@ export function PaymentPanel({ order, canManage, onPaymentRecorded }: Props) {
     setVerifyingId(null);
     if (res.success) { await load(); onPaymentRecorded(); }
     else setError(res.error ?? "Failed to verify payment.");
+  }
+
+  async function handleDownloadReceipt(paymentId: string) {
+    setDownloadingId(paymentId);
+    const res = await getReceiptPdfBase64(paymentId);
+    setDownloadingId(null);
+    if (!res.success) { setError(res.error ?? "Failed to generate receipt."); return; }
+    const link = document.createElement("a");
+    link.href = `data:application/pdf;base64,${res.data.base64}`;
+    link.download = res.data.filename;
+    link.click();
   }
 
   async function handleReverse() {
@@ -154,7 +166,7 @@ export function PaymentPanel({ order, canManage, onPaymentRecorded }: Props) {
           <table className="min-w-full text-body-md">
             <thead className="bg-sc-gray-100/60">
               <tr>
-                {["Date", "Method", "Amount", "Ref #", "Status", ...(canManage ? ["Actions"] : [])].map(h => (
+                {["Date", "Method", "Amount", "Ref #", "Status", "Receipt", ...(canManage ? ["Actions"] : [])].map(h => (
                   <th key={h} className="px-3 py-2 text-left text-label-sm text-sc-gray font-medium">{h}</th>
                 ))}
               </tr>
@@ -178,6 +190,20 @@ export function PaymentPanel({ order, canManage, onPaymentRecorded }: Props) {
                     )}
                     {p.notes && p.status !== "reversed" && (
                       <span className="ml-1 text-label-sm text-sc-gray italic">{p.notes}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {p.status === "verified" && (
+                      <button
+                        onClick={() => handleDownloadReceipt(p.id)}
+                        disabled={downloadingId === p.id}
+                        className="p-1 rounded text-sc-gray hover:text-sc-teal hover:bg-sc-gray-100"
+                        title="Download receipt"
+                      >
+                        {downloadingId === p.id
+                          ? <Loader2 className="size-3.5 animate-spin" />
+                          : <FileDown className="size-3.5" />}
+                      </button>
                     )}
                   </td>
                   {canManage && (

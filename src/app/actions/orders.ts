@@ -454,18 +454,22 @@ export async function getOrdersForOrg(filters?: {
         balance_cents:      subtotal - paid,
         item_count:         activeItems.length,
         items,
+        payments:           [],   // not fetched in list view; use getOrder for full payment history
         created_at:         o.created_at,
         created_by_name:    o.created_by_profile?.full_name ?? null,
       };
     });
 
-    // Client-side search filter (name, invoice number)
+    // Client-side search filter (student names, billing contact, invoice number)
     if (filters?.search) {
       const q2 = filters.search.toLowerCase();
-      return { success: true, data: rows.filter(r =>
-        r.family_name.toLowerCase().includes(q2) ||
-        (r.invoice_number ?? "").toLowerCase().includes(q2)
-      )};
+      return { success: true, data: rows.filter(r => {
+        if (r.family_name.toLowerCase().includes(q2)) return true;
+        if ((r.invoice_number ?? "").toLowerCase().includes(q2)) return true;
+        if ((r.billing_recipient_name ?? "").toLowerCase().includes(q2)) return true;
+        if (r.items.some(i => (i.student_name ?? "").toLowerCase().includes(q2))) return true;
+        return false;
+      })};
     }
 
     return { success: true, data: rows };
@@ -481,20 +485,32 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
     if (!result.success) throw new Error(result.error);
     // Re-use full query but filter to single order
     const { supabase } = await assertOrdersView();
-    const { data, error } = await supabase
-      .from("orders")
-      .select(`
-        id, organization_id, family_account_id, order_status, fulfillment_status,
-        invoice_number, invoice_date, due_date, invoice_sent_at, invoice_sent_to,
-        cancelled_at, cancel_reason, fulfilled_at, notes, created_at,
-        family_finance_accounts!inner(account_name, profiles!family_finance_accounts_profile_id_fkey(full_name, email)),
-        created_by_profile:profiles!orders_created_by_fkey(full_name),
-        order_items(id, item_name, size, quantity, unit_price_cents, line_total_cents, student_id, is_voided, voided_at, void_reason, created_at,
-          students!order_items_student_id_fkey(first_name, last_name))
-      `)
-      .eq("id", orderId)
-      .eq("organization_id", orgId)
-      .maybeSingle();
+    const [orderRes, paymentsRes, paidRes] = await Promise.all([
+      supabase
+        .from("orders")
+        .select(`
+          id, organization_id, family_account_id, order_status, fulfillment_status,
+          invoice_number, invoice_date, invoiced_at, due_date, invoice_sent_at, invoice_sent_to,
+          invoice_sent_count, billing_recipient_id, billing_recipient_name, billing_recipient_email,
+          cancelled_at, cancel_reason, fulfilled_at, notes, created_at,
+          family_finance_accounts!inner(account_name, profiles!family_finance_accounts_profile_id_fkey(full_name, email)),
+          created_by_profile:profiles!orders_created_by_fkey(full_name),
+          order_items(id, item_name, size, quantity, unit_price_cents, line_total_cents, student_id, is_voided, voided_at, void_reason, created_at,
+            students!order_items_student_id_fkey(first_name, last_name))
+        `)
+        .eq("id", orderId)
+        .eq("organization_id", orgId)
+        .maybeSingle(),
+      supabase
+        .from("order_payments")
+        .select("id, amount_cents, payment_method, payment_date, status, reference_number, notes, verified_at, created_at")
+        .eq("order_id", orderId)
+        .eq("organization_id", orgId)
+        .order("created_at", { ascending: true }),
+      supabase.rpc("get_order_paid_cents", { p_order_id: orderId }),
+    ]);
+
+    const { data, error } = orderRes;
     if (error) throw error;
     if (!data) throw new Error("Order not found");
 
@@ -518,8 +534,11 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
 
     const activeItems = items.filter(i => !i.is_voided);
     const subtotal    = activeItems.reduce((s, i) => s + i.line_total_cents, 0);
+    const paid        = (paidRes.data as number | null) ?? 0;
     const fam         = o.family_finance_accounts;
     const profile     = fam?.profiles;
+    // invoice_date: prefer stored DATE column; fall back to invoiced_at timestamp (sliced to date)
+    const invoiceDateStr = o.invoice_date ?? (o.invoiced_at ? o.invoiced_at.slice(0, 10) : null);
 
     return {
       success: true,
@@ -532,20 +551,24 @@ export async function getOrder(orderId: string): Promise<ActionResult<OrderRow>>
         order_status:      o.order_status,
         fulfillment_status: o.fulfillment_status,
         invoice_number:    o.invoice_number,
-        invoice_date:      o.invoice_date,
+        invoice_date:      invoiceDateStr,
         due_date:          o.due_date,
         invoice_sent_at:   o.invoice_sent_at,
         invoice_sent_count: o.invoice_sent_count ?? 0,
         invoice_sent_to:   o.invoice_sent_to,
+        billing_recipient_id:    o.billing_recipient_id ?? null,
+        billing_recipient_name:  o.billing_recipient_name ?? null,
+        billing_recipient_email: o.billing_recipient_email ?? null,
         cancelled_at:      o.cancelled_at,
         cancel_reason:     o.cancel_reason,
         fulfilled_at:      o.fulfilled_at,
         notes:             o.notes,
         subtotal_cents:    subtotal,
-        amount_paid_cents: 0,
-        balance_cents:     subtotal,
+        amount_paid_cents: paid,
+        balance_cents:     subtotal - paid,
         item_count:        activeItems.length,
         items,
+        payments:          (paymentsRes.data ?? []) as any[],
         created_at:        o.created_at,
         created_by_name:   o.created_by_profile?.full_name ?? null,
       },
@@ -1120,12 +1143,22 @@ export async function getInvoicePdfBase64(orderId: string): Promise<ActionResult
       .eq("id", orgId)
       .maybeSingle();
 
-    const invoiceDate = order.invoice_date
-      ? new Date(order.invoice_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-      : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    const dueDate = order.due_date
-      ? new Date(order.due_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-      : "Upon receipt";
+    // Parse DATE strings as local noon to avoid UTC-midnight timezone shift
+    const parseDateStr = (s: string) =>
+      new Date(`${s}T12:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+    const invoiceDate = order.invoice_date ? parseDateStr(order.invoice_date) : parseDateStr(new Date().toISOString().slice(0, 10));
+    const dueDate     = order.due_date     ? parseDateStr(order.due_date)     : "Upon receipt";
+
+    const { PAYMENT_METHOD_LABELS } = await import("@/app/actions/orders-constants");
+    const verifiedPayments = (order.payments ?? [])
+      .filter((p: any) => p.status === "verified")
+      .map((p: any) => ({
+        payment_date:     parseDateStr(p.payment_date),
+        payment_method:   PAYMENT_METHOD_LABELS[p.payment_method as keyof typeof PAYMENT_METHOD_LABELS] ?? p.payment_method,
+        amount_cents:     p.amount_cents,
+        reference_number: p.reference_number ?? null,
+      }));
 
     const { generateInvoicePdf } = await import("@/lib/invoice-pdf");
     const pdfBytes = await generateInvoicePdf({
@@ -1141,6 +1174,7 @@ export async function getInvoicePdfBase64(orderId: string): Promise<ActionResult
       })),
       subtotal_cents:    order.subtotal_cents,
       paid_cents:        order.amount_paid_cents,
+      payments:          verifiedPayments,
       zelle_recipient:   settings.zelle_recipient ?? "321-795-9724",
       zelle_type:        settings.zelle_type ?? "phone",
       check_payee:       settings.check_payee ?? "Healing Through Christ Foundation",
@@ -1154,6 +1188,65 @@ export async function getInvoicePdfBase64(orderId: string): Promise<ActionResult
       data: {
         base64,
         filename: `Invoice-${order.invoice_number}.pdf`,
+      },
+    };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+// ── Phase 2: Download Receipt PDF ────────────────────────────────────────────
+
+export async function getReceiptPdfBase64(paymentId: string): Promise<ActionResult<{ base64: string; filename: string }>> {
+  try {
+    const { orgId, supabase } = await assertOrdersView();
+
+    const { data: pmt, error: pmtErr } = await supabase
+      .from("order_payments")
+      .select("id, order_id, amount_cents, payment_method, payment_date, status, reference_number, notes")
+      .eq("id", paymentId)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    if (pmtErr || !pmt) throw new Error("Payment not found");
+    if (pmt.status !== "verified") throw new Error("Only verified payments can generate a receipt");
+
+    const orderResult = await getOrder(pmt.order_id);
+    if (!orderResult.success) throw new Error(orderResult.error);
+    const order = orderResult.data;
+    if (!order.invoice_number) throw new Error("No invoice number on this order");
+
+    const parseDateStr = (s: string) =>
+      new Date(`${s}T12:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+    const { PAYMENT_METHOD_LABELS } = await import("@/app/actions/orders-constants");
+    const studentNames = Array.from(new Set(order.items.filter(i => !i.is_voided && i.student_name).map(i => i.student_name!)));
+    const totalPaid = order.amount_paid_cents;
+    const balance   = order.balance_cents;
+
+    const { generateReceiptPdf } = await import("@/lib/invoice-pdf");
+    const pdfBytes = await generateReceiptPdf({
+      receipt_id:              pmt.id,
+      invoice_number:          order.invoice_number,
+      payment_date:            parseDateStr(pmt.payment_date),
+      payment_method:          PAYMENT_METHOD_LABELS[pmt.payment_method as keyof typeof PAYMENT_METHOD_LABELS] ?? pmt.payment_method,
+      reference_number:        pmt.reference_number ?? null,
+      family_name:             order.family_name,
+      billing_recipient_name:  order.billing_recipient_name ?? order.family_name,
+      billing_recipient_email: order.billing_recipient_email ?? "",
+      student_names:           studentNames,
+      amount_cents:            pmt.amount_cents,
+      subtotal_cents:          order.subtotal_cents,
+      total_paid_cents:        totalPaid,
+      balance_cents:           balance,
+      org_contact:             undefined,
+    });
+
+    const base64 = Buffer.from(pdfBytes).toString("base64");
+    return {
+      success: true,
+      data: {
+        base64,
+        filename: `Receipt-${order.invoice_number}-${pmt.id.slice(0, 8).toUpperCase()}.pdf`,
       },
     };
   } catch (e) {

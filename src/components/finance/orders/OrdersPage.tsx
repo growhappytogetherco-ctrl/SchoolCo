@@ -307,7 +307,7 @@ export function OrdersPage({ canManage }: Props) {
             <table className="min-w-full text-body-md">
               <thead className="bg-sc-gray-100/60 border-b border-sc-gray-100">
                 <tr>
-                  {["Family", "Items", "Total", "Status", "Fulfillment", "Date", ""].map(h => (
+                  {["Student(s)", "Billed To", "Items", "Total", "Status", "Date", ""].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-label-sm text-sc-gray font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -321,15 +321,33 @@ export function OrdersPage({ canManage }: Props) {
                       onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}
                     >
                       <td className="px-4 py-3">
-                        <div className="font-medium text-sc-navy">{order.family_name}</div>
+                        {(() => {
+                          const studentNames = Array.from(new Set(
+                            order.items.filter(i => !i.is_voided && i.student_name).map(i => i.student_name!)
+                          ));
+                          return studentNames.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {studentNames.map(n => (
+                                <div key={n} className="font-medium text-sc-navy text-sm">{n}</div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-sc-gray text-sm italic">—</div>
+                          );
+                        })()}
                         {order.invoice_number && (
-                          <div className="text-label-sm text-sc-gray">{order.invoice_number}</div>
+                          <div className="text-label-sm text-sc-gray mt-0.5">{order.invoice_number}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-sc-navy">{order.billing_recipient_name ?? order.family_name}</div>
+                        {order.billing_recipient_email && (
+                          <div className="text-label-sm text-sc-gray">{order.billing_recipient_email}</div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-sc-gray">{order.item_count}</td>
                       <td className="px-4 py-3 font-medium text-sc-navy tabular-nums">{currency(order.subtotal_cents)}</td>
                       <td className="px-4 py-3">{statusBadge(order.order_status)}</td>
-                      <td className="px-4 py-3">{fulfillmentBadge(order.fulfillment_status)}</td>
                       <td className="px-4 py-3 text-sc-gray whitespace-nowrap">{formatDate(order.created_at)}</td>
                       <td className="px-4 py-3 text-sc-gray text-label-sm">
                         {expandedId === order.id ? "▲" : "▼"}
@@ -338,7 +356,7 @@ export function OrdersPage({ canManage }: Props) {
 
                     {expandedId === order.id && (
                       <tr key={`${order.id}-detail`}>
-                        <td colSpan={7} className="px-4 py-4 bg-sc-gray-100/10">
+                        <td colSpan={8} className="px-4 py-4 bg-sc-gray-100/10">
                           <div className="space-y-3">
                             {/* Line items */}
                             <div className="rounded-xl border border-sc-gray-100 overflow-hidden">

@@ -107,6 +107,13 @@ export interface InvoiceLineItem {
   line_total_cents: number;
 }
 
+export interface InvoicePaymentLine {
+  payment_date:     string;  // formatted display string, e.g. "October 15, 2026"
+  payment_method:   string;  // e.g. "Zelle"
+  amount_cents:     number;
+  reference_number: string | null;
+}
+
 export interface InvoiceData {
   invoice_number:         string;
   invoice_date:           string;   // e.g. "January 15, 2027"
@@ -117,6 +124,7 @@ export interface InvoiceData {
   items:                  InvoiceLineItem[];
   subtotal_cents:         number;
   paid_cents:             number;   // sum of verified payments
+  payments?:              InvoicePaymentLine[];  // individual verified payments for history section
   // Payment instructions
   zelle_recipient:        string;   // "321-795-9724"
   zelle_type:             string;   // "phone" | "email"
@@ -230,6 +238,23 @@ export async function generateInvoicePdf(data: InvoiceData): Promise<Uint8Array>
   drawLine(page, y, TEAL, 1);
   y -= 12;
 
+  // ── Payment history (verified payments) ───────────────────────────────
+  if (data.payments && data.payments.length > 0) {
+    page.drawText("PAYMENT HISTORY", { x: MARGIN, y, size: 8, font: boldFont, color: TEAL });
+    y -= 14;
+
+    for (const pmt of data.payments) {
+      const pmtLabel = `${pmt.payment_date}  ·  ${pmt.payment_method}${pmt.reference_number ? `  ·  Ref: ${pmt.reference_number}` : ""}`;
+      page.drawText(pmtLabel,               { x: MARGIN,      y, size: 8, font: regularFont, color: BLACK, maxWidth: 340 });
+      page.drawText(currency(pmt.amount_cents), { x: COL_R - 70, y, size: 8, font: boldFont,    color: BLACK });
+      y -= 14;
+    }
+
+    y -= 4;
+    drawLine(page, y, LIGHT);
+    y -= 12;
+  }
+
   // ── Totals block ──────────────────────────────────────────────────────
   const totals: Array<{ label: string; value: string; bold?: boolean; color?: ReturnType<typeof rgb> }> = [
     { label: "Subtotal",          value: currency(data.subtotal_cents) },
@@ -302,6 +327,128 @@ export async function generateInvoicePdf(data: InvoiceData): Promise<Uint8Array>
     });
     y -= 20;
   }
+
+  return doc.save();
+}
+
+// ── Receipt PDF ───────────────────────────────────────────────────────────────
+
+export interface ReceiptData {
+  receipt_id:              string;   // payment UUID (first 8 chars shown)
+  invoice_number:          string;
+  payment_date:            string;   // formatted, e.g. "October 15, 2026"
+  payment_method:          string;   // e.g. "Zelle"
+  reference_number:        string | null;
+  family_name:             string;
+  billing_recipient_name:  string;
+  billing_recipient_email: string;
+  student_names:           string[];
+  amount_cents:            number;
+  subtotal_cents:          number;
+  total_paid_cents:        number;   // all verified payments including this one
+  balance_cents:           number;
+  org_contact?:            string;
+}
+
+export async function generateReceiptPdf(data: ReceiptData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+
+  const boldFont    = await doc.embedFont(StandardFonts.HelveticaBold);
+  const regularFont = await doc.embedFont(StandardFonts.Helvetica);
+  const oblFont     = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const serifFontBytes = readFileSync(join(process.cwd(), "src/lib/fonts/PlayfairDisplay-Bold.ttf"));
+  const serifFont = await doc.embedFont(serifFontBytes);
+
+  const orgContact = data.org_contact;
+
+  // Single-page receipt
+  const page = doc.addPage([PAGE_W, PAGE_H]);
+
+  // Header bar (same as invoice but says RECEIPT)
+  drawRect(page, 0, PAGE_H - 90, PAGE_W, 90, NAVY);
+  page.drawText("Rising Leaders Academy", { x: MARGIN, y: PAGE_H - 36, size: 22, font: serifFont, color: WHITE });
+  page.drawText("A Program of Healing Through Christ Foundation", { x: MARGIN, y: PAGE_H - 54, size: 9, font: regularFont, color: rgb(0.75, 0.85, 0.87) });
+  page.drawText("RECEIPT", { x: COL_R - 70, y: PAGE_H - 38, size: 22, font: boldFont, color: TEAL });
+
+  drawFooterBar(page, boldFont, regularFont, orgContact);
+
+  let y = CONTENT_TOP;
+
+  // Meta strip
+  drawRect(page, 0, y - 52, PAGE_W, 52, rgb(0.96, 0.98, 0.98));
+  const metaItems = [
+    { label: "Receipt #",  value: data.receipt_id.slice(0, 8).toUpperCase() },
+    { label: "Invoice #",  value: data.invoice_number                        },
+    { label: "Date",       value: data.payment_date                          },
+  ];
+  const metaW = (PAGE_W - MARGIN * 2) / 3;
+  metaItems.forEach((m, i) => {
+    const mx = MARGIN + i * metaW;
+    page.drawText(m.label.toUpperCase(), { x: mx, y: y - 20, size: 7,  font: boldFont,    color: GRAY });
+    page.drawText(m.value,               { x: mx, y: y - 35, size: 11, font: boldFont,    color: NAVY });
+  });
+  y -= 52 + 16;
+
+  // Paid To / For section
+  page.drawText("RECEIVED FROM",  { x: MARGIN,        y, size: 7, font: boldFont, color: GRAY });
+  page.drawText("FOR STUDENTS",   { x: MARGIN + 220,  y, size: 7, font: boldFont, color: GRAY });
+  y -= 14;
+  page.drawText(data.billing_recipient_name, { x: MARGIN, y, size: 13, font: boldFont, color: BLACK });
+  if (data.student_names.length > 0) {
+    page.drawText(data.student_names.join(", ").slice(0, 50), { x: MARGIN + 220, y, size: 11, font: regularFont, color: BLACK });
+  }
+  y -= 14;
+  if (data.billing_recipient_email) {
+    page.drawText(data.billing_recipient_email, { x: MARGIN, y, size: 9, font: regularFont, color: TEAL });
+  }
+  y -= 24;
+  drawLine(page, y, TEAL, 1.5);
+  y -= 24;
+
+  // Payment box
+  const boxH = 80;
+  drawRect(page, MARGIN - 4, y - boxH, PAGE_W - MARGIN * 2 + 8, boxH, rgb(0.97, 0.99, 0.97));
+  page.drawRectangle({ x: MARGIN - 4, y: y - boxH, width: PAGE_W - MARGIN * 2 + 8, height: boxH, borderColor: rgb(0.18, 0.72, 0.44), borderWidth: 1 });
+
+  page.drawText("PAYMENT RECEIVED", { x: MARGIN + 8, y: y - 16, size: 8, font: boldFont, color: GRAY });
+  page.drawText(currency(data.amount_cents), { x: MARGIN + 8, y: y - 36, size: 26, font: boldFont, color: rgb(0.08, 0.45, 0.28) });
+
+  page.drawText(`${data.payment_method}${data.reference_number ? `  ·  Ref: ${data.reference_number}` : ""}`,
+    { x: MARGIN + 8, y: y - 58, size: 9, font: regularFont, color: BLACK });
+
+  y -= boxH + 20;
+
+  // Balance summary
+  const summaryRows = [
+    { label: "Invoice Subtotal", value: currency(data.subtotal_cents) },
+    { label: "Total Paid",       value: currency(data.total_paid_cents), bold: true },
+    { label: "Remaining Balance",value: currency(data.balance_cents),    bold: true, color: data.balance_cents > 0 ? TEAL : GRAY },
+  ];
+  for (const row of summaryRows) {
+    const font = row.bold ? boldFont : regularFont;
+    const col  = (row as any).color ?? BLACK;
+    const sz   = row.bold ? 11 : 9;
+    page.drawText(row.label, { x: COL_R - 200, y, size: sz, font: regularFont, color: GRAY });
+    page.drawText(row.value, { x: COL_R - 70,  y, size: sz, font,              color: col  });
+    y -= row.bold ? 18 : 14;
+  }
+
+  // Paid-in-full stamp
+  if (data.balance_cents <= 0) {
+    y -= 8;
+    drawRect(page, MARGIN - 4, y - 24, 130, 24, rgb(0.94, 0.99, 0.96));
+    page.drawRectangle({ x: MARGIN - 4, y: y - 24, width: 130, height: 24, borderColor: rgb(0.18, 0.72, 0.44), borderWidth: 1.5 });
+    page.drawText("PAID IN FULL", { x: MARGIN + 8, y: y - 16, size: 11, font: boldFont, color: rgb(0.08, 0.55, 0.32) });
+    y -= 32;
+  }
+
+  y -= 16;
+  drawLine(page, y, LIGHT);
+  y -= 16;
+  page.drawText("Thank you for your payment. Please retain this receipt for your records.", {
+    x: MARGIN, y, size: 8, font: oblFont, color: GRAY,
+  });
 
   return doc.save();
 }
