@@ -254,6 +254,113 @@ export async function cancelOrder(orderId: string, reason: string): Promise<Acti
   }
 }
 
+// ── Delete / Void ────────────────────────────────────────────────────────
+
+/**
+ * Hard-delete a DRAFT order with no payments.
+ * Only allowed when order_status = 'draft' and no payment records exist.
+ */
+export async function deleteOrder(orderId: string): Promise<ActionResult<void>> {
+  try {
+    const { user, orgId, supabase } = await assertOrdersManage();
+
+    const { data: order, error: orderErr } = await supabase
+      .from("orders")
+      .select("id, order_status, invoice_number")
+      .eq("id", orderId)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) throw new Error("Order not found");
+    if ((order as any).order_status !== "draft") {
+      throw new Error("Only draft orders can be deleted. Use Void Invoice for issued invoices.");
+    }
+
+    // Safety: block delete if any payment records exist
+    const { count } = await supabase
+      .from("order_payments")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", orderId);
+    if ((count ?? 0) > 0) {
+      throw new Error("This order has payment records and cannot be deleted. Reverse all payments first.");
+    }
+
+    const { error } = await supabase
+      .from("orders")
+      .delete()
+      .eq("id", orderId)
+      .eq("organization_id", orgId);
+    if (error) throw error;
+
+    await logAudit({ action: "order.delete", target_type: "orders", target_id: orderId, org_id: orgId });
+    revalidatePath("/dashboard/finance/orders");
+    return { success: true, data: undefined };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+/**
+ * Void an issued invoice (invoiced/partial/paid) with no payment history.
+ * Sets order_status = 'voided'. Preserves all records; number is never reused.
+ */
+export async function voidOrder(orderId: string, reason: string): Promise<ActionResult<void>> {
+  try {
+    const { user, orgId, supabase } = await assertOrdersManage();
+
+    const { data: order, error: orderErr } = await supabase
+      .from("orders")
+      .select("id, order_status, invoice_number")
+      .eq("id", orderId)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) throw new Error("Order not found");
+
+    const status = (order as any).order_status;
+    if (status === "voided") throw new Error("Invoice is already voided.");
+    if (status === "cancelled") throw new Error("Cancelled orders cannot be voided.");
+    if (status === "draft") throw new Error("Draft orders should be deleted, not voided.");
+
+    // Block if any non-reversed payments exist
+    const { data: payments } = await supabase
+      .from("order_payments")
+      .select("id, status")
+      .eq("order_id", orderId);
+    const activePayments = (payments ?? []).filter((p: any) => p.status !== "reversed");
+    if (activePayments.length > 0) {
+      throw new Error(
+        `This invoice has ${activePayments.length} active payment(s). ` +
+        "Reverse all payments before voiding, then try again."
+      );
+    }
+
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        order_status: "voided",
+        voided_at:    new Date().toISOString(),
+        voided_by:    user.id,
+        void_reason:  reason.trim() || null,
+        updated_by:   user.id,
+      })
+      .eq("id", orderId);
+    if (error) throw error;
+
+    await logAudit({
+      action: "order.void",
+      target_type: "orders",
+      target_id: orderId,
+      org_id: orgId,
+      details: { reason, invoice_number: (order as any).invoice_number },
+    });
+    revalidatePath("/dashboard/finance/orders");
+    return { success: true, data: undefined };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
 // ── Queries ───────────────────────────────────────────────────────────────
 
 export async function getOrdersForOrg(filters?: {
@@ -1233,13 +1340,12 @@ export async function getOrderPayments(orderId: string): Promise<ActionResult<Or
   try {
     const { orgId, supabase } = await assertOrdersView();
 
+    // Note: created_by and verified_by reference auth.users(id), NOT profiles(id).
+    // Do not attempt profiles!order_payments_*_fkey joins — those FKs do not exist
+    // and PostgREST will reject the entire query, returning zero rows silently.
     const { data, error } = await supabase
       .from("order_payments")
-      .select(`
-        *,
-        created_by_profile:profiles!order_payments_created_by_fkey(full_name),
-        verified_by_profile:profiles!order_payments_verified_by_fkey(full_name)
-      `)
+      .select("id, order_id, organization_id, amount_cents, payment_method, payment_date, reference_number, notes, status, verified_by, verified_at, reversed_at, reversal_reason, created_by, created_at")
       .eq("order_id", orderId)
       .eq("organization_id", orgId)
       .order("created_at", { ascending: true });
@@ -1249,8 +1355,8 @@ export async function getOrderPayments(orderId: string): Promise<ActionResult<Or
       success: true,
       data: (data ?? []).map((p: any) => ({
         ...p,
-        created_by_name:  p.created_by_profile?.full_name ?? null,
-        verified_by_name: p.verified_by_profile?.full_name ?? null,
+        created_by_name:  null,
+        verified_by_name: null,
       })) as OrderPayment[],
     };
   } catch (e) {

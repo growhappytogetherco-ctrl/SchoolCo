@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, BookOpen, Search, Loader2, Package, X, Pencil, Check, FileText, Send, Download, Truck, AlertCircle, RefreshCw } from "lucide-react";
+import { Plus, BookOpen, Search, Loader2, Package, X, Pencil, Check, FileText, Send, Download, Truck, AlertCircle, RefreshCw, Trash2, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -9,7 +9,7 @@ import {
   ORDER_STATUS_LABELS, FULFILLMENT_STATUS_LABELS,
   type StoreItem, type OrderRow, type OrderItemRow, type OrderStatus,
 } from "@/app/actions/orders-constants";
-import { getOrdersForOrg, getCatalogItems, updateOrderItem, voidOrderItem, sendInvoiceEmail, getInvoicePdfBase64, updateFulfillmentStatus } from "@/app/actions/orders";
+import { getOrdersForOrg, getCatalogItems, updateOrderItem, voidOrderItem, sendInvoiceEmail, getInvoicePdfBase64, updateFulfillmentStatus, deleteOrder, voidOrder } from "@/app/actions/orders";
 import { ItemCatalogModal } from "./ItemCatalogModal";
 import { CreateOrderModal } from "./CreateOrderModal";
 import { IssueInvoiceModal } from "./IssueInvoiceModal";
@@ -26,6 +26,7 @@ function statusBadge(status: OrderStatus) {
     partial:   "bg-blue-50 text-blue-700 border border-blue-200",
     paid:      "bg-emerald-50 text-emerald-700 border border-emerald-200",
     cancelled: "bg-sc-rose-50 text-sc-rose-700 border border-sc-rose-200",
+    voided:    "bg-sc-gray-100 text-sc-gray border border-sc-gray-200 line-through",
   };
   return (
     <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", cls[status])}>
@@ -52,6 +53,7 @@ const STATUS_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "partial",  label: "Partial" },
   { value: "paid",     label: "Paid" },
   { value: "cancelled",label: "Cancelled" },
+  { value: "voided",   label: "Voided" },
 ];
 
 interface EditingItem {
@@ -80,6 +82,11 @@ export function OrdersPage({ canManage }: Props) {
   const [invoicingOrder, setInvoicingOrder] = useState<OrderRow | null>(null);
   const [sendingEmail,   setSendingEmail]  = useState<string | null>(null);
   const [downloading,    setDownloading]   = useState<string | null>(null);
+  const [deleteDialog,   setDeleteDialog]  = useState<OrderRow | null>(null);
+  const [voidDialog,     setVoidDialog]    = useState<OrderRow | null>(null);
+  const [voidReason,     setVoidReason]    = useState("");
+  const [dialogWorking,  setDialogWorking] = useState(false);
+  const [dialogError,    setDialogError]   = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -180,6 +187,35 @@ export function OrdersPage({ canManage }: Props) {
     const res = await updateFulfillmentStatus(orderId, next as any);
     if (res.success) await load();
     else alert(res.error ?? "Failed to update fulfillment.");
+  }
+
+  async function handleDelete() {
+    if (!deleteDialog) return;
+    setDialogWorking(true);
+    setDialogError(null);
+    const res = await deleteOrder(deleteDialog.id);
+    setDialogWorking(false);
+    if (res.success) {
+      setDeleteDialog(null);
+      await load();
+    } else {
+      setDialogError(res.error ?? "Failed to delete order.");
+    }
+  }
+
+  async function handleVoid() {
+    if (!voidDialog) return;
+    setDialogWorking(true);
+    setDialogError(null);
+    const res = await voidOrder(voidDialog.id, voidReason);
+    setDialogWorking(false);
+    if (res.success) {
+      setVoidDialog(null);
+      setVoidReason("");
+      await load();
+    } else {
+      setDialogError(res.error ?? "Failed to void invoice.");
+    }
   }
 
   return (
@@ -432,13 +468,23 @@ export function OrdersPage({ canManage }: Props) {
                             {/* Phase 2: Invoice & payment actions */}
                             <div className="flex flex-wrap gap-2 pt-1">
                               {canManage && order.order_status === "draft" && (
-                                <Button
-                                  size="sm"
-                                  className="bg-sc-teal hover:bg-sc-teal-700 text-white"
-                                  onClick={() => setInvoicingOrder(order)}
-                                >
-                                  <FileText className="size-4 mr-1.5" /> Issue Invoice
-                                </Button>
+                                <>
+                                  <Button
+                                    size="sm"
+                                    className="bg-sc-teal hover:bg-sc-teal-700 text-white"
+                                    onClick={() => setInvoicingOrder(order)}
+                                  >
+                                    <FileText className="size-4 mr-1.5" /> Issue Invoice
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-sc-rose-200 text-sc-rose-700 hover:bg-sc-rose-50"
+                                    onClick={() => { setDeleteDialog(order); setDialogError(null); }}
+                                  >
+                                    <Trash2 className="size-4 mr-1.5" /> Delete Draft
+                                  </Button>
+                                </>
                               )}
                               {["invoiced","partial","paid"].includes(order.order_status) && (
                                 <>
@@ -474,6 +520,16 @@ export function OrdersPage({ canManage }: Props) {
                                       {order.fulfillment_status === "pending"   ? "Mark Partially Fulfilled" :
                                        order.fulfillment_status === "partial"   ? "Mark Fulfilled" :
                                        "Reset Fulfillment"}
+                                    </Button>
+                                  )}
+                                  {canManage && order.order_status !== "paid" && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="border-sc-rose-200 text-sc-rose-700 hover:bg-sc-rose-50"
+                                      onClick={() => { setVoidDialog(order); setVoidReason(""); setDialogError(null); }}
+                                    >
+                                      <Ban className="size-4 mr-1.5" /> Void Invoice
                                     </Button>
                                   )}
                                 </>
@@ -531,6 +587,99 @@ export function OrdersPage({ canManage }: Props) {
             load();
           }}
         />
+      )}
+
+      {/* Delete Draft dialog */}
+      {deleteDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-sc-rose-50 p-2 shrink-0">
+                <Trash2 className="size-5 text-sc-rose-700" />
+              </div>
+              <div>
+                <h2 className="text-heading-1 text-sc-navy">Delete Draft Order?</h2>
+                <p className="text-body-md text-sc-gray mt-1">
+                  This will permanently delete the draft order for{" "}
+                  <strong>{deleteDialog.family_name}</strong>
+                  {deleteDialog.invoice_number ? ` (${deleteDialog.invoice_number})` : ""}.
+                  This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="rounded-xl bg-sc-rose-50 border border-sc-rose-200 px-4 py-3 space-y-1">
+              <p className="text-label-sm text-sc-rose-700 font-medium">
+                {deleteDialog.item_count} item{deleteDialog.item_count !== 1 ? "s" : ""} — {currency(deleteDialog.subtotal_cents)}
+              </p>
+              <p className="text-label-sm text-sc-rose-700">Only drafts with no payment records can be deleted.</p>
+            </div>
+            {dialogError && (
+              <p className="text-sc-rose-700 text-body-md bg-sc-rose-50 rounded-lg px-3 py-2">{dialogError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setDeleteDialog(null)} disabled={dialogWorking}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-sc-rose-700 hover:bg-sc-rose text-white"
+                onClick={handleDelete}
+                disabled={dialogWorking}
+              >
+                {dialogWorking ? <><Loader2 className="size-4 mr-1.5 animate-spin" /> Deleting…</> : "Delete Draft"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Void Invoice dialog */}
+      {voidDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-sc-gold-50 p-2 shrink-0">
+                <Ban className="size-5 text-sc-gold-700" />
+              </div>
+              <div>
+                <h2 className="text-heading-1 text-sc-navy">Void Invoice?</h2>
+                <p className="text-body-md text-sc-gray mt-1">
+                  This will void invoice <strong>{voidDialog.invoice_number}</strong> for{" "}
+                  <strong>{voidDialog.family_name}</strong>.
+                </p>
+              </div>
+            </div>
+            <div className="rounded-xl bg-sc-gold-50 border border-sc-gold-300 px-4 py-3 space-y-1 text-label-sm text-sc-gold-800">
+              <p className="font-medium">Invoice total: {currency(voidDialog.subtotal_cents)}</p>
+              <p>Voided invoices are excluded from outstanding balances. The invoice number is never reused. All records are preserved.</p>
+              <p>If there are active payments, you must reverse them first before voiding.</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-label-sm text-sc-gray">Reason for voiding <span className="font-normal">(optional)</span></label>
+              <Input
+                placeholder="e.g. Entered by mistake, duplicate order"
+                value={voidReason}
+                onChange={e => setVoidReason(e.target.value)}
+              />
+            </div>
+            {dialogError && (
+              <p className="text-sc-rose-700 text-body-md bg-sc-rose-50 rounded-lg px-3 py-2">{dialogError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setVoidDialog(null)} disabled={dialogWorking}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-sc-gold-700 hover:bg-sc-gold-800 text-white"
+                onClick={handleVoid}
+                disabled={dialogWorking}
+              >
+                {dialogWorking ? <><Loader2 className="size-4 mr-1.5 animate-spin" /> Voiding…</> : "Void Invoice"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

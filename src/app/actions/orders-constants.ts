@@ -3,7 +3,7 @@
 
 export type ItemCategory = "shirt" | "polo" | "uniform" | "field_trip" | "supplies" | "fee" | "other";
 
-export type OrderStatus = "draft" | "invoiced" | "partial" | "paid" | "cancelled";
+export type OrderStatus = "draft" | "invoiced" | "partial" | "paid" | "cancelled" | "voided";
 
 export type FulfillmentStatus = "pending" | "partial" | "fulfilled";
 
@@ -23,6 +23,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   partial:   "Partially Paid",
   paid:      "Paid in Full",
   cancelled: "Cancelled",
+  voided:    "Voided",
 };
 
 export const FULFILLMENT_STATUS_LABELS: Record<FulfillmentStatus, string> = {

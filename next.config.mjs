@@ -4,6 +4,12 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: "20mb",
     },
+    // Include the fonts directory in Vercel serverless function bundles.
+    // Without this, readFileSync('src/lib/fonts/...') fails in production
+    // with ENOENT because Next.js file-tracing excludes binary assets by default.
+    outputFileTracingIncludes: {
+      "/**": ["./src/lib/fonts/**"],
+    },
   },
   // Type inference breaks on Supabase join queries because the hand-written
   // Database type lacks Relationships entries. Runtime is correct; fix post-deploy.
