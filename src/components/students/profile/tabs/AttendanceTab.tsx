@@ -17,7 +17,8 @@ const STATUS_CFG: Record<string, { label: string; cls: string; dot: string }> = 
   tardy:           { label: "Tardy",           cls: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200",  dot: "bg-sc-gold" },
   excused:         { label: "Excused",         cls: "bg-sc-navy-50 text-sc-navy border-sc-navy-200",       dot: "bg-sc-navy" },
   early_dismissal: { label: "Early Dismissal", cls: "bg-sc-gray-50 text-sc-gray border-sc-gray-200",       dot: "bg-sc-gray" },
-  checked_in:      { label: "Present",         cls: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200",  dot: "bg-sc-teal" },
+  checked_in:      { label: "Checked In",      cls: "bg-sc-teal-50 text-sc-teal-700 border-sc-teal-200",  dot: "bg-sc-teal" },
+  checked_out:     { label: "Checked Out",     cls: "bg-sc-gray-100 text-sc-navy border-sc-gray-200",      dot: "bg-sc-navy" },
 };
 
 const STATUS_OPTIONS = [
@@ -425,7 +426,10 @@ export function AttendanceTab({ studentId, isFullAdmin = false }: Props) {
         ) : (
           <div className="divide-y divide-sc-gray-100">
             {records.map((r) => {
-              const cfg = STATUS_CFG[r.status] ?? STATUS_CFG.present;
+              const displayKey = r.check_out_at ? "checked_out"
+                : r.check_in_at ? "checked_in"
+                : r.status;
+              const cfg = STATUS_CFG[displayKey] ?? STATUS_CFG.present;
               return (
                 <div key={r.id} className="px-5 py-3">
                   <div className="flex items-center gap-3 flex-wrap">
