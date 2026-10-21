@@ -95,14 +95,6 @@ export default async function PortalLayout({ children }: { children: React.React
               <span className="hidden md:block">Calendar</span>
             </Link>
             <Link
-              href="/portal/attendance"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
-              title="Attendance"
-            >
-              <Calendar className="size-4" />
-              <span className="hidden md:block">Attendance</span>
-            </Link>
-            <Link
               href="/portal/grades"
               className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label-sm text-sc-gray hover:text-sc-teal hover:bg-sc-teal-50 transition-colors"
               title="Grades"

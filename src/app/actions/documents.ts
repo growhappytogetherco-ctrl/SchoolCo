@@ -592,3 +592,84 @@ export async function deleteAcademicDocument(
   revalidatePath(`/dashboard/students/${(doc as any).student_id}`);
   return { success: true, data: undefined };
 }
+
+// ── Portfolio items for parent ────────────────────────────────────────────────
+
+export interface PortfolioItem {
+  id:            string;
+  title:         string;
+  category:      "work_sample" | "document";
+  subject:       string | null;
+  description:   string | null;
+  date:          string | null;
+  thumbnailUrl:  string | null;
+  viewUrl:       string | null;
+  createdAt:     string;
+}
+
+export async function getStudentPortfolioItems(
+  studentId: string,
+): Promise<ActionResult<PortfolioItem[]>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: "Not authenticated" };
+
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { success: false, error: "No active organization" };
+
+  const supabase = await createClient();
+
+  const { data: guardianship } = await supabase
+    .from("guardianships")
+    .select("id")
+    .eq("profile_id", user.id)
+    .eq("student_id", studentId)
+    .eq("organization_id", orgId)
+    .eq("status", "active")
+    .single();
+
+  if (!guardianship) return { success: false, error: "Access denied" };
+
+  const [samplesRes, docsRes] = await Promise.all([
+    supabase
+      .from("work_samples")
+      .select("id, title, subject, description, work_date, thumbnail_url, google_drive_url, created_at")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .eq("visible_to_parent", true)
+      .order("work_date", { ascending: false }),
+    supabase
+      .from("student_documents")
+      .select("id, title, document_type, google_drive_url, external_url, created_at")
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .eq("visibility", "parent_visible")
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const items: PortfolioItem[] = [
+    ...(samplesRes.data ?? []).map((s: any) => ({
+      id:           s.id,
+      title:        s.title,
+      category:     "work_sample" as const,
+      subject:      s.subject ?? null,
+      description:  s.description ?? null,
+      date:         s.work_date ?? null,
+      thumbnailUrl: s.thumbnail_url ?? null,
+      viewUrl:      s.google_drive_url ?? null,
+      createdAt:    s.created_at,
+    })),
+    ...(docsRes.data ?? []).map((d: any) => ({
+      id:           d.id,
+      title:        d.title,
+      category:     "document" as const,
+      subject:      null,
+      description:  null,
+      date:         null,
+      thumbnailUrl: null,
+      viewUrl:      d.google_drive_url ?? d.external_url ?? null,
+      createdAt:    d.created_at,
+    })),
+  ];
+
+  return { success: true, data: items };
+}

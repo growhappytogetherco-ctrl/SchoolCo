@@ -107,18 +107,9 @@ export function PreferencesForm({ guardianship }: PreferencesFormProps) {
               checked={!!channels.email}
               onChange={(e) => setChannels((c) => ({ ...c, email: e.target.checked }))}
             />
-            <Switch
-              label="SMS / text message"
-              description="Receive text messages for time-sensitive updates"
-              checked={!!channels.sms}
-              onChange={(e) => setChannels((c) => ({ ...c, sms: e.target.checked }))}
-            />
-            <Switch
-              label="Push notifications"
-              description="In-app push notifications (requires mobile app)"
-              checked={!!channels.push}
-              onChange={(e) => setChannels((c) => ({ ...c, push: e.target.checked }))}
-            />
+            <p className="text-label-sm text-sc-gray-400 rounded-lg bg-sc-cream/70 border border-sc-gray-100 px-3 py-2">
+              SMS and push notifications are not yet available. Only email is currently active.
+            </p>
           </div>
         </section>
 

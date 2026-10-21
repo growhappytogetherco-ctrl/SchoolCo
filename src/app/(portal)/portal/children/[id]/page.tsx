@@ -2,14 +2,16 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, GraduationCap, Clock, BadgeCheck, CalendarDays,
-  Heart, AlertTriangle, Target, BookOpen, ChevronRight,
+  ArrowLeft, GraduationCap, CalendarDays,
+  AlertTriangle, Target, ChevronRight,
 } from "lucide-react";
 import {
   getUser, getStudentForParent, getStudentTimelineForParent,
   getAttendanceHistoryForParent, getProgressCheckinsForParent,
   getStudentGoalsForParent, getMedicalSummaryForParent, getActiveOrgId,
 } from "@/lib/supabase/server";
+import { getStudentPortfolioItems } from "@/app/actions/documents";
+import { FileText, ExternalLink, Image } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { StudentJourney, FILTER_GROUPS, type FilterGroup } from "@/components/timeline/StudentJourney";
 import { ENROLLMENT_LABELS } from "@/lib/constants";
@@ -26,58 +28,6 @@ function fmtTime(iso: string | null): string {
 function fmtDate(d: string): string {
   const dt = new Date(d + "T12:00:00");
   return dt.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-}
-
-function AttendanceStatus({ att }: {
-  att: {
-    status: string;
-    check_in_at: string | null;
-    check_out_at: string | null;
-    is_late: boolean;
-    is_early_pickup: boolean;
-  } | null;
-}) {
-  if (!att) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-sc-gray-100 px-3 py-1 text-label-sm text-sc-gray-500">
-        <Clock className="size-3.5" /> Not yet recorded today
-      </span>
-    );
-  }
-  if (att.check_out_at) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-sc-navy/10 border border-sc-navy/20 px-3 py-1 text-label-sm text-sc-navy font-medium">
-        <Clock className="size-3.5" /> Checked out {fmtTime(att.check_out_at)}
-        {att.is_early_pickup && <span className="text-sc-gray-400"> · Early pickup</span>}
-      </span>
-    );
-  }
-  if (att.check_in_at) {
-    return (
-      <span className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-label-sm font-medium",
-        att.is_late
-          ? "bg-sc-gold-50 border-sc-gold-200 text-sc-gold-700"
-          : "bg-sc-teal-50 border-sc-teal-200 text-sc-teal-700"
-      )}>
-        <BadgeCheck className="size-3.5" />
-        On campus since {fmtTime(att.check_in_at)}
-        {att.is_late && <span className="font-normal"> · Late</span>}
-      </span>
-    );
-  }
-  if (att.status === "absent") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-sc-rose-50 border border-sc-rose-200 px-3 py-1 text-label-sm text-sc-rose-700 font-medium">
-        <Clock className="size-3.5" /> Absent today
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-sc-gray-100 px-3 py-1 text-label-sm text-sc-gray-500">
-      <Clock className="size-3.5" /> No record today
-    </span>
-  );
 }
 
 function AttendanceDot({ status }: { status: string }) {
@@ -131,13 +81,16 @@ export default async function PortalChildDetailPage({
   const student = await getStudentForParent(id, user.id, orgId);
   if (!student) notFound();
 
-  const [entries, attendanceHistory, checkins, goals, medical] = await Promise.all([
+  const [entries, attendanceHistory, checkins, goals, medical, portfolioResult] = await Promise.all([
     getStudentTimelineForParent(id, orgId),
     getAttendanceHistoryForParent(id, user.id, orgId, 7),
     getProgressCheckinsForParent(id, user.id, orgId, 5),
     getStudentGoalsForParent(id, user.id, orgId),
     getMedicalSummaryForParent(id, user.id, orgId),
+    getStudentPortfolioItems(id),
   ]);
+
+  const portfolio = portfolioResult.success ? portfolioResult.data : [];
 
   const filter = (FILTER_GROUPS.some((g) => g.value === rawFilter)
     ? rawFilter
@@ -210,20 +163,12 @@ export default async function PortalChildDetailPage({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-sc-gray-100">
-          <div>
-            <p className="text-label-sm text-sc-gray-400 uppercase tracking-wide">Today&apos;s Status</p>
-            <div className="mt-1.5">
-              <AttendanceStatus att={student.today_attendance} />
-            </div>
-          </div>
-          <div>
-            <p className="text-label-sm text-sc-gray-400 uppercase tracking-wide">Academic Year</p>
-            <p className="mt-1.5 flex items-center gap-1.5 text-label-sm text-sc-navy font-medium">
-              <CalendarDays className="size-3.5 text-sc-gray-400" />
-              {academicYear}
-            </p>
-          </div>
+        <div className="pt-2 border-t border-sc-gray-100">
+          <p className="text-label-sm text-sc-gray-400 uppercase tracking-wide">Academic Year</p>
+          <p className="mt-1.5 flex items-center gap-1.5 text-label-sm text-sc-navy font-medium">
+            <CalendarDays className="size-3.5 text-sc-gray-400" />
+            {academicYear}
+          </p>
         </div>
       </div>
 
@@ -282,14 +227,8 @@ export default async function PortalChildDetailPage({
 
       {/* ── Attendance history ────────────────────────────────────── */}
       <section>
-        <div className="flex items-center justify-between mb-3">
+        <div className="mb-3">
           <h2 className="font-serif text-heading-2 text-sc-navy">Recent Attendance</h2>
-          <Link
-            href="/portal/attendance"
-            className="flex items-center gap-1 text-label-sm text-sc-teal hover:underline"
-          >
-            View all <ChevronRight className="size-3.5" />
-          </Link>
         </div>
 
         {attendanceHistory.length === 0 ? (
@@ -366,6 +305,51 @@ export default async function PortalChildDetailPage({
           </div>
         )}
       </section>
+
+      {/* ── Student portfolio ─────────────────────────────────────── */}
+      {portfolio.length > 0 && (
+        <section>
+          <h2 className="font-serif text-heading-2 text-sc-navy mb-3">Portfolio</h2>
+          <div className="space-y-2">
+            {portfolio.map((item) => (
+              <div key={item.id} className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-4 flex items-center gap-4">
+                {item.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={item.thumbnailUrl}
+                    alt={item.title}
+                    className="h-12 w-12 shrink-0 rounded-lg object-cover"
+                  />
+                ) : (
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-sc-gray-100">
+                    {item.category === "work_sample"
+                      ? <Image className="size-5 text-sc-gray-400" />
+                      : <FileText className="size-5 text-sc-gray-400" />}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-label-md text-sc-navy font-medium truncate">{item.title}</p>
+                  <p className="text-label-sm text-sc-gray-400">
+                    {item.subject ?? (item.category === "document" ? "Document" : "Work sample")}
+                    {item.date && ` · ${new Date(item.date + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`}
+                  </p>
+                </div>
+                {item.viewUrl && (
+                  <a
+                    href={item.viewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-sc-teal hover:text-sc-teal-700"
+                    aria-label="Open"
+                  >
+                    <ExternalLink className="size-4" />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Student goals ─────────────────────────────────────────── */}
       {goals.length > 0 && (
