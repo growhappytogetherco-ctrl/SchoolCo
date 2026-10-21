@@ -16,5 +16,5 @@ create policy "parent_view_work_samples"
   on work_samples for select
   using (
     visible_to_parent = true
-    and student_id = any(get_guardian_student_ids(organization_id))
+    and student_id in (select get_guardian_student_ids(organization_id))
   );
