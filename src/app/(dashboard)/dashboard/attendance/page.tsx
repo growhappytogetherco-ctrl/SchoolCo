@@ -32,8 +32,9 @@ export default function AttendancePage() {
   });
   const refreshTime = lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  const checkedIn  = rows.filter((r) => r.record?.check_in_at && !r.record?.check_out_at).length;
-  const absent     = rows.filter((r) => r.record?.status === "absent").length;
+  const ACTIVE     = ["present", "checked_in", "tardy"];
+  const checkedIn  = rows.filter((r) => r.record && ACTIVE.includes(r.record.status ?? "") && !r.record?.check_out_at).length;
+  const absent     = rows.filter((r) => r.record?.status === "absent" || r.record?.status === "excused").length;
   const lateCount  = rows.filter((r) => r.record?.is_late).length;
 
   return (

@@ -57,8 +57,11 @@ function AttendanceRow({ row, onUpdate }: { row: StudentAttendanceRow; onUpdate:
     ? `${row.preferred_name} ${row.last_name}`
     : `${row.first_name} ${row.last_name}`;
 
-  const isCheckedIn       = !!row.record?.check_in_at;
-  const isCheckedOut      = !!row.record?.check_out_at;
+  // Active statuses that allow checkout — mirrors server-side checkOutStudent logic.
+  // Includes "present" (bulk-marked via markAttendance with no check_in_at).
+  const ACTIVE_STATUSES = ["present", "checked_in", "tardy"];
+  const isCheckedIn  = !!(row.record && ACTIVE_STATUSES.includes(row.record.status ?? "") && !row.record.check_out_at);
+  const isCheckedOut = !!row.record?.check_out_at;
   const hasMedical        = !!(row.medical_notes || (row.allergies ?? []).length > 0);
   const hasEmergencyMed   = !!row.has_emergency_medical;
 
@@ -222,10 +225,11 @@ export function AttendanceList({ rows, onUpdate }: AttendanceListProps) {
     );
   });
 
-  // Stats bar
-  const checkedIn   = rows.filter((r) => r.record?.check_in_at && !r.record?.check_out_at).length;
-  const checkedOut  = rows.filter((r) => r.record?.check_out_at).length;
-  const absent      = rows.filter((r) => r.record?.status === "absent").length;
+  // Stats bar — active statuses match server-side checkOutStudent logic
+  const ACTIVE = ["present", "checked_in", "tardy"];
+  const checkedIn   = rows.filter((r) => r.record && ACTIVE.includes(r.record.status ?? "") && !r.record.check_out_at).length;
+  const checkedOut  = rows.filter((r) => !!r.record?.check_out_at).length;
+  const absent      = rows.filter((r) => r.record?.status === "absent" || r.record?.status === "excused").length;
   const notRecorded = rows.filter((r) => !r.record).length;
 
   return (
