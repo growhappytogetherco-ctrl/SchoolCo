@@ -156,8 +156,11 @@ export async function checkOutStudent(
     .eq("date", date)
     .single();
 
-  if (!existing?.check_in_at) {
-    return { success: false, error: "Student has not been checked in today.", notCheckedIn: true };
+  // Allow checkout if student has an active present/checked_in record today,
+  // even if check_in_at is null (staff may have bulk-marked "present" without using check-in flow).
+  const ACTIVE_STATUSES = ["present", "checked_in", "tardy"];
+  if (!existing || !ACTIVE_STATUSES.includes(existing.status)) {
+    return { success: false, error: "Student has not been marked present today.", notCheckedIn: true };
   }
 
   if (existing.check_out_at) {
