@@ -124,10 +124,12 @@ function CompletionBadge({ status }: { status: CourseCompletionStatus }) {
 // ── Credit summary ────────────────────────────────────────────────────────────
 
 function CreditSummary({ records }: { records: CourseRecord[] }) {
+  // "unknown" completion_status means AI could not determine status but admin verified the record.
+  // Treat as earned. Only "withdrawn" explicitly excludes credit.
   const verifiedCredits = records.filter(
     (r) =>
       r.verification_status === "verified" &&
-      r.completion_status === "completed" &&
+      r.completion_status !== "withdrawn" &&
       r.counts_toward_high_school_credit &&
       r.credits_earned != null &&
       r.credits_earned > 0

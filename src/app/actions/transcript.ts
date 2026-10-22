@@ -194,12 +194,23 @@ function getGpaPoints(letter: string | null): number | null {
   return n in GPA_SCALE ? GPA_SCALE[n] : null;
 }
 
+// Returns true for statuses that contribute to academic record.
+// "unknown" means AI could not determine status but the record was admin-verified —
+// treat as completed. Explicitly exclude only failed (0 GPA) and withdrawn (no credit).
+function isEarnedStatus(s: string | null | undefined): boolean {
+  return !["withdrawn"].includes(s ?? "");
+}
+// For GPA: include completed + unknown + failed (failed contributes 0.0 pts).
+function isGpaStatus(s: string | null | undefined): boolean {
+  return !["withdrawn", "in_progress"].includes(s ?? "");
+}
+
 function calculateGpa(records: any[]): number | null {
   let weightedSum = 0;
   let totalAttempted = 0;
   for (const r of records) {
     if (!r.counts_toward_high_school_credit) continue;
-    if (!["completed", "failed"].includes(r.completion_status ?? "")) continue;
+    if (!isGpaStatus(r.completion_status)) continue;
     // Use stored letter grade only — never derive from percentage
     const letter = r.final_grade ?? r.semester_2_grade ?? r.semester_1_grade ?? null;
     const pts = getGpaPoints(letter);
@@ -242,7 +253,7 @@ function buildDepartmentCredits(
 
   for (const r of records) {
     if (!r.counts_toward_high_school_credit) continue;
-    if (r.completion_status !== "completed") continue;
+    if (!isEarnedStatus(r.completion_status)) continue;
     const earned = r.credits_earned ?? 0;
     if (earned <= 0) continue;
 
@@ -498,7 +509,7 @@ export async function getTranscriptData(
         (r: any) =>
           r.counts_toward_high_school_credit &&
           (r.credits_earned ?? 0) > 0 &&
-          r.completion_status === "completed",
+          isEarnedStatus(r.completion_status),
       )
       .reduce((sum: number, r: any) => sum + (r.credits_earned ?? 0), 0);
 
