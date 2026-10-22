@@ -194,11 +194,12 @@ function getGpaPoints(letter: string | null): number | null {
   return n in GPA_SCALE ? GPA_SCALE[n] : null;
 }
 
-// Returns true for statuses that contribute to academic record.
-// "unknown" means AI could not determine status but the record was admin-verified —
-// treat as completed. Explicitly exclude only failed (0 GPA) and withdrawn (no credit).
+// Only "completed" and admin-verified "unknown" earn credits.
+// "unknown" = AI couldn't read status from source document but admin verified
+// the record and entered a credits_earned value — counts as earned.
+// Withdrawn, failed, incomplete, and in_progress do not earn credit.
 function isEarnedStatus(s: string | null | undefined): boolean {
-  return !["withdrawn"].includes(s ?? "");
+  return ["completed", "unknown"].includes(s ?? "");
 }
 // For GPA: include completed + unknown + failed (failed contributes 0.0 pts).
 function isGpaStatus(s: string | null | undefined): boolean {

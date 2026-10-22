@@ -125,12 +125,12 @@ function CompletionBadge({ status }: { status: CourseCompletionStatus }) {
 // ── Credit summary ────────────────────────────────────────────────────────────
 
 function CreditSummary({ records }: { records: CourseRecord[] }) {
-  // "unknown" completion_status means AI could not determine status but admin verified the record.
-  // Treat as earned. Only "withdrawn" explicitly excludes credit.
+  // Only "completed" and admin-verified "unknown" earn credits.
+  // Withdrawn, failed, incomplete, and in_progress do not earn credit.
   const verifiedCredits = records.filter(
     (r) =>
       r.verification_status === "verified" &&
-      r.completion_status !== "withdrawn" &&
+      ["completed", "unknown"].includes(r.completion_status ?? "") &&
       r.counts_toward_high_school_credit &&
       r.credits_earned != null &&
       r.credits_earned > 0
@@ -1024,7 +1024,7 @@ function YearGroup({
         <div className="flex items-center gap-3">
           {(() => {
             const yearCredits = records
-              .filter((r) => r.counts_toward_high_school_credit && (r.credits_earned ?? 0) > 0 && r.verification_status === "verified" && r.completion_status !== "withdrawn")
+              .filter((r) => r.counts_toward_high_school_credit && (r.credits_earned ?? 0) > 0 && r.verification_status === "verified" && ["completed", "unknown"].includes(r.completion_status ?? ""))
               .reduce((sum, r) => sum + (r.credits_earned ?? 0), 0);
             return yearCredits > 0 ? (
               <span className="text-label-sm font-medium text-sc-teal-700">{yearCredits % 1 === 0 ? yearCredits.toFixed(0) : yearCredits.toFixed(1)} cr</span>
