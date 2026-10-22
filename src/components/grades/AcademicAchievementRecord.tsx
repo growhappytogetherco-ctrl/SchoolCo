@@ -1021,7 +1021,15 @@ function YearGroup({
           <p className="font-serif text-sc-navy font-semibold">{schoolYear}</p>
           <span className="text-label-sm text-sc-gray">{institutions.join(" · ")}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {(() => {
+            const yearCredits = records
+              .filter((r) => r.counts_toward_high_school_credit && (r.credits_earned ?? 0) > 0 && r.verification_status === "verified" && r.completion_status !== "withdrawn")
+              .reduce((sum, r) => sum + (r.credits_earned ?? 0), 0);
+            return yearCredits > 0 ? (
+              <span className="text-label-sm font-medium text-sc-teal-700">{yearCredits % 1 === 0 ? yearCredits.toFixed(0) : yearCredits.toFixed(1)} cr</span>
+            ) : null;
+          })()}
           <span className="text-label-sm text-sc-gray">{records.length} course{records.length !== 1 ? "s" : ""}</span>
           {collapsed ? <ChevronDown className="size-4 text-sc-gray" /> : <ChevronUp className="size-4 text-sc-gray" />}
         </div>

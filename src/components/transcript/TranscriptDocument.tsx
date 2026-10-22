@@ -623,21 +623,34 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
             {data.historicalGroups.length > 0 && (
               <section style={{ marginBottom: "6px" }}>
                 <div style={sectionHeadStyle()}>Completed Coursework</div>
-                {data.historicalGroups.map((g) => (
-                  <div key={g.schoolYear} style={{ marginBottom: "5px" }}>
-                    <div style={{ fontFamily: FONT_HEADING, fontSize: "9px", fontWeight: 700, color: NAVY, marginBottom: "2px" }}>
-                      {g.schoolYear}
-                    </div>
-                    {g.institutions.map((inst) => (
-                      <div key={inst.institutionName} style={{ paddingLeft: "6px", marginBottom: "4px" }}>
-                        <div style={{ fontSize: "7px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#999", marginBottom: "1px", fontFamily: FONT_BODY }}>
-                          {inst.institutionName}
+                {data.historicalGroups.map((g) => {
+                  const yearCredits = g.institutions
+                    .flatMap((i) => i.records)
+                    .filter((r) => r.countsTowardHsCredit && (r.creditsEarned ?? 0) > 0)
+                    .reduce((sum, r) => sum + (r.creditsEarned ?? 0), 0);
+                  return (
+                    <div key={g.schoolYear} style={{ marginBottom: "5px" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2px" }}>
+                        <div style={{ fontFamily: FONT_HEADING, fontSize: "9px", fontWeight: 700, color: NAVY }}>
+                          {g.schoolYear}
                         </div>
-                        <InstitutionTable records={inst.records} />
+                        {yearCredits > 0 && (
+                          <div style={{ fontFamily: FONT_BODY, fontSize: "7px", color: TEXT_DIM }}>
+                            {fmtCredit(yearCredits)} cr earned
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                ))}
+                      {g.institutions.map((inst) => (
+                        <div key={inst.institutionName} style={{ paddingLeft: "6px", marginBottom: "4px" }}>
+                          <div style={{ fontSize: "7px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#999", marginBottom: "1px", fontFamily: FONT_BODY }}>
+                            {inst.institutionName}
+                          </div>
+                          <InstitutionTable records={inst.records} />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </section>
             )}
 
