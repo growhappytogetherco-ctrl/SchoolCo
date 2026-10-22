@@ -267,9 +267,10 @@ interface Props {
   studentId: string;
   isAdmin?: boolean;
   isStaff?: boolean;
+  userRole?: string;
 }
 
-export function GradesTab({ studentId, isAdmin = false, isStaff = false }: Props) {
+export function GradesTab({ studentId, isAdmin = false, isStaff = false, userRole = "" }: Props) {
   const [profile, setProfile] = useState<StudentGradeProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -441,7 +442,7 @@ export function GradesTab({ studentId, isAdmin = false, isStaff = false }: Props
               </a>
             )}
           </div>
-          <AcademicAchievementRecord studentId={studentId} canManage={isAdmin || isStaff} />
+          <AcademicAchievementRecord studentId={studentId} canManage={isAdmin || isStaff} userRole={userRole} />
         </div>
       )}
 

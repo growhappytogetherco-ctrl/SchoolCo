@@ -19,6 +19,7 @@ import {
   type SourceCreditUnit, type InstitutionType, type SourceDocumentOption,
 } from "@/app/actions/courseRecords";
 import type { DuplicateMatch, ConflictMatch } from "@/lib/courseRecordMatching";
+import { isFinalizationRole } from "@/lib/constants";
 import { requestAcademicImport, checkPriorImport, getImportJobs, retryImport, type ImportJob } from "@/app/actions/academicImport";
 import { ImportReviewScreen } from "@/components/grades/ImportReviewScreen";
 
@@ -433,7 +434,7 @@ const EMPTY_FORM: CourseFormValues = {
   sourceCreditsAttempted: "",
   sourceCreditsEarned: "",
   sourceCreditUnit: "",
-  completionStatus: "unknown",
+  completionStatus: "completed",
   sourceDocumentId: "",
   sourceNotes: "",
 };
@@ -550,6 +551,9 @@ function CourseForm({
   saving,
   sourceDocuments,
   isEditingVerified,
+  canVerifyOnCreate,
+  saveAsVerified,
+  onToggleSaveAsVerified,
 }: {
   initial: CourseFormValues;
   onSave: (f: CourseFormValues) => void;
@@ -557,6 +561,9 @@ function CourseForm({
   saving: boolean;
   sourceDocuments: SourceDocumentOption[];
   isEditingVerified?: boolean;
+  canVerifyOnCreate?: boolean;
+  saveAsVerified?: boolean;
+  onToggleSaveAsVerified?: (v: boolean) => void;
 }) {
   const [form, setForm] = useState<CourseFormValues>(initial);
   const [showSourceCredits, setShowSourceCredits] = useState(
@@ -787,6 +794,17 @@ function CourseForm({
         >
           Cancel
         </button>
+        {canVerifyOnCreate && !isEditingVerified && onToggleSaveAsVerified && (
+          <label className="flex items-center gap-2 text-label-sm text-sc-navy cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!saveAsVerified}
+              onChange={(e) => onToggleSaveAsVerified(e.target.checked)}
+              className="rounded border-sc-gray-300 text-sc-teal focus:ring-sc-teal/30"
+            />
+            Save as Verified
+          </label>
+        )}
         <button
           type="submit"
           disabled={saving}
@@ -1033,9 +1051,10 @@ type FilterTab = "all" | "needs_review" | "verified" | "rejected";
 interface Props {
   studentId: string;
   canManage: boolean;
+  userRole?: string;
 }
 
-export function AcademicAchievementRecord({ studentId, canManage }: Props) {
+export function AcademicAchievementRecord({ studentId, canManage, userRole = "" }: Props) {
   const [records, setRecords]               = useState<CourseRecord[]>([]);
   const [sourceDocuments, setSourceDocs]    = useState<SourceDocumentOption[]>([]);
   const [loading, setLoading]               = useState(true);
@@ -1046,6 +1065,9 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
   const [saveError, setSaveError]           = useState("");
   const [filterTab, setFilterTab]           = useState<FilterTab>("all");
   const [isEditingVerified, setIsEditingVerified] = useState(false);
+
+  const canVerifyOnCreate = isFinalizationRole(userRole);
+  const [saveAsVerified, setSaveAsVerified]   = useState(false);
 
   // Duplicate / conflict modal state
   const [pendingForm, setPendingForm]         = useState<CourseFormValues | null>(null);
@@ -1179,7 +1201,11 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
   async function doAdd(form: CourseFormValues) {
     setSaving(true);
     setSaveError("");
-    const payload = { studentId, ...formToPayload(form) };
+    const payload = {
+      studentId,
+      ...formToPayload(form),
+      ...(canVerifyOnCreate && saveAsVerified ? { verificationStatus: "verified" as const } : {}),
+    };
     const result = await addCourseRecord(payload);
     if (result.success) {
       setMode("list");
@@ -1458,6 +1484,9 @@ export function AcademicAchievementRecord({ studentId, canManage }: Props) {
             saving={saving}
             sourceDocuments={sourceDocuments}
             isEditingVerified={isEditingVerified}
+            canVerifyOnCreate={mode === "add" ? canVerifyOnCreate : false}
+            saveAsVerified={saveAsVerified}
+            onToggleSaveAsVerified={setSaveAsVerified}
           />
         </div>
       )}

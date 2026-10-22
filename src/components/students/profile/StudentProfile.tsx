@@ -303,7 +303,7 @@ export function StudentProfile({
         {activeTab === "overview"         && <OverviewTab         studentId={data.id} data={data} />}
         {activeTab === "goals"            && <GoalsTab            studentId={data.id} />}
         {activeTab === "support"          && <SupportTab          studentId={data.id} />}
-        {activeTab === "grades"           && <GradesTab           studentId={data.id} isAdmin={canManageAcademicRecords} isStaff={true} />}
+        {activeTab === "grades"           && <GradesTab           studentId={data.id} isAdmin={canManageAcademicRecords} isStaff={true} userRole={role} />}
         {activeTab === "academics"        && <AcademicsTab        studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "assessments"      && <AssessmentsTab      studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "medical"          && <MedicalTab          studentId={data.id} data={data} isAdmin={isAdmin} role={role} />}

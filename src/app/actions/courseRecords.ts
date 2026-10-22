@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
-import { isStaffRole, getRoleLevel } from "@/lib/constants";
+import { isStaffRole, getRoleLevel, isFinalizationRole } from "@/lib/constants";
 import { revalidatePath } from "next/cache";
 import { logAudit } from "@/lib/audit";
 import type { ActionResult } from "@/types/actions";
@@ -96,6 +96,8 @@ export interface AddCourseRecordPayload {
   completionStatus: CourseCompletionStatus;
   sourceDocumentId?: string;
   sourceNotes?: string;
+  /** Registrar+ only: set verification_status directly on creation instead of defaulting to needs_review */
+  verificationStatus?: "needs_review" | "verified";
 }
 
 export interface UpdateCourseRecordPayload {
@@ -187,7 +189,13 @@ export async function addCourseRecord(
   payload: AddCourseRecordPayload
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const { user, orgId, supabase } = await assertStaff();
+    const { user, orgId, supabase, role } = await assertStaff();
+
+    // Only registrar+ may mark a record verified on creation
+    const canVerifyOnCreate = isFinalizationRole(role);
+    const wantsVerified = payload.verificationStatus === "verified" && canVerifyOnCreate;
+    const verificationStatus = wantsVerified ? "verified" : "needs_review";
+    const now = new Date().toISOString();
 
     const { data, error } = await (supabase as any)
       .from("student_course_records")
@@ -217,7 +225,9 @@ export async function addCourseRecord(
         source_type:                      "manual_historical",
         source_document_id:               payload.sourceDocumentId ?? null,
         source_notes:                     payload.sourceNotes ?? null,
-        verification_status:              "needs_review",
+        verification_status:              verificationStatus,
+        verified_by:                      wantsVerified ? user.id : null,
+        verified_at:                      wantsVerified ? now : null,
         created_by:                       user.id,
         updated_by:                       user.id,
       })
