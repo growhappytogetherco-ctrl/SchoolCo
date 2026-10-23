@@ -104,7 +104,11 @@ export function findDuplicates(
     const instMatch = !bothInst || pInst === rInst; // if either is missing, don't disqualify
 
     const bothTerm  = proposed.term != null && rec.term != null;
-    const termMatch = !bothTerm || proposed.term === rec.term; // same logic
+    const termMatch = !bothTerm || proposed.term === rec.term;
+
+    // Two records for the same course in explicitly different semesters are NOT duplicates —
+    // e.g. Biology semester_1 + Biology semester_2 is a legitimate split-semester pair.
+    if (bothTerm && !termMatch) continue;
 
     const matchedFields: string[] = ["school_year", "course_name"];
     if (bothInst && pInst === rInst) matchedFields.push("institution_name");
