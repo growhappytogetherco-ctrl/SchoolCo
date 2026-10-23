@@ -56,7 +56,7 @@ export interface ExtractionResult {
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
-const EXTRACTION_PROMPT_VERSION = "1.1.0";
+const EXTRACTION_PROMPT_VERSION = "1.2.0";
 const EXTRACTION_VERSION = 1;
 
 export { EXTRACTION_PROMPT_VERSION, EXTRACTION_VERSION };
@@ -259,7 +259,7 @@ export async function extractAcademicRecord(
             } as any,
             {
               type: "text",
-              text: `Extract all academic course records from this document: "${documentLabel}". Return only the JSON object described in your instructions.`,
+              text: `Extract all academic course records from this document: "${documentLabel}". If the document itself does not explicitly name the issuing school or institution, use the document title as the institution hint — for example, if the title says "BCS Report Card", set institution_name to the full school name that "BCS" refers to, and note the inference in source_notes. Only set institution_name to null if it genuinely cannot be determined from any available information. Return only the JSON object described in your instructions.`,
             },
           ],
         },

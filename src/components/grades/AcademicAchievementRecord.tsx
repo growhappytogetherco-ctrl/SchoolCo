@@ -1009,7 +1009,7 @@ function YearGroup({
   onRefresh: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const institutions = Array.from(new Set(records.map((r) => r.institution_name ?? "RLA")));
+  const institutions = Array.from(new Set(records.map((r) => r.institution_name ?? "Institution Not Verified")));
 
   return (
     <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card overflow-hidden">

@@ -386,7 +386,7 @@ export async function getTranscriptData(
     const yearMap = new Map<string, Map<string, HistoricalRecord[]>>();
     for (const r of (records ?? []) as any[]) {
       const yr: string = r.school_year ?? "Unknown Year";
-      const inst: string = r.institution_name ?? org.name;
+      const inst: string = r.institution_name ?? "Institution Not Verified";
       if (!yearMap.has(yr)) yearMap.set(yr, new Map());
       const instMap = yearMap.get(yr)!;
       if (!instMap.has(inst)) instMap.set(inst, []);
