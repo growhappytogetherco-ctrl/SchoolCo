@@ -34,6 +34,31 @@ import {
   findConflictsWithVerified,
   type MatchableRecord,
 } from "@/lib/courseRecordMatching";
+
+// Values accepted by the student_course_records_course_level_check constraint
+const VALID_COURSE_LEVELS = new Set(["standard", "honors", "ap", "dual_enrollment"]);
+// Values accepted by the student_course_records_completion_status_check constraint
+const VALID_COMPLETION_STATUSES = new Set([
+  "in_progress", "completed", "withdrawn", "failed", "incomplete", "unknown",
+]);
+// Values accepted by the student_course_records_term_check constraint (if any)
+const VALID_TERMS = new Set([
+  "full_year", "semester_1", "semester_2",
+  "quarter_1", "quarter_2", "quarter_3", "quarter_4", "summer", "other",
+]);
+
+function sanitizeCourseLevel(v: string | null | undefined): string | null {
+  if (!v) return null;
+  return VALID_COURSE_LEVELS.has(v) ? v : null;
+}
+function sanitizeCompletionStatus(v: string | null | undefined): string {
+  if (!v) return "unknown";
+  return VALID_COMPLETION_STATUSES.has(v) ? v : "unknown";
+}
+function sanitizeTerm(v: string | null | undefined): string | null {
+  if (!v) return null;
+  return VALID_TERMS.has(v) ? v : null;
+}
 import { needsHeicConversion, convertHeicToJpeg } from "@/lib/heicConvert";
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
@@ -444,8 +469,8 @@ export async function requestAcademicImport(
       course_name:                      c.course_name!,
       course_code:                      c.course_code ?? null,
       subject_area:                     c.subject_area ?? null,
-      term:                             c.term ?? null,
-      course_level:                     c.course_level ?? null,
+      term:                             sanitizeTerm(c.term),
+      course_level:                     sanitizeCourseLevel(c.course_level),
       semester_1_grade:                 c.semester_1_grade ?? null,
       semester_2_grade:                 c.semester_2_grade ?? null,
       final_grade:                      c.final_grade ?? null,
@@ -456,7 +481,7 @@ export async function requestAcademicImport(
       source_credits_earned:            c.source_credits_earned ?? null,
       source_credit_unit:               c.source_credit_unit ?? null,
       counts_toward_high_school_credit: c.counts_toward_high_school_credit ?? false,
-      completion_status:                c.completion_status ?? "unknown",
+      completion_status:                sanitizeCompletionStatus(c.completion_status),
       source_notes:                     c.source_notes ?? null,
       import_notes:                     [c.import_notes, c.needs_review_reason].filter(Boolean).join(" | ") || null,
     }));

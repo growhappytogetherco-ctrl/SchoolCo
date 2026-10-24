@@ -10,6 +10,17 @@ import {
   type MatchableRecord, type DuplicateMatch, type ConflictMatch,
 } from "@/lib/courseRecordMatching";
 
+// ── Constraint sanitizers ─────────────────────────────────────────────────────
+// These run server-side to catch any value that doesn't match the DB constraint,
+// preventing "violates check constraint" errors from reaching the client.
+
+const VALID_COURSE_LEVELS = new Set(["standard", "honors", "ap", "dual_enrollment"]);
+
+function sanitizeCourseLevel(v: string | null | undefined): string | null {
+  if (!v) return null;
+  return VALID_COURSE_LEVELS.has(v) ? v : null;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type CourseCompletionStatus =
@@ -210,7 +221,7 @@ export async function addCourseRecord(
         course_name:                      payload.courseName,
         course_code:                      payload.courseCode ?? null,
         subject_area:                     payload.subjectArea ?? null,
-        course_level:                     payload.courseLevel ?? null,
+        course_level:                     sanitizeCourseLevel(payload.courseLevel),
         semester_1_grade:                 payload.semester1Grade ?? null,
         semester_2_grade:                 payload.semester2Grade ?? null,
         final_grade:                      payload.finalGrade ?? null,
@@ -273,7 +284,7 @@ export async function updateCourseRecord(
     if (payload.courseName       !== undefined) updateData.course_name         = payload.courseName;
     if (payload.courseCode       !== undefined) updateData.course_code         = payload.courseCode;
     if (payload.subjectArea      !== undefined) updateData.subject_area        = payload.subjectArea;
-    if (payload.courseLevel      !== undefined) updateData.course_level        = payload.courseLevel;
+    if (payload.courseLevel      !== undefined) updateData.course_level        = sanitizeCourseLevel(payload.courseLevel);
     if (payload.semester1Grade   !== undefined) updateData.semester_1_grade    = payload.semester1Grade;
     if (payload.semester2Grade   !== undefined) updateData.semester_2_grade    = payload.semester2Grade;
     if (payload.finalGrade       !== undefined) updateData.final_grade         = payload.finalGrade;
@@ -574,7 +585,7 @@ export async function updateVerifiedCourseRecord(
     if (payload.courseName       !== undefined) updateData.course_name         = payload.courseName;
     if (payload.courseCode       !== undefined) updateData.course_code         = payload.courseCode;
     if (payload.subjectArea      !== undefined) updateData.subject_area        = payload.subjectArea;
-    if (payload.courseLevel      !== undefined) updateData.course_level        = payload.courseLevel;
+    if (payload.courseLevel      !== undefined) updateData.course_level        = sanitizeCourseLevel(payload.courseLevel);
     if (payload.semester1Grade   !== undefined) updateData.semester_1_grade    = payload.semester1Grade;
     if (payload.semester2Grade   !== undefined) updateData.semester_2_grade    = payload.semester2Grade;
     if (payload.finalGrade       !== undefined) updateData.final_grade         = payload.finalGrade;
