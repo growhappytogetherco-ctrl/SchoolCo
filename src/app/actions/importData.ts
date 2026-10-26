@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createClient, getUser, getActiveOrgId, resolveProfileId } from "@/lib/supabase/server";
 import { mapRows } from "@/lib/import/mapper";
 import { validateMappedStudents } from "@/lib/import/validators";
 import { parseCSV } from "@/lib/import/csvParser";
@@ -23,10 +23,11 @@ export async function createImportJob(fileName: string, fileSizeBytes: number): 
   const orgId  = await getActiveOrgId();
   if (!user || !orgId) return { success: false, error: "Not authenticated" };
 
+  const profileId = await resolveProfileId(user.id);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("import_jobs")
-    .insert({ organization_id: orgId, created_by: user.id, file_name: fileName, file_size_bytes: fileSizeBytes, status: "pending" })
+    .insert({ organization_id: orgId, created_by: profileId, file_name: fileName, file_size_bytes: fileSizeBytes, status: "pending" })
     .select("id")
     .single();
 
@@ -313,6 +314,7 @@ export async function executeImport(
   const orgId = await getActiveOrgId();
   if (!user || !orgId) return { success: false, error: "Not authenticated" };
 
+  const profileId = await resolveProfileId(user.id);
   const supabase = await createClient();
 
   try {
@@ -376,7 +378,7 @@ export async function executeImport(
           folder_name:             getOrgFolderName(key),
           google_drive_folder_id:  folderId,
           google_drive_folder_url: `https://drive.google.com/drive/folders/${folderId}`,
-          provisioned_by:          user.id,
+          provisioned_by:          profileId,
           provisioned_at:          new Date().toISOString(),
         })) as never,
         { onConflict: "organization_id,folder_key" }
@@ -493,7 +495,7 @@ export async function executeImport(
         if (!familyId && s.family) {
           const { data: fam, error: famErr } = await supabase
             .from("families")
-            .insert({ organization_id: orgId, family_name: s.family.family_name, is_split_household: s.family.is_split_household, created_by: user.id })
+            .insert({ organization_id: orgId, family_name: s.family.family_name, is_split_household: s.family.is_split_household, created_by: profileId })
             .select("id")
             .single();
 
@@ -512,7 +514,7 @@ export async function executeImport(
             } : null;
             const { data: hhData } = await supabase
               .from("households")
-              .insert({ organization_id: orgId, family_id: familyId, household_label: hh.household_label, sort_order: hh.sort_order, address_json: addrJson as never, phone: hh.phone, email: hh.email, created_by: user.id })
+              .insert({ organization_id: orgId, family_id: familyId, household_label: hh.household_label, sort_order: hh.sort_order, address_json: addrJson as never, phone: hh.phone, email: hh.email, created_by: profileId })
               .select("id").single();
             if (hhData) {
               householdId = hhData.id as string;
@@ -523,7 +525,7 @@ export async function executeImport(
           // Fallback: create minimal family when s.family is null
           const { data: fam } = await supabase
             .from("families")
-            .insert({ organization_id: orgId, family_name: `${s.last_name} Family`, is_split_household: false, created_by: user.id })
+            .insert({ organization_id: orgId, family_name: `${s.last_name} Family`, is_split_household: false, created_by: profileId })
             .select("id").single();
           familyId = (fam?.id ?? "") as string;
           if (familyId) {
@@ -551,7 +553,7 @@ export async function executeImport(
             allergies:              s.allergies as never,
             scholarship_info:       s.scholarship_info as never,
             authorized_pickup_notes: s.authorized_pickup_notes,
-            created_by:             user.id,
+            created_by:             profileId,
           } as never)
           .select("id")
           .single();
@@ -604,7 +606,7 @@ export async function executeImport(
             import_job_id:    jobId,
             source_system:    sourceSystem,
             source_record_id: s._source_record_id,
-            imported_by:      user.id,
+            imported_by:      profileId,
           } as never, { onConflict: "organization_id,source_system,source_record_id" });
           importedSourceIds.add(s._source_record_id);
         }
@@ -631,7 +633,7 @@ export async function executeImport(
               drive_folder_status:     "active",
               drive_folder_created_at: new Date().toISOString(),
               drive_folder_name:       folderName,
-              drive_provisioned_by:    user.id,
+              drive_provisioned_by:    profileId,
               drive_error_message:     null,
             } as never).eq("id", studentId);
 
@@ -698,7 +700,7 @@ export async function executeImport(
                 emergency_contact_order: g.emergency_contact_order,
                 can_pickup:              g.can_pickup,
                 pickup_restrictions:     g.pickup_restrictions,
-                created_by:              user.id,
+                created_by:              profileId,
               } as never);
             }
           } catch (gErr) {
@@ -720,7 +722,7 @@ export async function executeImport(
               primary_doctor_phone:  s.medical.primary_doctor_phone,
               insurance_provider:    s.medical.insurance_provider,
               insurance_policy_number: s.medical.insurance_policy_number,
-              updated_by:            user.id,
+              updated_by:            profileId,
             } as never)
             .select("id").single();
           if (med) insertedMedicalIds.push(med.id as string);
@@ -733,7 +735,7 @@ export async function executeImport(
             .insert({
               organization_id: orgId,
               student_id:      studentId,
-              author_id:       user.id,
+              author_id:       profileId,
               category:        n.category,
               priority:        n.priority,
               title:           n.title,

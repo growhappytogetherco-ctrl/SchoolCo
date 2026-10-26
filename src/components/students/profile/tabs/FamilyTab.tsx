@@ -99,6 +99,20 @@ export function FamilyTab({ studentId, role = "staff", isAdmin = false }: Props)
   return (
     <div className="space-y-6 max-w-3xl">
 
+      {/* ── No-guardian warning ─────────────────────────────── */}
+      {guardians.length === 0 && (
+        <div className="rounded-2xl border-2 border-sc-rose-200 bg-sc-rose-50 p-4 flex items-start gap-3">
+          <AlertTriangle className="size-5 text-sc-rose-700 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-label-md font-semibold text-sc-rose-700">No family contacts on file</p>
+            <p className="text-label-sm text-sc-rose-700 mt-0.5">
+              This student has no guardians, emergency contacts, or pickup persons linked yet.
+              Open the <Link href={`/dashboard/families/${family.id}`} className="underline font-medium">family profile</Link> to add a guardian or contact.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Family summary card */}
       <div className="rounded-2xl border border-sc-gray-100 bg-white shadow-card p-5 space-y-3">
         <div className="flex items-center justify-between">
