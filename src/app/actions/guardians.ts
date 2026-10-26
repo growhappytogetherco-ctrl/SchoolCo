@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, resolveProfileId } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActiveOrgId } from "@/lib/supabase/org-context";
 import { logAudit, writeAuditLog } from "@/lib/audit";
@@ -54,11 +54,13 @@ export async function inviteGuardian(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  const actingProfileId = await resolveProfileId(actingUser.id);
+
   // Verify registrar+ role
   const { data: membership } = await supabase
     .from("organization_members")
     .select("role")
-    .eq("profile_id", actingUser.id)
+    .eq("profile_id", actingProfileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();
@@ -161,8 +163,8 @@ export async function inviteGuardian(
       court_order_on_file:      court_order_on_file,
       visibility_json:          restrictedVisibility,
       communication_json:       communication_json ?? defaultCommunication,
-      created_by:               actingUser.id,
-      updated_by:               actingUser.id,
+      created_by:               actingProfileId,
+      updated_by:               actingProfileId,
     })
     .select("id")
     .single();
@@ -179,7 +181,7 @@ export async function inviteGuardian(
       profile_id:      profileId,
       role:            "parent",
       status:          isNewUser ? "invited" : "active",
-      invited_by:      actingUser.id,
+      invited_by:      actingProfileId,
       joined_at:       isNewUser ? null : new Date().toISOString(),
       created_at:      new Date().toISOString(),
       updated_at:      new Date().toISOString(),
@@ -234,7 +236,7 @@ export async function inviteGuardian(
   // ── Audit log ──────────────────────────────────────────────────────────
   await logAudit({
     organization_id: orgId,
-    actor_id:        actingUser.id,
+    actor_id:        actingProfileId,
     action:          "guardian.invited",
     resource_type:   "guardianship",
     resource_id:     guardianship.id,
@@ -277,11 +279,12 @@ export async function updateGuardianship(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  const actorProfileId = await resolveProfileId(user.id);
   const { guardianship_id, ...updates } = parse.data;
 
   const { error } = await supabase
     .from("guardianships")
-    .update({ ...updates, updated_by: user.id })
+    .update({ ...updates, updated_by: actorProfileId })
     .eq("id", guardianship_id)
     .eq("organization_id", orgId);
 
@@ -289,7 +292,7 @@ export async function updateGuardianship(
 
   await logAudit({
     organization_id: orgId,
-    actor_id:        user.id,
+    actor_id:        actorProfileId,
     action:          "guardianship.updated",
     resource_type:   "guardianship",
     resource_id:     guardianship_id,
@@ -319,10 +322,12 @@ export async function addGuardianRecord(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  const actingProfileId = await resolveProfileId(actingUser.id);
+
   const { data: membership } = await supabase
     .from("organization_members")
     .select("role")
-    .eq("profile_id", actingUser.id)
+    .eq("profile_id", actingProfileId)
     .eq("organization_id", orgId)
     .eq("status", "active")
     .single();
@@ -364,14 +369,14 @@ export async function addGuardianRecord(
       organization_id: orgId, profile_id: profileId, student_id, household_id: household_id ?? null,
       relationship_type, custody_type, is_legal_guardian, is_primary_contact, is_emergency_contact,
       can_pickup, pickup_restrictions: pickup_restrictions ?? null, court_order_on_file,
-      status: "active", created_by: actingUser.id,
+      status: "active", created_by: actingProfileId,
     }).select("id").single();
     if (gError) return { success: false, error: `Failed to create guardianship: ${gError.message}` };
     guardianship_ids.push(g.id);
   }
 
   await logAudit({
-    organization_id: orgId, actor_id: actingUser.id, action: "guardian.record_added",
+    organization_id: orgId, actor_id: actingProfileId, action: "guardian.record_added",
     resource_type: "profile", resource_id: profileId,
     metadata: { student_ids, relationship_type, custody_type, invite_sent: false },
   });
@@ -400,9 +405,11 @@ export async function sendPortalInvite(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  const actingProfileId = await resolveProfileId(actingUser.id);
+
   const { data: membership } = await supabase
     .from("organization_members")
-    .select("role").eq("profile_id", actingUser.id).eq("organization_id", orgId).eq("status", "active").single();
+    .select("role").eq("profile_id", actingProfileId).eq("organization_id", orgId).eq("status", "active").single();
   const allowedRoles = ["registrar", "admin", "full_admin", "platform_admin"];
   if (!membership || !allowedRoles.includes(membership.role)) {
     return { success: false, error: "Insufficient permissions." };
@@ -425,7 +432,7 @@ export async function sendPortalInvite(
     // This person already has staff-level access. Portal invite would downgrade them.
     // Log the event but leave their role/status untouched.
     await writeAuditLog(supabase, {
-      organizationId: orgId, actorId: actingUser.id,
+      organizationId: orgId, actorId: actingProfileId,
       action: "guardian.portal_invite_skipped_staff",
       resourceType: "profile", resourceId: rawData.profile_id,
       metadata: { existing_role: existingRow.role, email: profile.email },
@@ -466,7 +473,7 @@ export async function sendPortalInvite(
   }
 
   await writeAuditLog(supabase, {
-    organizationId: orgId, actorId: actingUser.id, action: "guardian.portal_invited",
+    organizationId: orgId, actorId: actingProfileId, action: "guardian.portal_invited",
     resourceType: "profile", resourceId: rawData.profile_id, metadata: {},
   });
 
@@ -493,9 +500,11 @@ export async function setPortalAccess(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  const actingProfileId = await resolveProfileId(actingUser.id);
+
   const { data: membership } = await supabase
     .from("organization_members").select("role")
-    .eq("profile_id", actingUser.id).eq("organization_id", orgId).eq("status", "active").single();
+    .eq("profile_id", actingProfileId).eq("organization_id", orgId).eq("status", "active").single();
   const allowedRoles = ["registrar", "admin", "full_admin", "platform_admin"];
   if (!membership || !allowedRoles.includes(membership.role)) {
     return { success: false, error: "Insufficient permissions." };
@@ -513,7 +522,7 @@ export async function setPortalAccess(
   if (error) return { success: false, error: error.message };
 
   await writeAuditLog(supabase, {
-    organizationId: orgId, actorId: actingUser.id,
+    organizationId: orgId, actorId: actingProfileId,
     action: rawData.action === "disable" ? "guardian.portal_disabled" : "guardian.portal_restored",
     resourceType: "profile", resourceId: rawData.profile_id, metadata: {},
   });
@@ -654,8 +663,10 @@ export async function linkGuardianToStudent(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  const actingProfileId = await resolveProfileId(user.id);
+
   const { data: membership } = await supabase.from("organization_members")
-    .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
+    .select("role").eq("profile_id", actingProfileId).eq("organization_id", orgId).eq("status", "active").single();
   if (!membership || !["registrar","admin","full_admin","platform_admin"].includes(membership.role as string))
     return { success: false, error: "Insufficient permissions." };
 
@@ -670,13 +681,13 @@ export async function linkGuardianToStudent(
     organization_id: orgId, profile_id, student_id,
     household_id: household_id ?? null,
     ...gData,
-    status: "active", created_by: user.id,
+    status: "active", created_by: actingProfileId,
   }).select("id").single();
 
   if (error || !g) return { success: false, error: error?.message ?? "Failed to create guardianship." };
 
   await logAudit({
-    organization_id: orgId, actor_id: user.id, action: "guardian.student_linked",
+    organization_id: orgId, actor_id: actingProfileId, action: "guardian.student_linked",
     resource_type: "guardianship", resource_id: g.id,
     metadata: { profile_id, student_id, relationship_type: gData.relationship_type },
   });
@@ -701,8 +712,10 @@ export async function removeGuardianship(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  const actingProfileId = await resolveProfileId(user.id);
+
   const { data: membership } = await supabase.from("organization_members")
-    .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
+    .select("role").eq("profile_id", actingProfileId).eq("organization_id", orgId).eq("status", "active").single();
   if (!membership || !["registrar","admin","full_admin","platform_admin"].includes(membership.role as string))
     return { success: false, error: "Insufficient permissions." };
 
@@ -711,7 +724,7 @@ export async function removeGuardianship(
   if (error) return { success: false, error: error.message };
 
   await logAudit({
-    organization_id: orgId, actor_id: user.id, action: "guardian.relationship_removed",
+    organization_id: orgId, actor_id: actingProfileId, action: "guardian.relationship_removed",
     resource_type: "guardianship", resource_id: rawData.guardianship_id, metadata: {},
   });
 
@@ -736,8 +749,10 @@ export async function deleteGuardianProfile(
   const orgId = await getActiveOrgId();
   if (!orgId) return { success: false, error: "No active organization." };
 
+  const actingProfileId = await resolveProfileId(user.id);
+
   const { data: membership } = await supabase.from("organization_members")
-    .select("role").eq("profile_id", user.id).eq("organization_id", orgId).eq("status", "active").single();
+    .select("role").eq("profile_id", actingProfileId).eq("organization_id", orgId).eq("status", "active").single();
   if (!membership || !["full_admin","platform_admin"].includes(membership.role as string))
     return { success: false, error: "Full admin required to delete a guardian profile." };
 
@@ -761,7 +776,7 @@ export async function deleteGuardianProfile(
   if (error) return { success: false, error: error.message };
 
   await logAudit({
-    organization_id: orgId, actor_id: user.id, action: "guardian.profile_deleted",
+    organization_id: orgId, actor_id: actingProfileId, action: "guardian.profile_deleted",
     resource_type: "profile", resource_id: rawData.profile_id,
     metadata: { full_name: (profile as any).full_name },
   });
