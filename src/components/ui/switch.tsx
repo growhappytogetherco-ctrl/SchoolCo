@@ -4,18 +4,28 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 export interface SwitchProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {
-  label?:       string;
-  description?: string;
+  label?:            string;
+  description?:      string;
+  /** Radix-compatible callback — called with the new boolean value on change. */
+  onCheckedChange?:  (checked: boolean) => void;
 }
 
 /**
  * Switch — toggle switch built on native checkbox for full accessibility.
  * Visual appearance is a sliding pill; behavior is identical to a checkbox.
+ *
+ * Supports both the native `onChange` (ChangeEvent<HTMLInputElement>) and the
+ * Radix-style `onCheckedChange` (boolean) callback so callers can use either.
  */
 const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
-  ({ className, label, description, id, ...props }, ref) => {
+  ({ className, label, description, id, onChange, onCheckedChange, ...props }, ref) => {
     const generatedId = React.useId();
     const switchId = id ?? generatedId;
+
+    function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+      onChange?.(e);
+      onCheckedChange?.(e.target.checked);
+    }
 
     return (
       <div className="flex items-start gap-3">
@@ -27,6 +37,7 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
             ref={ref}
             id={switchId}
             className="peer sr-only"
+            onChange={handleChange}
             {...props}
           />
           {/* Track */}

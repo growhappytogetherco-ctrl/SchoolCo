@@ -150,7 +150,7 @@ export async function checkOutStudent(
 
   const { data: existing } = await supabase
     .from("attendance_records")
-    .select("id, check_in_at, check_out_at")
+    .select("id, status, check_in_at, check_out_at")
     .eq("organization_id", orgId)
     .eq("student_id", studentId)
     .eq("date", date)
