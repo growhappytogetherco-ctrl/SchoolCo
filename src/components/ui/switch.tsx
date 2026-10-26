@@ -19,7 +19,8 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
 
     return (
       <div className="flex items-start gap-3">
-        <div className="relative inline-flex items-center mt-0.5">
+        {/* Label wraps input + track so clicking the visual area toggles the checkbox */}
+        <label htmlFor={switchId} className="relative inline-flex items-center mt-0.5 cursor-pointer">
           <input
             type="checkbox"
             role="switch"
@@ -49,7 +50,7 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
               )}
             />
           </div>
-        </div>
+        </label>
         {(label || description) && (
           <div className="flex flex-col gap-0.5">
             {label && (
