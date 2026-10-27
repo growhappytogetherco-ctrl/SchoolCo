@@ -41,10 +41,10 @@ function deriveLoginStatus(portal: PortalStatus, hasAuth: boolean): LoginStatus 
 }
 
 const LOGIN_STATUS_UI: Record<LoginStatus, { label: string; dot: string; text: string }> = {
-  no_login:      { label: "No Login",        dot: "bg-sc-gray-300",  text: "text-sc-gray-400"   },
-  setup_required:{ label: "Setup Required",  dot: "bg-sc-gold-500",  text: "text-sc-gold-700"   },
-  active:        { label: "Active",          dot: "bg-green-500",    text: "text-green-700"     },
-  disabled:      { label: "Disabled",        dot: "bg-sc-rose",      text: "text-sc-rose-700"   },
+  no_login:      { label: "No Portal Account", dot: "bg-sc-gray-300",  text: "text-sc-gray-400"   },
+  setup_required:{ label: "Setup Pending",     dot: "bg-sc-gold-500",  text: "text-sc-gold-700"   },
+  active:        { label: "Portal Active",     dot: "bg-green-500",    text: "text-green-700"     },
+  disabled:      { label: "Portal Disabled",   dot: "bg-sc-rose",      text: "text-sc-rose-700"   },
 };
 
 // ── Temp-password modal (shared by Create and Reset) ─────────────────────────

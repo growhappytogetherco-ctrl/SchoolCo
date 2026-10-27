@@ -144,10 +144,10 @@ function EditPersonDialog({ profileId, familyId, fullName, email, phone, onClose
 // ── Portal status badge ────────────────────────────────────────────────────
 
 const PORTAL_STATUS: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
-  active:     { label: "Portal Active",  icon: CheckCircle, cls: "bg-sc-teal-50 text-sc-teal border-sc-teal-200"   },
-  invited:    { label: "Invited",        icon: Clock,       cls: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200" },
-  no_account: { label: "No Account",    icon: UserX,       cls: "bg-sc-gray-50 text-sc-gray border-sc-gray-200"    },
-  disabled:   { label: "Disabled",      icon: XCircle,     cls: "bg-sc-rose-50 text-sc-rose border-sc-rose-200"    },
+  active:     { label: "Portal Active",    icon: CheckCircle, cls: "bg-sc-teal-50 text-sc-teal border-sc-teal-200"   },
+  invited:    { label: "Setup Pending",    icon: Clock,       cls: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-200" },
+  no_account: { label: "No Portal Account", icon: UserX,     cls: "bg-sc-gray-50 text-sc-gray border-sc-gray-200"    },
+  disabled:   { label: "Portal Disabled",  icon: XCircle,    cls: "bg-sc-rose-50 text-sc-rose border-sc-rose-200"    },
 };
 
 const RELATIONSHIP_LABELS: Record<string, string> = {
