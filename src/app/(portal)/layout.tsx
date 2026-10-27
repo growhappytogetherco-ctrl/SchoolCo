@@ -45,6 +45,11 @@ export default async function PortalLayout({ children }: { children: React.React
     .eq("status", "active")
     .single();
 
+  // Deny access if no active membership found in DB — cookie alone is not sufficient.
+  // This ensures revoked/disabled guardians are blocked on every portal request,
+  // not only at select-mission time.
+  if (!membership) redirect("/select-mission");
+
   const allRoles = (membership?.roles as string[] | null) ?? [membership?.role as string];
   const hasStaffAccess = allRoles.some(
     (r) => !["parent", "student_future"].includes(r)
