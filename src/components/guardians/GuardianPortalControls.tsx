@@ -34,10 +34,10 @@ export interface PortalPreviewStudent {
 // ── Derive internal login status ──────────────────────────────────────────────
 
 function deriveLoginStatus(portal: PortalStatus, hasAuth: boolean): LoginStatus {
-  if (portal === "active")   return "active";
   if (portal === "disabled") return "disabled";
-  if (hasAuth)               return "setup_required"; // auth exists but not fully active
-  return "no_login";
+  if (!hasAuth)              return "no_login";   // no auth account → always no_login
+  if (portal === "active")   return "active";
+  return "setup_required";  // has auth but not yet fully activated
 }
 
 const LOGIN_STATUS_UI: Record<LoginStatus, { label: string; dot: string; text: string }> = {

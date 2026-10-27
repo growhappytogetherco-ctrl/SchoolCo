@@ -98,7 +98,12 @@ async function renderFamilyDetail({
       // membership_status enum: active | inactive | pending | suspended
       // "pending" = invite sent, awaiting first login
       // "inactive" / "suspended" = access disabled by staff
-      const ps = m.status === "active"   ? "active"
+      // A guardian with status="active" but no Supabase Auth account must show as no_account.
+      // hasAuth is checked below when building groupMap; here we look it up from profiles.
+      const profileRow = enrolledGships.find(g => (g.profiles as ProfileRow | null)?.id === m.profile_id)?.profiles as ProfileRow | null;
+      const memberHasAuth = !!(profileRow as any)?.auth_user_id;
+      const ps = (m.status === "active" && memberHasAuth) ? "active"
+               : m.status === "active"   ? "no_account"   // active row but no real auth account
                : m.status === "pending"  ? "invited"
                : (m.status === "inactive" || m.status === "suspended") ? "disabled"
                : "no_account";
