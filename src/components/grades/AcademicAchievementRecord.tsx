@@ -412,6 +412,7 @@ interface CourseFormValues {
   completionStatus: CourseCompletionStatus;
   sourceDocumentId: string;
   sourceNotes: string;
+  correctionReason: string;
 }
 
 const EMPTY_FORM: CourseFormValues = {
@@ -437,6 +438,7 @@ const EMPTY_FORM: CourseFormValues = {
   completionStatus: "completed",
   sourceDocumentId: "",
   sourceNotes: "",
+  correctionReason: "",
 };
 
 function recordToForm(r: CourseRecord): CourseFormValues {
@@ -463,6 +465,7 @@ function recordToForm(r: CourseRecord): CourseFormValues {
     completionStatus:             r.completion_status as CourseCompletionStatus,
     sourceDocumentId:             r.source_document_id ?? "",
     sourceNotes:                  r.source_notes ?? "",
+    correctionReason:             "",
   };
 }
 
@@ -578,6 +581,10 @@ function CourseForm({
     e.preventDefault();
     if (!form.schoolYear.trim()) { alert("School year is required."); return; }
     if (!form.courseName.trim()) { alert("Course name is required."); return; }
+    if (isEditingVerified && !form.correctionReason.trim()) {
+      alert("A correction reason is required when editing a verified record.");
+      return;
+    }
     onSave(form);
   }
 
@@ -771,6 +778,22 @@ function CourseForm({
           Link the uploaded transcript or record card that supports this course entry.
         </p>
       </div>
+
+      {/* Correction reason — required only when editing a verified record */}
+      {isEditingVerified && (
+        <div className="flex flex-col gap-1">
+          <FieldLabel required>Correction Reason</FieldLabel>
+          <textarea
+            value={form.correctionReason}
+            onChange={(e) => set("correctionReason", e.target.value)}
+            placeholder="Explain why this verified record is being corrected (e.g. 'HS credit designation was incorrect on import — Biology 1 is a standard HS course')…"
+            rows={2}
+            required
+            className="rounded-lg border border-sc-gray-200 px-3 py-2 text-label-md text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal/40 focus:border-sc-teal placeholder:text-sc-gray-400 resize-none"
+          />
+          <p className="text-label-sm text-sc-gray-400">Required. Will be recorded in the audit log alongside who made the change and when.</p>
+        </div>
+      )}
 
       {/* Source notes */}
       <div className="flex flex-col gap-1">
@@ -1231,6 +1254,9 @@ export function AcademicAchievementRecord({ studentId, canManage, userRole = "" 
     setSaving(true);
     setSaveError("");
     const payload = formToPayload(form) as UpdateCourseRecordPayload;
+    if (isEditingVerified && form.correctionReason?.trim()) {
+      payload.correctionReason = form.correctionReason.trim();
+    }
     const action = isEditingVerified ? updateVerifiedCourseRecord : updateCourseRecord;
     const result = await action(editTarget.id, editTarget.student_id, payload);
     if (result.success) {

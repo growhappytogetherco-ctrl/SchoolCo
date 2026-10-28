@@ -134,6 +134,8 @@ export interface UpdateCourseRecordPayload {
   completionStatus?: CourseCompletionStatus;
   sourceDocumentId?: string | null;
   sourceNotes?: string | null;
+  /** Required when editing a verified record — records the staff member's reason for the correction */
+  correctionReason?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -565,6 +567,11 @@ export async function updateVerifiedCourseRecord(
       return { success: false, error: "Editing verified records requires Registrar role or above." };
     }
 
+    // Correction reason is mandatory for edits to already-verified records
+    if (!payload.correctionReason?.trim()) {
+      return { success: false, error: "A correction reason is required when editing a verified record." };
+    }
+
     // Fetch existing for audit trail
     const { data: existing, error: fetchErr } = await (supabase as any)
       .from("student_course_records")
@@ -628,6 +635,7 @@ export async function updateVerifiedCourseRecord(
         ...Object.fromEntries(
           Object.entries(updateData).filter(([k]) => k !== "updated_by")
         ),
+        correction_reason: payload.correctionReason,
       },
     });
 
