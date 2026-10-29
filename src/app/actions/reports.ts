@@ -205,13 +205,17 @@ async function computeCoursesForPeriod(
   scale: GradeScaleLevel[],
   existingComments: Map<string, string> = new Map()
 ): Promise<ReportCourseData[]> {
+  // Include ALL active enrollments — even those without a course section link.
+  // Section-less enrollments (curriculum_name only) show a frozen snapshot grade
+  // when one exists, or "no_grade" when none does.
+  // This ensures withdrawn/expelled students still get a full course list for
+  // historical quarters.
   const { data: enrollments } = await supabase
     .from("curriculum_enrollments")
-    .select("id, course_section_id, course_sections!inner(id, course_name, subject, teacher_name, grading_method, category_weights)")
+    .select("id, course_section_id, curriculum_name, subject, course_sections(id, course_name, subject, teacher_name, grading_method, category_weights)")
     .eq("student_id", studentId)
     .eq("organization_id", orgId)
-    .eq("status", "active")
-    .not("course_section_id", "is", null);
+    .eq("status", "active");
 
   // Load finalized quarter snapshots for this student+period (Stage Q1).
   // When a snapshot exists, use its frozen grade instead of recomputing from live grades.
@@ -233,11 +237,13 @@ async function computeCoursesForPeriod(
   const courses: ReportCourseData[] = [];
   for (const enr of (enrollments ?? []) as any[]) {
     const sec = enr.course_sections;
-    if (!sec) continue;
-    const sectionId      = sec.id as string;
-    const enrollmentId   = enr.id as string;
-    const gradingMethod  = (sec.grading_method ?? "points") as "points" | "weighted";
-    const categoryWeights = sec.category_weights as CategoryWeights | null;
+    const enrollmentId    = enr.id as string;
+    const sectionId       = sec?.id as string ?? "";
+    const courseName      = sec?.course_name ?? enr.curriculum_name ?? "Unnamed Course";
+    const subject         = sec?.subject ?? enr.subject ?? "";
+    const teacherName     = sec?.teacher_name ?? null;
+    const gradingMethod   = (sec?.grading_method ?? "points") as "points" | "weighted";
+    const categoryWeights = (sec?.category_weights ?? null) as CategoryWeights | null;
 
     // If a finalized snapshot exists, prefer its frozen grade over live computation.
     const snap = snapshotMap.get(enrollmentId);
@@ -245,9 +251,9 @@ async function computeCoursesForPeriod(
       const pct = snap.percentage !== null ? Number(snap.percentage) : null;
       courses.push({
         courseSectionId:   sectionId,
-        courseName:        sec.course_name,
-        subject:           sec.subject,
-        teacherName:       sec.teacher_name,
+        courseName,
+        subject,
+        teacherName,
         gradingMethod,
         gradeState:        snap.grade_state,
         percentage:        pct,
@@ -259,7 +265,25 @@ async function computeCoursesForPeriod(
       continue;
     }
 
-    // No snapshot — compute from live grades (current behavior)
+    // No snapshot and no section — cannot compute live grades, show as no_grade.
+    if (!sec) {
+      courses.push({
+        courseSectionId:  sectionId,
+        courseName,
+        subject,
+        teacherName,
+        gradingMethod:    "points",
+        gradeState:       "no_grade",
+        percentage:       null,
+        displayPercentage: null,
+        letterGrade:      null,
+        missingCount:     0,
+        teacherComment:   existingComments.get(sectionId) ?? null,
+      });
+      continue;
+    }
+
+    // No snapshot — compute from live grades.
     const { data: allAssignments } = await supabase
       .from("assignments")
       .select("id, points_possible, is_graded, category, target_mode")
@@ -268,7 +292,6 @@ async function computeCoursesForPeriod(
       .eq("status", "active");
 
     const allAList = (allAssignments ?? []) as Array<{ id: string; points_possible: number; is_graded: boolean; category: string; target_mode: string | null }>;
-    // Legacy: target_mode = NULL → include; post-migration: must be in student's targets.
     const targetedIds = new Set<string>();
     if (allAList.length > 0) {
       const { data: tgts } = await supabase
@@ -302,9 +325,9 @@ async function computeCoursesForPeriod(
 
     courses.push({
       courseSectionId:  sectionId,
-      courseName:       sec.course_name,
-      subject:          sec.subject,
-      teacherName:      sec.teacher_name,
+      courseName,
+      subject,
+      teacherName,
       gradingMethod,
       gradeState:       gradeResult.state,
       percentage:       gradeResult.percentage,
@@ -492,7 +515,10 @@ export async function previewStudentReport(
       ? await computeCoursesForSemester(supabase, studentId, orgId, periodId, scale)
       : await computeCoursesForPeriod(supabase, studentId, orgId, periodId, scale);
 
-    const attendance = await getAttendanceSummary(supabase, studentId, p.start_date, p.end_date);
+    // Attendance is not shown on quarterly report cards — only progress reports.
+    const attendance = reportType !== "quarter"
+      ? await getAttendanceSummary(supabase, studentId, p.start_date, p.end_date)
+      : null;
 
     return {
       success: true,
@@ -670,7 +696,8 @@ export async function issueStudentReport(reportId: string): Promise<ActionResult
     const sy      = r.school_years;
 
     const studentName = `${student?.first_name} ${student?.last_name}`;
-    const attendance  = period
+    // Attendance is not shown on quarterly report cards.
+    const attendance  = r.report_type !== "quarter" && period
       ? await getAttendanceSummary(supabase, r.student_id, period.start_date, period.end_date)
       : null;
 
@@ -778,9 +805,12 @@ export async function getStudentReport(
     const syLabel     = isIssued ? r.school_year_label_snapshot : (r.school_years?.label ?? "");
     const periodName  = isIssued ? (r.period_name_snapshot ?? period?.name ?? "") : (period?.name ?? "");
 
-    const attendance: AttendanceSummary | null = isIssued
-      ? (r.attendance_snapshot as AttendanceSummary | null)
-      : (period ? await getAttendanceSummary(supabase, r.student_id, period.start_date, period.end_date) : null);
+    // Attendance is not shown on quarterly report cards.
+    const attendance: AttendanceSummary | null = r.report_type === "quarter"
+      ? null
+      : isIssued
+        ? (r.attendance_snapshot as AttendanceSummary | null)
+        : (period ? await getAttendanceSummary(supabase, r.student_id, period.start_date, period.end_date) : null);
 
     const courses: ReportCourseData[] = ((courseRows ?? []) as any[]).map((c) => ({
       courseSectionId:  c.course_section_id ?? "",

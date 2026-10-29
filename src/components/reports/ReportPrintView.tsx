@@ -160,8 +160,10 @@ export function ReportPrintView({ data, showToolbar = true, isStaff = false }: P
   const isProgress = data.reportType === "progress";
   const hasAnyMissing = data.courses.some((c) => c.missingCount > 0);
 
-  // Friendly org type label — never "Private School"
+  // Org subtitle — use the org's own short_name when available; otherwise a
+  // generic label derived from the org type.
   function orgDescriptor(): string {
+    if (data.orgShortName) return data.orgShortName;
     const t = data.orgType;
     if (t === "academy") return "Homeschool Co-op";
     if (t === "program") return "Academic Program";
