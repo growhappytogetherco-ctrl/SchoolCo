@@ -611,6 +611,16 @@ export async function saveReportDraft(
       reportId = (newReport as any).id;
     }
 
+    // Refuse to save a draft with zero courses — this would produce an unissuable blank report.
+    // Causes include: student has no active enrollments, or a transient data-access error.
+    if (courses.length === 0) {
+      // Roll back the newly created draft (if we just created it) to avoid orphans
+      if (!existing) {
+        await supabase.from("student_reports").delete().eq("id", reportId);
+      }
+      return { success: false, error: "No courses found for this student and period. Cannot save a blank report. Verify the student has active enrollments for this grading period." };
+    }
+
     // Rebuild course rows (delete and re-insert for simplicity)
     await supabase.from("student_report_courses").delete().eq("report_id", reportId);
     const courseRows = courses.map((c, idx) => ({
@@ -628,9 +638,7 @@ export async function saveReportDraft(
       teacher_comment:        c.teacherComment,
       sort_order:             idx,
     }));
-    if (courseRows.length > 0) {
-      await supabase.from("student_report_courses").insert(courseRows);
-    }
+    await supabase.from("student_report_courses").insert(courseRows);
 
     return { success: true, data: { reportId } };
   } catch (e) {
@@ -690,6 +698,15 @@ export async function issueStudentReport(reportId: string): Promise<ActionResult
     if (!report) return { success: false, error: "Report not found" };
     const r = report as any;
     if (r.status !== "draft") return { success: false, error: "Only draft reports can be issued" };
+
+    // Safety check: refuse to issue a blank report.
+    const { count: courseCount } = await supabase
+      .from("student_report_courses")
+      .select("id", { count: "exact", head: true })
+      .eq("report_id", reportId);
+    if ((courseCount ?? 0) === 0) {
+      return { success: false, error: "Cannot issue a report with no course rows. Save the draft first to populate courses." };
+    }
 
     const student = r.students;
     const period  = r.grading_periods;
