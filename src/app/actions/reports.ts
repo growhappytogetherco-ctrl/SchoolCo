@@ -625,7 +625,7 @@ export async function saveReportDraft(
     await supabase.from("student_report_courses").delete().eq("report_id", reportId);
     const courseRows = courses.map((c, idx) => ({
       report_id:              reportId,
-      course_section_id:      c.courseSectionId,
+      course_section_id:      c.courseSectionId || null,
       course_name_snapshot:   c.courseName,
       subject_snapshot:       c.subject,
       teacher_name_snapshot:  c.teacherName,
@@ -638,7 +638,14 @@ export async function saveReportDraft(
       teacher_comment:        c.teacherComment,
       sort_order:             idx,
     }));
-    await supabase.from("student_report_courses").insert(courseRows);
+    const { error: insertCoursesErr } = await supabase.from("student_report_courses").insert(courseRows);
+    if (insertCoursesErr) {
+      // Roll back the draft if we just created it
+      if (!existing) {
+        await supabase.from("student_reports").delete().eq("id", reportId);
+      }
+      return { success: false, error: `Failed to save course rows: ${insertCoursesErr.message}` };
+    }
 
     return { success: true, data: { reportId } };
   } catch (e) {
