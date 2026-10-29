@@ -2,6 +2,7 @@
 
 import { createClient, getUser, getActiveOrgId, resolveProfileId } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logAudit } from "@/lib/audit";
 import type { ActionResult } from "@/types/actions";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -66,6 +67,18 @@ export interface CourseGradeSettingsData {
   grading_method: string;
   grade_scale_id: string | null;
   weight_config: Record<string, number> | null;
+}
+
+export interface EnrollmentRecordForCorrection {
+  id: string;
+  subject: string;
+  curriculumName: string;
+  gradingPeriodId: string | null;
+  gradingPeriodName: string | null;
+  creditsAttempted: number | null;
+  countsTowardHsCredit: boolean | null;
+  courseLevel: string | null;
+  hasSectionLink: boolean;
 }
 
 // ── Auth helper ──────────────────────────────────────────────────────────────
@@ -575,6 +588,147 @@ export async function upsertCourseGradeSettings(
     if (error) return { success: false, error: error.message };
 
     revalidatePath(`/dashboard/courses/${sectionId}`);
+    return { success: true, data: undefined };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// Returns curriculum_enrollments for a student — used by Academic Achievement Record
+// to allow administrators to correct display course titles for current enrollments.
+export async function getStudentEnrollmentsForRecord(
+  studentId: string,
+): Promise<ActionResult<EnrollmentRecordForCorrection[]>> {
+  try {
+    const orgId = await getActiveOrgId();
+    if (!orgId) return { success: false, error: "No active org" };
+    const { supabase } = await assertStaff(orgId);
+
+    const { data, error } = await supabase
+      .from("curriculum_enrollments")
+      .select(`
+        id, subject, curriculum_name, course_section_id,
+        grading_period_id, credits_attempted,
+        counts_toward_high_school_credit, course_level,
+        grading_periods ( name )
+      `)
+      .eq("student_id", studentId)
+      .eq("organization_id", orgId)
+      .eq("status", "active")
+      .order("subject");
+
+    if (error) return { success: false, error: error.message };
+
+    return {
+      success: true,
+      data: ((data ?? []) as any[]).map((e: any) => ({
+        id: e.id,
+        subject: e.subject ?? "",
+        curriculumName: e.curriculum_name ?? "",
+        gradingPeriodId: e.grading_period_id ?? null,
+        gradingPeriodName: e.grading_periods?.name ?? null,
+        creditsAttempted: e.credits_attempted ?? null,
+        countsTowardHsCredit: e.counts_toward_high_school_credit ?? null,
+        courseLevel: e.course_level ?? null,
+        hasSectionLink: !!e.course_section_id,
+      })),
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// Updates a curriculum_enrollment's displayed course title and/or grading period.
+// Requires registrar+ role. Logs to audit trail with required correction reason.
+// When renaming a course that is linked to a shared course section, the section link
+// is detached so the transcript uses the corrected name rather than the section title.
+export async function updateEnrollmentRecord(
+  enrollmentId: string,
+  studentId: string,
+  payload: {
+    curriculumName?: string;
+    gradingPeriodId?: string | null;
+    correctionReason: string;
+  },
+): Promise<ActionResult<void>> {
+  try {
+    const orgId = await getActiveOrgId();
+    if (!orgId) return { success: false, error: "No active org" };
+    const { supabase } = await assertStaff(orgId);
+    const user = await getUser();
+    if (!user) return { success: false, error: "Unauthenticated" };
+
+    const profileId = await resolveProfileId(user.id);
+    const { data: member } = await supabase
+      .from("organization_members")
+      .select("role")
+      .eq("profile_id", profileId)
+      .eq("organization_id", orgId)
+      .eq("status", "active")
+      .single();
+
+    const { getRoleLevel } = await import("@/lib/constants");
+    if (!member || getRoleLevel((member as any).role) < getRoleLevel("registrar")) {
+      return { success: false, error: "Editing enrollment records requires Registrar role or above." };
+    }
+
+    if (!payload.correctionReason?.trim()) {
+      return { success: false, error: "A correction reason is required when correcting an enrollment record." };
+    }
+
+    const trimmedName = payload.curriculumName?.trim();
+    if (trimmedName !== undefined && !trimmedName) {
+      return { success: false, error: "Course title cannot be blank." };
+    }
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from("curriculum_enrollments")
+      .select("curriculum_name, grading_period_id, course_section_id")
+      .eq("id", enrollmentId)
+      .eq("organization_id", orgId)
+      .eq("student_id", studentId)
+      .single();
+
+    if (fetchErr || !existing) return { success: false, error: "Enrollment not found." };
+
+    const updates: Record<string, unknown> = {};
+    if (trimmedName !== undefined) updates.curriculum_name = trimmedName;
+    if (payload.gradingPeriodId !== undefined) updates.grading_period_id = payload.gradingPeriodId;
+
+    // Detach section link when renaming so transcript uses curriculum_name, not the shared section name.
+    if (trimmedName !== undefined && trimmedName !== (existing as any).curriculum_name && (existing as any).course_section_id) {
+      updates.course_section_id = null;
+    }
+
+    if (Object.keys(updates).length === 0) return { success: true, data: undefined };
+
+    const { error: updateErr } = await supabase
+      .from("curriculum_enrollments")
+      .update(updates)
+      .eq("id", enrollmentId)
+      .eq("organization_id", orgId)
+      .eq("student_id", studentId);
+
+    if (updateErr) return { success: false, error: updateErr.message };
+
+    await logAudit({
+      organization_id: orgId,
+      actor_id: user.id,
+      action: "course_record.enrollment_corrected",
+      resource_type: "curriculum_enrollment",
+      resource_id: enrollmentId,
+      previous_values: {
+        curriculum_name: (existing as any).curriculum_name,
+        grading_period_id: (existing as any).grading_period_id,
+        course_section_id: (existing as any).course_section_id,
+      },
+      new_values: {
+        ...updates,
+        correction_reason: payload.correctionReason,
+      },
+    });
+
+    revalidatePath(`/dashboard/students/${studentId}`);
     return { success: true, data: undefined };
   } catch (err) {
     return { success: false, error: String(err) };

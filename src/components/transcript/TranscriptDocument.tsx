@@ -577,7 +577,7 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
                     Academic Achievement Record
                   </div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: "8px", color: TEXT_DIM, marginTop: "1px" }}>
-                    Current Academic Transcript • Homeschool Co-op
+                    {data.org.name}
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>

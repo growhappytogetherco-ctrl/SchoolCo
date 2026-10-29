@@ -18,6 +18,10 @@ import {
   type CourseCompletionStatus, type CourseTerm, type CourseLevel,
   type SourceCreditUnit, type InstitutionType, type SourceDocumentOption,
 } from "@/app/actions/courseRecords";
+import {
+  getStudentEnrollmentsForRecord, updateEnrollmentRecord,
+  type EnrollmentRecordForCorrection,
+} from "@/app/actions/courses";
 import type { DuplicateMatch, ConflictMatch } from "@/lib/courseRecordMatching";
 import { isFinalizationRole } from "@/lib/constants";
 import { requestAcademicImport, checkPriorImport, getImportJobs, retryImport, type ImportJob } from "@/app/actions/academicImport";
@@ -1075,6 +1079,208 @@ function YearGroup({
   );
 }
 
+// ── Enrollment Correction Panel ───────────────────────────────────────────────
+
+const SUBJECT_LABELS: Record<string, string> = {
+  art: "Art", bible: "Bible", ela: "ELA", elective: "Elective",
+  entrepreneurship: "Entrepreneurship", geography: "Geography", history: "History",
+  leadership: "Leadership", math: "Math", music: "Music", pe: "PE",
+  science: "Science", spanish: "Spanish", stem: "STEM", other: "Other",
+};
+
+function EnrollmentCorrectionPanel({
+  studentId,
+  canCorrect,
+}: {
+  studentId: string;
+  canCorrect: boolean;
+}) {
+  const [enrollments, setEnrollments] = useState<EnrollmentRecordForCorrection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState("");
+  const [periodInput, setPeriodInput] = useState<string>("");
+  const [reasonInput, setReasonInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState("");
+  const [collapsed, setCollapsed] = useState(true);
+
+  useEffect(() => {
+    getStudentEnrollmentsForRecord(studentId).then((r) => {
+      if (r.success) setEnrollments(r.data);
+      setLoading(false);
+    });
+  }, [studentId]);
+
+  function startEdit(enr: EnrollmentRecordForCorrection) {
+    setEditId(enr.id);
+    setNameInput(enr.curriculumName);
+    setPeriodInput(enr.gradingPeriodId ?? "");
+    setReasonInput("");
+    setSaveError("");
+    setSaveSuccess("");
+  }
+
+  function cancelEdit() {
+    setEditId(null);
+    setSaveError("");
+  }
+
+  async function handleSave(enr: EnrollmentRecordForCorrection) {
+    if (!reasonInput.trim()) { setSaveError("Correction reason is required."); return; }
+    if (!nameInput.trim()) { setSaveError("Course title cannot be blank."); return; }
+    setSaving(true);
+    setSaveError("");
+    const result = await updateEnrollmentRecord(enr.id, studentId, {
+      curriculumName: nameInput.trim(),
+      gradingPeriodId: periodInput || null,
+      correctionReason: reasonInput.trim(),
+    });
+    setSaving(false);
+    if (result.success) {
+      setEnrollments(prev => prev.map(e =>
+        e.id === enr.id
+          ? { ...e, curriculumName: nameInput.trim(), gradingPeriodId: periodInput || null }
+          : e
+      ));
+      setEditId(null);
+      setSaveSuccess("Enrollment record corrected.");
+      setTimeout(() => setSaveSuccess(""), 4000);
+    } else {
+      setSaveError(result.error ?? "Save failed.");
+    }
+  }
+
+  if (loading || enrollments.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card overflow-hidden">
+      <button
+        onClick={() => setCollapsed(p => !p)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-sc-gray-100/40 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <BookMarked className="size-4 text-sc-teal shrink-0" />
+          <span className="text-label-md font-medium text-sc-navy">Current Enrollment Titles</span>
+          <span className="text-label-sm text-sc-gray-400">({enrollments.length})</span>
+        </div>
+        {collapsed ? <ChevronDown className="size-4 text-sc-gray-400" /> : <ChevronUp className="size-4 text-sc-gray-400" />}
+      </button>
+
+      {!collapsed && (
+        <div className="px-5 pb-5 space-y-3">
+          <p className="text-label-sm text-sc-gray-400">
+            These are the student&apos;s active curriculum enrollments as they appear on the transcript.
+            Authorized administrators may correct the displayed course title and grading period.
+          </p>
+
+          {saveError && (
+            <div className="rounded-lg bg-sc-rose-50 border border-sc-rose-200 px-4 py-3 text-sc-rose-700 text-label-sm">{saveError}</div>
+          )}
+          {saveSuccess && (
+            <div className="rounded-lg bg-sc-teal/10 border border-sc-teal/20 px-4 py-3 text-sc-teal text-label-sm">{saveSuccess}</div>
+          )}
+
+          <div className="divide-y divide-sc-gray-100 border border-sc-gray-100 rounded-xl overflow-hidden">
+            {enrollments.map(enr => (
+              <div key={enr.id} className="px-4 py-3">
+                {editId === enr.id ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-label-sm text-sc-gray mb-1">
+                      <span className="rounded-full bg-sc-teal/10 px-2 py-0.5 text-label-sm text-sc-teal font-medium">
+                        {SUBJECT_LABELS[enr.subject] ?? enr.subject}
+                      </span>
+                      <span className="text-sc-gray-400">Editing course title</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-label-sm font-medium text-sc-navy">Course Title <span className="text-sc-rose">*</span></label>
+                      <input
+                        type="text"
+                        value={nameInput}
+                        onChange={e => setNameInput(e.target.value)}
+                        maxLength={200}
+                        autoFocus
+                        className="rounded-lg border border-sc-gray-200 px-3 py-2 text-label-md text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal/40 focus:border-sc-teal"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-label-sm font-medium text-sc-navy">Grading Period</label>
+                      <input
+                        type="text"
+                        value={periodInput}
+                        onChange={e => setPeriodInput(e.target.value)}
+                        placeholder="Grading period ID (leave blank to clear)"
+                        className="rounded-lg border border-sc-gray-200 px-3 py-2 text-label-md text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal/40 focus:border-sc-teal placeholder:text-sc-gray-400"
+                      />
+                      {enr.gradingPeriodName && (
+                        <p className="text-label-sm text-sc-gray-400">Current: {enr.gradingPeriodName}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-label-sm font-medium text-sc-navy">Correction Reason <span className="text-sc-rose">*</span></label>
+                      <textarea
+                        value={reasonInput}
+                        onChange={e => setReasonInput(e.target.value)}
+                        rows={2}
+                        placeholder="Explain why this enrollment record is being corrected…"
+                        className="rounded-lg border border-sc-gray-200 px-3 py-2 text-label-md text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal/40 focus:border-sc-teal placeholder:text-sc-gray-400 resize-none"
+                      />
+                      <p className="text-label-sm text-sc-gray-400">Required. Recorded in the audit log.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleSave(enr)}
+                        disabled={saving}
+                        className="inline-flex items-center gap-1 rounded-lg bg-sc-teal px-3 py-1.5 text-white text-label-sm font-medium hover:bg-sc-teal-700 disabled:opacity-50 transition-colors"
+                      >
+                        {saving ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+                        Save Correction
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        disabled={saving}
+                        className="px-3 py-1.5 text-label-sm text-sc-gray hover:text-sc-navy transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="rounded-full bg-sc-teal/10 px-2 py-0.5 text-label-sm text-sc-teal font-medium">
+                          {SUBJECT_LABELS[enr.subject] ?? enr.subject}
+                        </span>
+                        <span className="text-body-md text-sc-navy truncate">{enr.curriculumName || <em className="text-sc-gray-400">No title</em>}</span>
+                      </div>
+                      <p className="text-label-sm text-sc-gray-400 mt-0.5">
+                        {enr.gradingPeriodName ?? "No period set"}
+                        {enr.creditsAttempted != null && ` · ${enr.creditsAttempted} cr`}
+                        {enr.hasSectionLink && " · linked to course section"}
+                      </p>
+                    </div>
+                    {canCorrect && (
+                      <button
+                        onClick={() => startEdit(enr)}
+                        className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-sc-gray-200 px-3 py-1.5 text-label-sm text-sc-gray hover:text-sc-navy hover:border-sc-gray-400 transition-colors"
+                      >
+                        <Pencil className="size-3.5" />
+                        Correct
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 type FilterTab = "all" | "needs_review" | "verified" | "rejected";
@@ -1612,6 +1818,14 @@ export function AcademicAchievementRecord({ studentId, canManage, userRole = "" 
             />
           ))}
         </div>
+      )}
+
+      {/* Active enrollment title corrections (registrar+) */}
+      {!loading && !isForm && (
+        <EnrollmentCorrectionPanel
+          studentId={studentId}
+          canCorrect={canManage}
+        />
       )}
     </div>
   );

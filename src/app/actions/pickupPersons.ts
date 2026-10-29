@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, getUser, getActiveOrgId } from "@/lib/supabase/server";
+import { createClient, getUser, getActiveOrgId, resolveProfileId } from "@/lib/supabase/server";
 import { isAdminRole } from "@/lib/constants";
 import { getActiveRole } from "@/lib/supabase/org-context";
 
@@ -80,14 +80,15 @@ export async function createPickupPerson(
   if (!user || !orgId) return { success: false, error: "Not authenticated" };
   if (!payload.full_name.trim()) return { success: false, error: "Name is required" };
 
+  const profileId = await resolveProfileId(user.id);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("authorized_pickup_persons")
     .insert({
       organization_id:      orgId,
       student_id:           studentId,
-      created_by:           user.id,
-      updated_by:           user.id,
+      created_by:           profileId,
+      updated_by:           profileId,
       full_name:            payload.full_name.trim(),
       relationship:         payload.relationship || "other",
       phone:                payload.phone ?? null,
@@ -115,10 +116,11 @@ export async function updatePickupPerson(
   const orgId = await getActiveOrgId();
   if (!user || !orgId) return { success: false, error: "Not authenticated" };
 
+  const profileId = await resolveProfileId(user.id);
   const supabase = await createClient();
   const { error } = await supabase
     .from("authorized_pickup_persons")
-    .update({ ...payload, updated_by: user.id } as never)
+    .update({ ...payload, updated_by: profileId } as never)
     .eq("id", id)
     .eq("student_id", studentId)
     .eq("organization_id", orgId);
