@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useMemo } from "react";
-import { UserMinus, UserPlus, Search } from "lucide-react";
+import { UserMinus, UserPlus, Search, Pencil, X, Check } from "lucide-react";
 import type { CourseStudent, StudentForSetup, StaffOption } from "@/app/actions/courses";
 import {
   removeStudentFromCourse,
@@ -34,6 +34,11 @@ export function CourseRoster({
   const [staffRosterId, setStaffRosterId] = useState<string | null>(initialStaffRosterId);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Course name editing
+  const [currentCourseName, setCurrentCourseName] = useState(courseName);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(courseName);
 
   // Add student panel
   const [showAdd, setShowAdd] = useState(false);
@@ -91,6 +96,22 @@ export function CourseRoster({
     });
   }
 
+  function handleSaveName() {
+    const trimmed = nameInput.trim();
+    if (!trimmed) { setError("Course name cannot be blank."); return; }
+    if (trimmed === currentCourseName) { setEditingName(false); return; }
+    startTransition(async () => {
+      const result = await updateCourseSection(sectionId, { courseName: trimmed });
+      if (result.success) {
+        setCurrentCourseName(trimmed);
+        setEditingName(false);
+        flash("Course name updated.");
+      } else {
+        setError(result.error ?? "Failed to update course name.");
+      }
+    });
+  }
+
   function handleTeacherChange(newStaffRosterId: string | null) {
     const teacherName = staff.find(s => s.id === newStaffRosterId)?.name ?? null;
     setStaffRosterId(newStaffRosterId);
@@ -124,6 +145,53 @@ export function CourseRoster({
           {success}
         </div>
       )}
+
+      {/* Course name */}
+      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-medium text-sc-navy">Course Name</h2>
+          {!editingName && (
+            <button
+              onClick={() => { setNameInput(currentCourseName); setEditingName(true); }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sc-gray-200 px-3 py-1.5 text-label-sm text-sc-gray hover:text-sc-navy hover:border-sc-gray-400 transition-colors"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </button>
+          )}
+        </div>
+        {editingName ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={nameInput}
+              onChange={e => setNameInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleSaveName(); if (e.key === "Escape") setEditingName(false); }}
+              autoFocus
+              maxLength={200}
+              placeholder="Course name"
+              className="flex-1 rounded-lg border border-sc-teal px-3 py-2 text-body-md text-sc-navy focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
+            />
+            <button
+              onClick={handleSaveName}
+              disabled={isPending}
+              className="inline-flex items-center gap-1 rounded-lg bg-sc-teal px-3 py-2 text-white text-label-sm font-medium hover:bg-sc-teal-700 disabled:opacity-50 transition-colors"
+            >
+              <Check className="h-4 w-4" />
+              Save
+            </button>
+            <button
+              onClick={() => setEditingName(false)}
+              disabled={isPending}
+              className="p-2 rounded-lg text-sc-gray-400 hover:text-sc-navy hover:bg-sc-gray-100 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <p className="text-body-md text-sc-navy">{currentCourseName}</p>
+        )}
+      </div>
 
       {/* Teacher assignment */}
       <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
