@@ -736,6 +736,17 @@ export async function issueStudentReport(reportId: string): Promise<ActionResult
       attendance_snapshot:       attendance,
     }).eq("id", reportId);
 
+    // Supersede any previously issued report for the same student+period+type.
+    // This prevents two simultaneously "issued" reports, which would cause the
+    // wrong one to be displayed depending on sort order.
+    await supabase.from("student_reports")
+      .update({ status: "superseded", supersedes_report_id: reportId })
+      .eq("student_id", r.student_id)
+      .eq("grading_period_id", r.grading_period_id)
+      .eq("report_type", r.report_type)
+      .eq("status", "issued")
+      .neq("id", reportId);
+
     return { success: true, data: { reportId } };
   } catch (e) {
     return { success: false, error: String(e) };
