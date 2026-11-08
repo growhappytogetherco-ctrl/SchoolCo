@@ -302,7 +302,7 @@ async function renderFamilyDetail({
           </TabsTrigger>
           <TabsTrigger value="students">
             <GraduationCap className="size-4" />
-            Students ({allStudents.length})
+            Students ({students.length})
           </TabsTrigger>
           <TabsTrigger value="guardians">
             <Users className="size-4" />
@@ -385,10 +385,14 @@ async function renderFamilyDetail({
                 </div>
               )}
 
-              {/* Former students */}
+              {/* Former students — collapsed by default */}
               {formerStudents.length > 0 && (
-                <div>
-                  <h3 className="text-label-sm font-semibold text-sc-gray-400 uppercase tracking-wide mb-3">Former Students</h3>
+                <details className="group">
+                  <summary className="inline-flex cursor-pointer items-center gap-1.5 text-label-sm font-medium text-sc-teal hover:text-sc-teal-700 transition-colors list-none mb-3">
+                    <span className="group-open:hidden">▶</span>
+                    <span className="hidden group-open:inline">▼</span>
+                    View Former Students ({formerStudents.length})
+                  </summary>
                   <div className="rounded-xl bg-white border border-sc-gray-100 shadow-card overflow-hidden opacity-80">
                     <table className="w-full text-sm">
                       <thead>
@@ -402,8 +406,8 @@ async function renderFamilyDetail({
                         {formerStudents.map((s) => (
                           <tr key={s.id} className="hover:bg-sc-cream/50 transition-colors">
                             <td className="py-3 px-4">
-                              <Link href={`/dashboard/students/${s.id}`} className="group">
-                                <p className="font-medium text-sc-gray group-hover:text-sc-teal transition-colors">
+                              <Link href={`/dashboard/students/${s.id}`} className="group/link">
+                                <p className="font-medium text-sc-gray group-hover/link:text-sc-teal transition-colors">
                                   {s.last_name}, {s.first_name}
                                   {s.preferred_name ? <span className="text-sc-gray-400 font-normal"> ({s.preferred_name})</span> : null}
                                 </p>
@@ -426,7 +430,7 @@ async function renderFamilyDetail({
                       </tbody>
                     </table>
                   </div>
-                </div>
+                </details>
               )}
             </div>
           )}
