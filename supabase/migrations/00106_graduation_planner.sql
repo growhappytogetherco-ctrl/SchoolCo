@@ -170,15 +170,22 @@ create table if not exists graduation_plan_entries (
   created_at                timestamptz not null default now(),
   updated_at                timestamptz not null default now(),
 
-  -- Duplicate prevention: a source record may appear at most once per plan.
-  constraint gpe_unique_course_record unique nulls not distinct (plan_id, course_record_id),
-  constraint gpe_unique_enrollment    unique nulls not distinct (plan_id, enrollment_id),
-
   -- At most one source link per entry.
   constraint gpe_single_source check (
     course_record_id is null or enrollment_id is null
   )
 );
+
+-- Duplicate prevention: a non-null source record may appear at most once per plan.
+-- Partial indexes (WHERE IS NOT NULL) allow multiple NULL entries (entries with the
+-- other source type), while still preventing the same source from appearing twice.
+create unique index if not exists gpe_unique_course_record
+  on graduation_plan_entries (plan_id, course_record_id)
+  where course_record_id is not null;
+
+create unique index if not exists gpe_unique_enrollment
+  on graduation_plan_entries (plan_id, enrollment_id)
+  where enrollment_id is not null;
 
 comment on table graduation_plan_entries is
   'Individual course entries in the graduation plan. '
