@@ -6,6 +6,7 @@ import {
   LayoutDashboard, HeartPulse, CalendarCheck, StickyNote,
   AlertOctagon, FolderOpen, Award, Briefcase, Users,
   ShieldAlert, Target, BookOpen, AlertTriangle, ClipboardList, BarChart2, TrendingUp, DollarSign,
+  GraduationCap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StudentAlert } from "@/lib/student-alert-constants";
@@ -31,17 +32,18 @@ import { AssessmentsTab }           from "./tabs/AssessmentsTab";
 import { StudentSuccessPlanTab }    from "./tabs/StudentSuccessPlanTab";
 import { ProgressTab }              from "./tabs/ProgressTab";
 import { FinanceTab }              from "./tabs/FinanceTab";
+import { GraduationPlanTab }       from "./tabs/GraduationPlanTab";
 
 // ── Role visibility ────────────────────────────────────────────
 // Tabs hidden from volunteers — they can only see safety-relevant info.
 const VOLUNTEER_HIDDEN_TABS: TabId[] = [
   "notes", "incidents", "documents", "support", "academics", "grades",
-  "assessments", "progress", "leadership", "entrepreneurship", "family", "plan",
+  "assessments", "progress", "leadership", "entrepreneurship", "family", "plan", "graduation",
 ];
 
 // Tabs hidden from parents (they use the portal, but just in case)
 const PARENT_HIDDEN_TABS: TabId[] = [
-  "notes", "support", "incidents", "documents", "assessments", "progress", "plan",
+  "notes", "support", "incidents", "documents", "assessments", "progress", "plan", "graduation",
 ];
 
 function getHiddenTabs(role: string): TabId[] {
@@ -67,8 +69,9 @@ const ROW1_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
 ];
 
 const ROW2_TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
-  { id: "plan",             label: "Success Plan",     Icon: ClipboardList },
-  { id: "progress",         label: "Progress",         Icon: TrendingUp    },
+  { id: "plan",             label: "Success Plan",     Icon: ClipboardList  },
+  { id: "graduation",       label: "Grad Plan",        Icon: GraduationCap  },
+  { id: "progress",         label: "Progress",         Icon: TrendingUp     },
   { id: "incidents",        label: "Incidents",        Icon: AlertOctagon  },
   { id: "documents",        label: "Documents",        Icon: FolderOpen    },
   { id: "leadership",       label: "Leadership",       Icon: Award         },
@@ -130,9 +133,13 @@ export function StudentProfile({
   schoolYears = [],
 }: Props) {
   const router = useRouter();
+  const isAdmin                  = ["admin", "full_admin", "platform_admin", "registrar"].includes(role);
+  const isFullAdmin              = ["full_admin", "platform_admin"].includes(role);
   const hiddenTabs = [
     ...getHiddenTabs(role),
     ...(!canViewFinance && !canManageFinance ? ["finance" as TabId] : []),
+    // Graduation planner: full_admin and platform_admin only
+    ...(isFullAdmin ? [] : ["graduation" as TabId]),
   ];
 
   const firstVisible = ALL_TABS.find((t) => !hiddenTabs.includes(t.id));
@@ -153,8 +160,6 @@ export function StudentProfile({
   const hasCriticalFlags = alertBannerFlags.some((f) => f.priority === "critical");
   const hasHighFlags = alertBannerFlags.some((f) => f.priority === "high");
   const hasPickupAlerts = pickupAlerts.length > 0;
-  const isAdmin                  = ["admin", "full_admin", "platform_admin", "registrar"].includes(role);
-  const isFullAdmin              = ["full_admin", "platform_admin"].includes(role);
   const canManageAcademicRecords = isStaffRole(role);
 
   function TabRow({ tabs }: { tabs: typeof ROW1_TABS }) {
@@ -310,6 +315,7 @@ export function StudentProfile({
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isFullAdmin={isFullAdmin} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} role={role} initialNoteId={initialNoteId} />}
         {activeTab === "plan"             && <StudentSuccessPlanTab studentId={data.id} isAdmin={isAdmin} />}
+        {activeTab === "graduation"       && isFullAdmin && <GraduationPlanTab studentId={data.id} />}
         {activeTab === "progress"         && <ProgressTab           studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} studentName={data.preferred_name ? `${data.preferred_name} ${data.last_name}` : `${data.first_name} ${data.last_name}`} isAdmin={isAdmin} />}
         {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} canManageAcademicRecords={canManageAcademicRecords} />}

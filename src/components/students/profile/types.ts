@@ -15,6 +15,7 @@ export type TabId =
   | "entrepreneurship"
   | "family"
   | "plan"
+  | "graduation"
   | "assessments"
   | "progress"
   | "finance";
