@@ -994,6 +994,194 @@ export async function getUnclassifiedCredits(
   }
 }
 
+// ── 17. syncAcademicHistoryToPlan ─────────────────────────────────────────────
+// Read-time reconciliation: links verified, eligible Academic History records to
+// plan entries automatically. Safe to call on every planner load — idempotent.
+//
+// Strategy:
+//  1. For each unlinked eligible course record, map subject_area → requirement category.
+//  2. If the category maps to a known SGR, fill the first empty slot entry for that
+//     SGR (no course_record_id), updating it in place. If no empty slot exists,
+//     insert a new entry for that SGR.
+//  3. If the category is unmapped/ambiguous, insert an unclassified entry
+//     (student_requirement_id = null) so it appears in Needs Classification.
+//  4. Already-linked records are skipped entirely.
+
+const SUBJECT_AREA_TO_CATEGORY: Record<string, string> = {
+  english_ela: "ela",
+  english: "ela",
+  ela: "ela",
+  mathematics: "math",
+  math: "math",
+  science: "science",
+  social_studies: "social_studies",
+  history: "social_studies",
+  personal_finance: "personal_finance",
+  pfl: "personal_finance",
+  fine_arts: "fine_arts",
+  art: "fine_arts",
+  music: "fine_arts",
+  cte: "fine_arts",
+  vocational: "fine_arts",
+  pe: "pe_health",
+  pe_health: "pe_health",
+  physical_education: "pe_health",
+  health: "pe_health",
+};
+
+export async function syncAcademicHistoryToPlan(
+  studentId: string
+): Promise<ActionResult<{ linked: number; unclassified: number }>> {
+  try {
+    const user = await getUser();
+    if (!user) return { success: false, error: "Not authenticated" };
+    const orgId = await getActiveOrgId();
+    if (!orgId) return { success: false, error: "No active organization" };
+
+    const supabase = await createClient();
+    await assertFullAdmin(supabase, orgId);
+
+    // Get plan — no-op if none exists
+    const { data: plan } = await supabase
+      .from("graduation_plans")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("student_id", studentId)
+      .maybeSingle();
+    if (!plan) return { success: true, data: { linked: 0, unclassified: 0 } };
+
+    // Get all current plan entries in one shot
+    const { data: allEntries } = await supabase
+      .from("graduation_plan_entries")
+      .select("id, student_requirement_id, course_record_id, sort_order")
+      .eq("plan_id", plan.id)
+      .order("sort_order");
+
+    const usedCourseRecordIds = new Set(
+      (allEntries ?? []).map((e: any) => e.course_record_id).filter(Boolean)
+    );
+
+    // Empty slots: entries that belong to a requirement but have no linked course record
+    const emptySlotsByReq = new Map<string, Array<{ id: string; sort_order: number }>>();
+    for (const e of allEntries ?? []) {
+      if (e.student_requirement_id && !e.course_record_id) {
+        const list = emptySlotsByReq.get(e.student_requirement_id) ?? [];
+        list.push({ id: e.id, sort_order: e.sort_order });
+        emptySlotsByReq.set(e.student_requirement_id, list);
+      }
+    }
+
+    // SGRs for this plan: category → SGR id (via graduation_requirements join)
+    const { data: sgrs } = await supabase
+      .from("student_graduation_requirements")
+      .select("id, requirement_id")
+      .eq("plan_id", plan.id);
+
+    const reqIds = (sgrs ?? []).map((r: any) => r.requirement_id).filter(Boolean);
+    let categoryToSgrId = new Map<string, string>();
+    if (reqIds.length > 0) {
+      const { data: templateReqs } = await supabase
+        .from("graduation_requirements")
+        .select("id, category")
+        .in("id", reqIds);
+      for (const tr of templateReqs ?? []) {
+        const sgr = (sgrs ?? []).find((s: any) => s.requirement_id === tr.id);
+        if (sgr) categoryToSgrId.set((tr as any).category, sgr.id);
+      }
+    }
+
+    // Eligible Academic History records not yet in the plan
+    const { data: courses, error: cErr } = await supabase
+      .from("student_course_records")
+      .select("id, course_name, subject_area, credits_earned, school_year, grade_level, verification_status")
+      .eq("organization_id", orgId)
+      .eq("student_id", studentId)
+      .eq("verification_status", "verified")
+      .eq("completion_status", "completed")
+      .eq("counts_toward_high_school_credit", true)
+      .gt("credits_earned", 0)
+      .order("school_year");
+    if (cErr) return { success: false, error: cErr.message };
+
+    const unlinked = (courses ?? []).filter((c: any) => !usedCourseRecordIds.has(c.id));
+    if (unlinked.length === 0) return { success: true, data: { linked: 0, unclassified: 0 } };
+
+    let linked = 0;
+    let unclassified = 0;
+    const slotUpdates: Array<{ entryId: string; courseRecordId: string; creditsEarned: number }> = [];
+    const newEntries: object[] = [];
+
+    for (const course of unlinked) {
+      const category = course.subject_area
+        ? SUBJECT_AREA_TO_CATEGORY[course.subject_area.toLowerCase()] ?? null
+        : null;
+      const sgrId = category ? categoryToSgrId.get(category) ?? null : null;
+
+      if (sgrId) {
+        // Fill the first empty slot for this requirement, if one exists
+        const slots = emptySlotsByReq.get(sgrId);
+        if (slots && slots.length > 0) {
+          const slot = slots.shift()!; // consume — won't be reused
+          slotUpdates.push({ entryId: slot.id, courseRecordId: course.id, creditsEarned: course.credits_earned });
+        } else {
+          // No empty slot — add a new entry for this requirement
+          newEntries.push({
+            organization_id: orgId,
+            plan_id: plan.id,
+            student_requirement_id: sgrId,
+            course_record_id: course.id,
+            display_credits_planned: course.credits_earned,
+            entry_status: "completed",
+            sort_order: 999,
+            created_by: user.id,
+          });
+        }
+        linked++;
+      } else {
+        // Unmapped — goes to Needs Classification
+        newEntries.push({
+          organization_id: orgId,
+          plan_id: plan.id,
+          student_requirement_id: null,
+          course_record_id: course.id,
+          display_credits_planned: course.credits_earned,
+          entry_status: "completed",
+          sort_order: 999,
+          created_by: user.id,
+        });
+        unclassified++;
+      }
+    }
+
+    // Apply slot fills: update existing empty entries in place
+    for (const { entryId, courseRecordId, creditsEarned } of slotUpdates) {
+      await supabase
+        .from("graduation_plan_entries")
+        .update({
+          course_record_id: courseRecordId,
+          display_credits_planned: creditsEarned,
+          entry_status: "completed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", entryId)
+        .eq("plan_id", plan.id);
+    }
+
+    // Insert new entries
+    if (newEntries.length > 0) {
+      await supabase.from("graduation_plan_entries").insert(newEntries);
+    }
+
+    if (slotUpdates.length + newEntries.length > 0) {
+      revalidatePath("/dashboard/students");
+    }
+
+    return { success: true, data: { linked, unclassified } };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
 // (Bright Futures tracking removed — use separate printable BF Guide instead)
 
 // computeCreditTotals has been moved to src/lib/graduation/creditCalculator.ts

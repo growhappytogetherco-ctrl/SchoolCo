@@ -8,6 +8,7 @@ import {
   getGraduationPlanFull,
   getAvailableTemplates,
   initializeStudentRequirements,
+  syncAcademicHistoryToPlan,
   type GraduationPlan,
   type StudentGraduationRequirement,
   type GraduationPlanEntry,
@@ -79,8 +80,25 @@ export function GraduationPlanTab({ studentId, studentName = "Student", gradeLev
 
       setPlan(planResult.data);
 
+      // Load full plan data, then sync Academic History records into the plan.
+      // Sync is idempotent: already-linked records are skipped on every load.
       const fullResult = await getGraduationPlanFull(studentId);
       if (fullResult.success) {
+        // Only sync when requirements are initialized (needs SGRs to classify courses)
+        if (fullResult.data.requirements.length > 0) {
+          const syncResult = await syncAcademicHistoryToPlan(studentId);
+          if (syncResult.success && (syncResult.data.linked + syncResult.data.unclassified) > 0) {
+            // Re-fetch after sync to get updated entries
+            const refreshed = await getGraduationPlanFull(studentId);
+            if (refreshed.success) {
+              setRequirements(refreshed.data.requirements);
+              setEntries(refreshed.data.entries as FullEntry[]);
+              setReviews(refreshed.data.reviews);
+              setLoading(false);
+              return;
+            }
+          }
+        }
         setRequirements(fullResult.data.requirements);
         setEntries(fullResult.data.entries as FullEntry[]);
         setReviews(fullResult.data.reviews);
