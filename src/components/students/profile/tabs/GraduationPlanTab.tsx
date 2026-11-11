@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
-import { GraduationCap, Plus, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Clock, Loader2 } from "lucide-react";
+import { GraduationCap, Plus, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   getOrCreateGraduationPlan,
   getGraduationPlanFull,
@@ -22,9 +21,11 @@ import { NeedsClassificationSection } from "@/components/graduation/NeedsClassif
 import { RequirementRow } from "@/components/graduation/RequirementRow";
 import { FourYearPlan } from "@/components/graduation/FourYearPlan";
 import { GuidanceReviews } from "@/components/graduation/GuidanceReviews";
+import { PrintGradPlanButton } from "@/components/graduation/GradPlanPrint";
 import { AddCourseDialog } from "@/components/graduation/AddCourseDialog";
 
 type FullEntry = GraduationPlanEntry & {
+  slot_label: string | null;
   course_record: {
     course_name: string;
     subject_area: string | null;
@@ -44,9 +45,11 @@ type FullEntry = GraduationPlanEntry & {
 
 interface Props {
   studentId: string;
+  studentName?: string;
+  gradeLevel?: string | null;
 }
 
-export function GraduationPlanTab({ studentId }: Props) {
+export function GraduationPlanTab({ studentId, studentName = "Student", gradeLevel }: Props) {
   const [plan, setPlan] = useState<GraduationPlan | null>(null);
   const [requirements, setRequirements] = useState<StudentGraduationRequirement[]>([]);
   const [entries, setEntries] = useState<FullEntry[]>([]);
@@ -140,19 +143,30 @@ export function GraduationPlanTab({ studentId }: Props) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <GraduationCap className="size-5 text-sc-navy" />
           <h2 className="text-heading-1 text-sc-navy">Graduation Planner</h2>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => { setAddCourseReqId(undefined); setShowAddCourse(true); }}
-        >
-          <Plus className="size-4 mr-1" />
-          Add Course
-        </Button>
+        <div className="flex items-center gap-2">
+          <PrintGradPlanButton
+            studentName={studentName}
+            gradeLevel={gradeLevel ?? null}
+            plan={plan}
+            requirements={requirements}
+            entries={entries as Parameters<typeof PrintGradPlanButton>[0]["entries"]}
+            reviews={reviews}
+            totals={totals}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setAddCourseReqId(undefined); setShowAddCourse(true); }}
+          >
+            <Plus className="size-4 mr-1" />
+            Add Course
+          </Button>
+        </div>
       </div>
 
       {/* Template setup prompt if no requirements yet */}

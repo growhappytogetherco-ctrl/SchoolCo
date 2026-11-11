@@ -1,20 +1,26 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ChevronDown, ChevronUp, Plus, CheckCircle2, Loader2, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { removePlanEntry, type GraduationPlanEntry, type StudentGraduationRequirement, type ManualCredit } from "@/app/actions/graduationPlan";
-import { ManualCreditForm } from "./ManualCreditForm";
+import { type GraduationPlanEntry, type StudentGraduationRequirement, type ManualCredit } from "@/app/actions/graduationPlan";
+import { SlotEntryRow } from "./SlotEntryRow";
 
 type FullEntry = GraduationPlanEntry & {
   course_record: {
     course_name: string;
+    subject_area: string | null;
     credits_earned: number | null;
     verification_status: string;
     completion_status: string;
+    counts_toward_high_school_credit: boolean;
     school_year: string | null;
+  } | null;
+  enrollment: {
+    status: string;
+    counts_toward_high_school_credit: boolean;
+    credits_attempted: number | null;
   } | null;
   manual_credits: ManualCredit[];
 };
@@ -29,68 +35,40 @@ interface Props {
   onUpdate: () => void;
 }
 
-function entryDisplayName(entry: FullEntry): string {
-  return entry.display_name ?? entry.course_record?.course_name ?? "Unnamed course";
-}
-
-function entryCredits(entry: FullEntry): number {
-  if (entry.course_record) return entry.course_record.credits_earned ?? 0;
-  const mc = entry.manual_credits.find(
-    (m) => m.verification_status === "verified" && m.duplicate_status === "confirmed_unique" && !m.reconciled_course_record_id
-  );
-  return mc?.credits_claimed ?? entry.display_credits_planned ?? 0;
-}
-
-function entryStatusBadge(entry: FullEntry) {
-  if (entry.course_record) {
-    if (entry.course_record.verification_status === "verified" && entry.course_record.completion_status === "completed") {
-      return <Badge className="bg-sc-teal/10 text-sc-teal border-sc-teal/20 text-xs">Verified</Badge>;
-    }
-    return <Badge variant="outline" className="text-xs">{entry.course_record.completion_status}</Badge>;
-  }
-  const mc = entry.manual_credits[0];
-  if (!mc) return <Badge variant="outline" className="text-xs">Manual</Badge>;
-  if (mc.duplicate_status === "not_reviewed") return <Badge className="bg-sc-gold-50 text-sc-gold-700 border-sc-gold-300 text-xs">Pending review</Badge>;
-  if (mc.duplicate_status === "confirmed_duplicate") return <Badge className="bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200 text-xs">Duplicate</Badge>;
-  if (mc.verification_status === "verified") return <Badge className="bg-sc-teal/10 text-sc-teal border-sc-teal/20 text-xs">Verified</Badge>;
-  return <Badge variant="outline" className="text-xs">Unverified</Badge>;
-}
-
 export function RequirementRow({ requirement, entries, earnedCredits, pct, planId, onAddCourse, onUpdate }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const [showManualForm, setShowManualForm] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
   const met = pct >= 100;
 
-  async function handleRemove(entryId: string) {
-    startTransition(async () => {
-      await removePlanEntry(planId, entryId);
-      onUpdate();
-    });
-  }
+  // Sort: slot entries first (sorted by sort_order), then extra manually-added
+  const slotEntries = entries.filter(e => e.slot_label != null).sort((a, b) => a.sort_order - b.sort_order);
+  const extraEntries = entries.filter(e => e.slot_label == null).sort((a, b) => a.sort_order - b.sort_order);
 
   return (
     <div className={cn("rounded-xl border overflow-hidden", met ? "border-sc-teal/30 bg-sc-teal/5" : "border-sc-gray-100 bg-white")}>
+      {/* Header row — click to expand */}
       <button
-        className="w-full flex items-center gap-3 p-3 text-left"
-        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-3 p-3 text-left hover:bg-black/5 transition-colors"
+        onClick={() => setExpanded(v => !v)}
       >
         {met
           ? <CheckCircle2 className="size-4 text-sc-teal shrink-0" />
           : <div className="size-4 rounded-full border-2 border-sc-gray-200 shrink-0" />
         }
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-label-sm font-medium text-sc-navy">
               {requirement.custom_name ?? `Requirement ${requirement.id.slice(0, 6)}`}
             </span>
             <span className="text-label-sm text-sc-gray-400">
               {earnedCredits.toFixed(1)} / {Number(requirement.credits_required).toFixed(1)} credits
             </span>
+            {entries.length > 0 && (
+              <span className="text-[10px] text-sc-gray-400">{entries.length} course{entries.length !== 1 ? "s" : ""}</span>
+            )}
           </div>
           <div className="mt-1 h-1.5 rounded-full bg-sc-gray-100 overflow-hidden w-full max-w-xs">
             <div
-              className={cn("h-full rounded-full", met ? "bg-sc-teal" : "bg-sc-teal-700")}
+              className={cn("h-full rounded-full transition-all", met ? "bg-sc-teal" : "bg-sc-teal-700")}
               style={{ width: `${Math.min(100, pct)}%` }}
             />
           </div>
@@ -99,52 +77,55 @@ export function RequirementRow({ requirement, entries, earnedCredits, pct, planI
         {expanded ? <ChevronUp className="size-4 text-sc-gray-400 shrink-0" /> : <ChevronDown className="size-4 text-sc-gray-400 shrink-0" />}
       </button>
 
+      {/* Expanded content */}
       {expanded && (
-        <div className="border-t border-sc-gray-100 p-3 space-y-2">
+        <div className="border-t border-sc-gray-100 px-3 pb-3 pt-2">
+          {/* Column headers — only show on wider layouts */}
+          <div className="hidden sm:flex items-center gap-2 mb-1 px-3">
+            <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-36 shrink-0">Slot / Course</span>
+            <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide flex-1">Actual Course Taken</span>
+            <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-10 text-right shrink-0">Cr</span>
+            <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-20 shrink-0">Status</span>
+            <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-12 shrink-0">Inst</span>
+            <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-16 shrink-0">Grade</span>
+            <span className="w-16 shrink-0" />
+          </div>
+
+          {/* No entries yet */}
           {entries.length === 0 && (
-            <p className="text-body-md text-sc-gray-400 text-sm">No courses assigned yet.</p>
+            <p className="text-body-md text-sc-gray-400 text-sm py-2 px-3">No courses assigned yet. Click &ldquo;Add Course&rdquo; to begin.</p>
           )}
-          {entries.map((entry) => (
-            <div key={entry.id} className="flex items-center gap-2 group">
-              <div className="flex-1 min-w-0 flex items-center gap-2">
-                <span className="text-body-md text-sc-navy truncate">{entryDisplayName(entry)}</span>
-                <span className="text-label-sm text-sc-gray-400 shrink-0">{entryCredits(entry).toFixed(1)} cr</span>
-                {entryStatusBadge(entry)}
-              </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                {entry.course_record === null && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setShowManualForm(showManualForm === entry.id ? null : entry.id)}
-                  >
-                    Manual credit
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-sc-rose-700 hover:text-sc-rose-700"
-                  disabled={isPending}
-                  onClick={() => handleRemove(entry.id)}
-                >
-                  {isPending ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
-                </Button>
-              </div>
-            </div>
+
+          {/* Pre-defined slot entries */}
+          {slotEntries.map(entry => (
+            <SlotEntryRow
+              key={entry.id}
+              entry={entry}
+              planId={planId}
+              onUpdate={onUpdate}
+              isSlot={true}
+            />
           ))}
 
-          {showManualForm && (
-            <ManualCreditForm
-              planId={planId}
-              entryId={showManualForm}
-              onSuccess={() => { setShowManualForm(null); onUpdate(); }}
-              onCancel={() => setShowManualForm(null)}
-            />
+          {/* Extra manually-added entries (no slot_label) */}
+          {extraEntries.length > 0 && (
+            <>
+              {slotEntries.length > 0 && (
+                <p className="text-[10px] text-sc-gray-400 uppercase tracking-wide mt-3 mb-1 px-3">Additional Courses</p>
+              )}
+              {extraEntries.map(entry => (
+                <SlotEntryRow
+                  key={entry.id}
+                  entry={entry}
+                  planId={planId}
+                  onUpdate={onUpdate}
+                  isSlot={false}
+                />
+              ))}
+            </>
           )}
 
-          <Button variant="outline" size="sm" className="w-full mt-1" onClick={onAddCourse}>
+          <Button variant="outline" size="sm" className="w-full mt-2 h-8 text-xs" onClick={onAddCourse}>
             <Plus className="size-3 mr-1" />
             Add Course
           </Button>

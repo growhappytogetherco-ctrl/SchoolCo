@@ -315,7 +315,7 @@ export function StudentProfile({
         {activeTab === "attendance"       && <AttendanceTab       studentId={data.id} isFullAdmin={isFullAdmin} />}
         {activeTab === "notes"            && <StaffNotesTab       studentId={data.id} currentUserId={currentUserId} role={role} initialNoteId={initialNoteId} />}
         {activeTab === "plan"             && <StudentSuccessPlanTab studentId={data.id} isAdmin={isAdmin} />}
-        {activeTab === "graduation"       && isFullAdmin && <GraduationPlanTab studentId={data.id} />}
+        {activeTab === "graduation"       && isFullAdmin && <GraduationPlanTab studentId={data.id} studentName={`${data.first_name} ${data.last_name}`} gradeLevel={data.grade_level} />}
         {activeTab === "progress"         && <ProgressTab           studentId={data.id} isAdmin={isAdmin} />}
         {activeTab === "incidents"        && <IncidentsTab        studentId={data.id} studentName={data.preferred_name ? `${data.preferred_name} ${data.last_name}` : `${data.first_name} ${data.last_name}`} isAdmin={isAdmin} />}
         {activeTab === "documents"        && <DocumentsTab        studentId={data.id} driveFolderStatus={data.drive_folder_status} driveFolderUrl={data.drive_folder_url} canManageAcademicRecords={canManageAcademicRecords} />}

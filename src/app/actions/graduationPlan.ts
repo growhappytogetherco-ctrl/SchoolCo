@@ -41,6 +41,7 @@ export type GraduationPlanEntry = {
   student_requirement_id: string | null;
   course_record_id: string | null;
   enrollment_id: string | null;
+  slot_label: string | null;
   display_name: string | null;
   display_credits_planned: number | null;
   institution_code: string | null;
@@ -318,8 +319,47 @@ export async function updateGraduationPlan(
   }
 }
 
+// Default course slots per requirement category.
+// slot_label = standard slot name; display_credits_planned = credits allocated to that slot.
+const DEFAULT_SLOTS: Record<string, Array<{ slot_label: string; display_credits_planned: number; sort_order: number }>> = {
+  ela: [
+    { slot_label: "English 1", display_credits_planned: 1.0, sort_order: 10 },
+    { slot_label: "English 2", display_credits_planned: 1.0, sort_order: 20 },
+    { slot_label: "English 3", display_credits_planned: 1.0, sort_order: 30 },
+    { slot_label: "English 4", display_credits_planned: 1.0, sort_order: 40 },
+  ],
+  math: [
+    { slot_label: "Algebra 1", display_credits_planned: 1.0, sort_order: 10 },
+    { slot_label: "Geometry", display_credits_planned: 1.0, sort_order: 20 },
+    { slot_label: "Math 3", display_credits_planned: 1.0, sort_order: 30 },
+    { slot_label: "Math 4", display_credits_planned: 1.0, sort_order: 40 },
+  ],
+  science: [
+    { slot_label: "Biology 1", display_credits_planned: 1.0, sort_order: 10 },
+    { slot_label: "Science 2", display_credits_planned: 1.0, sort_order: 20 },
+    { slot_label: "Science 3", display_credits_planned: 1.0, sort_order: 30 },
+  ],
+  social_studies: [
+    { slot_label: "World History", display_credits_planned: 1.0, sort_order: 10 },
+    { slot_label: "U.S. History", display_credits_planned: 1.0, sort_order: 20 },
+    { slot_label: "U.S. Government", display_credits_planned: 0.5, sort_order: 30 },
+    { slot_label: "Economics", display_credits_planned: 0.5, sort_order: 40 },
+  ],
+  personal_finance: [
+    { slot_label: "Personal Financial Literacy", display_credits_planned: 0.5, sort_order: 10 },
+  ],
+  fine_arts: [
+    { slot_label: "Fine Arts / Speech / CTE", display_credits_planned: 1.0, sort_order: 10 },
+  ],
+  pe_health: [
+    { slot_label: "PE with Health", display_credits_planned: 1.0, sort_order: 10 },
+  ],
+  elective: [], // No pre-populated slots; added manually
+};
+
 // ── 4. initializeStudentRequirements ─────────────────────────────────────────
-// Copy requirements from a template into student_graduation_requirements.
+// Copy requirements from a template into student_graduation_requirements,
+// then pre-populate default course slot entries for each requirement.
 
 export async function initializeStudentRequirements(
   planId: string,
@@ -377,6 +417,32 @@ export async function initializeStudentRequirements(
       .insert(toInsert)
       .select();
     if (insErr) return { success: false, error: insErr.message };
+
+    // Pre-populate default course slot entries for each requirement
+    const reqIdByTemplateReqId = new Map(
+      (inserted ?? []).map((r: any) => [r.requirement_id, r.id])
+    );
+    const slotEntries: object[] = [];
+    for (const tmplReq of templateReqs ?? []) {
+      const studentReqId = reqIdByTemplateReqId.get(tmplReq.id);
+      if (!studentReqId) continue;
+      const slots = DEFAULT_SLOTS[(tmplReq as any).category] ?? [];
+      for (const slot of slots) {
+        slotEntries.push({
+          organization_id: orgId,
+          plan_id: planId,
+          student_requirement_id: studentReqId,
+          slot_label: slot.slot_label,
+          display_credits_planned: slot.display_credits_planned,
+          entry_status: "planned",
+          sort_order: slot.sort_order,
+          created_by: user.id,
+        });
+      }
+    }
+    if (slotEntries.length > 0) {
+      await supabase.from("graduation_plan_entries").insert(slotEntries);
+    }
 
     // Also update plan's template reference
     await supabase
@@ -548,6 +614,7 @@ export async function updatePlanEntry(
   entryId: string,
   updates: {
     student_requirement_id?: string | null;
+    slot_label?: string | null;
     display_name?: string | null;
     display_credits_planned?: number | null;
     institution_code?: string | null;
@@ -926,6 +993,8 @@ export async function getUnclassifiedCredits(
     return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
   }
 }
+
+// (Bright Futures tracking removed — use separate printable BF Guide instead)
 
 // computeCreditTotals has been moved to src/lib/graduation/creditCalculator.ts
 // to avoid "server actions must be async functions" constraint on "use server" files.
