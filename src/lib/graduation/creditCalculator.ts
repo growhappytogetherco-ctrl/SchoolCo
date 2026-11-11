@@ -2,6 +2,7 @@ import type { StudentGraduationRequirement, ManualCredit } from "@/app/actions/g
 
 type CreditEntry = {
   student_requirement_id: string | null;
+  entry_status: string | null;
   course_record: {
     credits_earned: number | null;
     verification_status: string;
@@ -11,8 +12,9 @@ type CreditEntry = {
   manual_credits: Pick<ManualCredit, "credits_claimed" | "verification_status" | "duplicate_status" | "reconciled_course_record_id">[];
 };
 
-function isEligibleCourseRecord(cr: CreditEntry["course_record"]): boolean {
+function isEligibleCourseRecord(cr: CreditEntry["course_record"], entryStatus: string | null): boolean {
   return (
+    entryStatus === "completed" &&
     cr !== null &&
     cr.verification_status === "verified" &&
     cr.completion_status === "completed" &&
@@ -44,7 +46,7 @@ export function computeCreditTotals(
 ): CreditTotals {
   let measureA = 0;
   for (const entry of entries) {
-    if (isEligibleCourseRecord(entry.course_record)) {
+    if (isEligibleCourseRecord(entry.course_record, entry.entry_status)) {
       measureA += entry.course_record!.credits_earned ?? 0;
     }
     for (const mc of entry.manual_credits) {
@@ -64,7 +66,7 @@ export function computeCreditTotals(
     const reqSlot = byReq[entry.student_requirement_id];
     if (!reqSlot) continue;
 
-    if (isEligibleCourseRecord(entry.course_record)) {
+    if (isEligibleCourseRecord(entry.course_record, entry.entry_status)) {
       reqSlot.earned += entry.course_record!.credits_earned ?? 0;
     }
     for (const mc of entry.manual_credits) {

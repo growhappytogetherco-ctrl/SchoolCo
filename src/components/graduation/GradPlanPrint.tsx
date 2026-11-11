@@ -39,7 +39,9 @@ function entryDisplayName(entry: FullEntry) {
 }
 
 function entryCreditsEarned(entry: FullEntry): number {
-  if (entry.course_record) return entry.course_record.credits_earned ?? 0;
+  // In-progress entries contribute 0 earned credits
+  if (entry.entry_status === "in_progress") return 0;
+  if (entry.course_record && entry.entry_status === "completed") return entry.course_record.credits_earned ?? 0;
   const mc = entry.manual_credits.find(
     m => m.verification_status === "verified" && m.duplicate_status === "confirmed_unique" && !m.reconciled_course_record_id
   );
@@ -51,18 +53,19 @@ function entryCreditsPlanned(entry: FullEntry): number {
 }
 
 function entryStatus(entry: FullEntry): string {
+  if (entry.entry_status === "in_progress") return "In Progress";
   if (entry.course_record) {
-    if (entry.course_record.verification_status === "verified" && entry.course_record.completion_status === "completed") return "Completed";
+    const verified = entry.course_record.verification_status === "verified" && entry.course_record.completion_status === "completed";
+    if (verified && entry.entry_status === "completed") return "Verified";
     if (["in_progress", "enrolled"].includes(entry.course_record.completion_status)) return "In Progress";
-    return "Planned";
+    if (entry.course_record.completion_status === "completed") return "Completed";
   }
   const mc = entry.manual_credits[0];
   if (mc) {
     if (mc.duplicate_status === "confirmed_duplicate") return "Duplicate";
-    if (mc.verification_status === "verified" && mc.duplicate_status === "confirmed_unique") return "Completed";
+    if (mc.verification_status === "verified" && mc.duplicate_status === "confirmed_unique") return "Verified";
     return "Pending Verification";
   }
-  if (entry.entry_status === "in_progress") return "In Progress";
   if (entry.entry_status === "completed") return "Completed";
   return "Planned";
 }
@@ -181,9 +184,18 @@ export function PrintGradPlanButton(props: Props) {
               {props.requirements.map(req => {
                 const slot = props.totals.by_requirement[req.id];
                 const earned = slot?.earned ?? 0;
+                function slotLabelNum(label: string | null): number {
+                  if (!label) return 999;
+                  const m = label.match(/(\d+)(?:\s|$)/);
+                  return m ? parseInt(m[1]) : 999;
+                }
                 const reqEntries = props.entries
                   .filter(e => e.student_requirement_id === req.id)
-                  .sort((a, b) => a.sort_order - b.sort_order);
+                  .sort((a, b) => {
+                    const numDiff = slotLabelNum(a.slot_label ?? null) - slotLabelNum(b.slot_label ?? null);
+                    if (numDiff !== 0) return numDiff;
+                    return a.sort_order - b.sort_order;
+                  });
                 const slotEntries = reqEntries.filter(e => e.slot_label != null);
                 const extraEntries = reqEntries.filter(e => e.slot_label == null);
                 const rem = Math.max(0, Number(req.credits_required) - earned);
@@ -250,8 +262,9 @@ export function PrintGradPlanButton(props: Props) {
                               <td className="p-1.5 print:p-1 text-center font-semibold text-sc-navy">{earnedCr > 0 ? earnedCr.toFixed(1) : "—"}</td>
                               <td className="p-1.5 print:p-1">
                                 <span className={
-                                  st === "Completed" ? "text-sc-teal font-medium" :
-                                  st === "In Progress" ? "text-sc-teal-700" :
+                                  st === "Verified" ? "text-sc-teal font-medium" :
+                                  st === "Completed" ? "text-sc-gold-700 font-medium" :
+                                  st === "In Progress" ? "text-blue-600" :
                                   st === "Duplicate" ? "text-sc-rose-700" :
                                   st === "Pending Verification" ? "text-sc-gold-700" :
                                   "text-sc-gray-400"

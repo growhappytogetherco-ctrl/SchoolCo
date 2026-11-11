@@ -41,30 +41,48 @@ interface Props {
 }
 
 function inferStatus(entry: FullEntry): "Verified" | "In Progress" | "Completed" | "Pending" | "Duplicate" | "Planned" {
+  // entry_status drives the badge; a slot the advisor tagged as in_progress stays in_progress
+  // regardless of what's in the linked course record
+  if (entry.entry_status === "in_progress") return "In Progress";
+
   if (entry.course_record) {
-    if (entry.course_record.verification_status === "verified" && entry.course_record.completion_status === "completed") return "Verified";
+    const verified = entry.course_record.verification_status === "verified" && entry.course_record.completion_status === "completed";
+    if (verified && entry.entry_status === "completed") return "Verified";
     if (["in_progress", "enrolled"].includes(entry.course_record.completion_status)) return "In Progress";
     if (entry.course_record.completion_status === "completed") return "Completed";
-    return "Planned";
   }
+
   const mc = entry.manual_credits[0];
   if (mc) {
     if (mc.duplicate_status === "confirmed_duplicate") return "Duplicate";
     if (mc.verification_status === "verified" && mc.duplicate_status === "confirmed_unique") return "Verified";
     return "Pending";
   }
-  if (entry.entry_status === "in_progress") return "In Progress";
+
   if (entry.entry_status === "completed") return "Completed";
   return "Planned";
 }
 
+const STATUS_BADGE_CONFIG: Record<string, { label: string; title: string; className: string }> = {
+  "Verified":    { label: "V",  title: "Verified — earned and verified",             className: "bg-sc-teal text-white border-sc-teal font-bold" },
+  "In Progress": { label: "IP", title: "In Progress — not yet earning credits",       className: "bg-blue-100 text-blue-700 border-blue-200 font-bold" },
+  "Completed":   { label: "C",  title: "Completed — pending verification",            className: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-300 font-bold" },
+  "Pending":     { label: "!",  title: "Needs review",                               className: "bg-sc-gold-50 text-sc-gold-700 border-sc-gold-300 font-bold" },
+  "Duplicate":   { label: "!",  title: "Marked as duplicate — excluded from totals", className: "bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200 font-bold" },
+  "Planned":     { label: "P",  title: "Planned",                                    className: "text-sc-gray-400 border-sc-gray-200 font-normal" },
+};
+
 function StatusBadge({ status }: { status: string }) {
-  if (status === "Verified") return <Badge className="bg-sc-teal/10 text-sc-teal border-sc-teal/20 text-[10px] px-1.5 py-0 shrink-0">Verified</Badge>;
-  if (status === "In Progress") return <Badge className="bg-sc-teal/5 text-sc-teal-700 border-sc-teal/20 text-[10px] px-1.5 py-0 shrink-0">In Progress</Badge>;
-  if (status === "Completed") return <Badge className="bg-sc-gold-50 text-sc-gold-700 border-sc-gold-300 text-[10px] px-1.5 py-0 shrink-0">Completed</Badge>;
-  if (status === "Pending") return <Badge className="bg-sc-gold-50 text-sc-gold-700 border-sc-gold-300 text-[10px] px-1.5 py-0 shrink-0">Pending</Badge>;
-  if (status === "Duplicate") return <Badge className="bg-sc-rose-50 text-sc-rose-700 border-sc-rose-200 text-[10px] px-1.5 py-0 shrink-0">Duplicate</Badge>;
-  return <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 text-sc-gray-400">Planned</Badge>;
+  const cfg = STATUS_BADGE_CONFIG[status] ?? STATUS_BADGE_CONFIG["Planned"];
+  return (
+    <Badge
+      variant="outline"
+      title={cfg.title}
+      className={`text-[10px] px-1.5 py-0 shrink-0 w-7 justify-center ${cfg.className}`}
+    >
+      {cfg.label}
+    </Badge>
+  );
 }
 
 const INST_OPTIONS = ["", "RLA", "REC", "COL", "other"] as const;

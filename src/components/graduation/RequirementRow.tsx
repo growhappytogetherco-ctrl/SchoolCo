@@ -39,8 +39,18 @@ export function RequirementRow({ requirement, entries, earnedCredits, pct, planI
   const [expanded, setExpanded] = useState(false);
   const met = pct >= 100;
 
-  // Sort: slot entries first (sorted by sort_order), then extra manually-added
-  const slotEntries = entries.filter(e => e.slot_label != null).sort((a, b) => a.sort_order - b.sort_order);
+  // Sort slot entries: primary by numeric suffix in slot_label (English 1→2→3→4),
+  // secondary by sort_order. This handles DB rows where sort_order was set incorrectly.
+  function slotLabelNum(label: string | null): number {
+    if (!label) return 999;
+    const m = label.match(/(\d+)(?:\s|$)/);
+    return m ? parseInt(m[1]) : 999;
+  }
+  const slotEntries = entries.filter(e => e.slot_label != null).sort((a, b) => {
+    const numDiff = slotLabelNum(a.slot_label) - slotLabelNum(b.slot_label);
+    if (numDiff !== 0) return numDiff;
+    return a.sort_order - b.sort_order;
+  });
   const extraEntries = entries.filter(e => e.slot_label == null).sort((a, b) => a.sort_order - b.sort_order);
 
   return (

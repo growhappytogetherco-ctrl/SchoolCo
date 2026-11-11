@@ -994,16 +994,100 @@ export async function getUnclassifiedCredits(
   }
 }
 
+// ── Course-to-slot name matching helpers ─────────────────────────────────────
+
+/** Strip parenthetical qualifiers: (Term 1), (Sem 2), (Part A), (Honors), etc. */
+function stripQualifiers(name: string): string {
+  return name.replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeLabel(name: string): string {
+  return stripQualifiers(name).toLowerCase().replace(/[-–]/g, " ");
+}
+
+/**
+ * Returns true when the slot label is a generic positional placeholder, not a
+ * specific named course. Generic slots accept any course from the right subject area.
+ * Examples: "Math 3", "Science 2", "Fine Arts / Speech / CTE", "Elective"
+ */
+function isGenericSlot(slotLabel: string): boolean {
+  const n = slotLabel.trim().toLowerCase();
+  if (/^math \d+$/.test(n)) return true;
+  if (/^science \d+$/.test(n)) return true;
+  if (/^elective/i.test(n)) return true;
+  if (n.includes("/")) return true; // composite labels like "Fine Arts / Speech / CTE"
+  return false;
+}
+
+type SlotMatchResult = "named_match" | "generic_slot" | "conflict" | "uncertain";
+
+/**
+ * Determines whether a course name is compatible with a specific slot label.
+ * - "named_match"  — the course clearly belongs in this named slot
+ * - "generic_slot" — the slot is a category placeholder; any subject-area course may fill it
+ * - "conflict"     — the course has a sequence number that contradicts the slot's number
+ *                    (e.g. "English 1" vs "English 2" slot)
+ * - "uncertain"    — no clear match or conflict; leave for Needs Classification
+ */
+function matchCourseToSlot(courseName: string, slotLabel: string): SlotMatchResult {
+  if (isGenericSlot(slotLabel)) return "generic_slot";
+
+  const cn = normalizeLabel(courseName);
+  const sl = normalizeLabel(slotLabel);
+
+  // Exact match or course name starts with the slot label
+  if (cn === sl || cn.startsWith(sl + " ") || cn.startsWith(sl)) return "named_match";
+
+  // Check trailing sequence numbers: "English 1 (Term 2)" → cn="english 1", sl="english 2"
+  const cnNum = cn.match(/^(.*?)\s+(\d+)$/);
+  const slNum = sl.match(/^(.*?)\s+(\d+)$/);
+  if (cnNum && slNum) {
+    const cnSubject = cnNum[1].trim();
+    const slSubject = slNum[1].trim();
+    if (cnSubject === slSubject) {
+      return parseInt(cnNum[2]) === parseInt(slNum[2]) ? "named_match" : "conflict";
+    }
+  }
+
+  return "uncertain";
+}
+
+/**
+ * Finds the best empty slot for a course from an ordered list of candidates.
+ * Priority: named_match > generic_slot > null (send to Needs Classification).
+ * Conflicts and uncertain matches against named slots are skipped.
+ */
+function findBestSlot(
+  courseName: string,
+  slots: Array<{ id: string; sort_order: number; slot_label: string | null }>
+): { id: string; sort_order: number; slot_label: string | null } | null {
+  let namedMatch: (typeof slots)[0] | null = null;
+  let genericSlot: (typeof slots)[0] | null = null;
+
+  for (const slot of slots) {
+    if (!slot.slot_label) {
+      if (!genericSlot) genericSlot = slot;
+      continue;
+    }
+    const result = matchCourseToSlot(courseName, slot.slot_label);
+    if (result === "named_match" && !namedMatch) namedMatch = slot;
+    if (result === "generic_slot" && !genericSlot) genericSlot = slot;
+    // "conflict" and "uncertain" on named slots → skip
+  }
+
+  return namedMatch ?? genericSlot ?? null;
+}
+
 // ── 17. syncAcademicHistoryToPlan ─────────────────────────────────────────────
 // Read-time reconciliation: links verified, eligible Academic History records to
 // plan entries automatically. Safe to call on every planner load — idempotent.
 //
 // Strategy:
 //  1. For each unlinked eligible course record, map subject_area → requirement category.
-//  2. If the category maps to a known SGR, fill the first empty slot entry for that
-//     SGR (no course_record_id), updating it in place. If no empty slot exists,
-//     insert a new entry for that SGR.
-//  3. If the category is unmapped/ambiguous, insert an unclassified entry
+//  2. If the category maps to a known SGR, find the best-matching empty planned slot
+//     using course-name matching (findBestSlot). Fill it in place. If no compatible
+//     slot exists, insert a new entry for that SGR.
+//  3. If the category is unmapped or no slot matches, insert an unclassified entry
 //     (student_requirement_id = null) so it appears in Needs Classification.
 //  4. Already-linked records are skipped entirely.
 
@@ -1053,7 +1137,7 @@ export async function syncAcademicHistoryToPlan(
     // Get all current plan entries in one shot
     const { data: allEntries } = await supabase
       .from("graduation_plan_entries")
-      .select("id, student_requirement_id, course_record_id, sort_order")
+      .select("id, student_requirement_id, course_record_id, sort_order, entry_status, slot_label")
       .eq("plan_id", plan.id)
       .order("sort_order");
 
@@ -1061,12 +1145,13 @@ export async function syncAcademicHistoryToPlan(
       (allEntries ?? []).map((e: any) => e.course_record_id).filter(Boolean)
     );
 
-    // Empty slots: entries that belong to a requirement but have no linked course record
-    const emptySlotsByReq = new Map<string, Array<{ id: string; sort_order: number }>>();
+    // Empty slots: only fill 'planned' slots — skip in_progress/completed (advisor may have tagged them).
+    // Store slot_label so the name-matching logic can compare course names to slot names.
+    const emptySlotsByReq = new Map<string, Array<{ id: string; sort_order: number; slot_label: string | null }>>();
     for (const e of allEntries ?? []) {
-      if (e.student_requirement_id && !e.course_record_id) {
+      if (e.student_requirement_id && !e.course_record_id && e.entry_status === "planned") {
         const list = emptySlotsByReq.get(e.student_requirement_id) ?? [];
-        list.push({ id: e.id, sort_order: e.sort_order });
+        list.push({ id: e.id, sort_order: e.sort_order, slot_label: (e as any).slot_label ?? null });
         emptySlotsByReq.set(e.student_requirement_id, list);
       }
     }
@@ -1118,13 +1203,35 @@ export async function syncAcademicHistoryToPlan(
       const sgrId = category ? categoryToSgrId.get(category) ?? null : null;
 
       if (sgrId) {
-        // Fill the first empty slot for this requirement, if one exists
+        // Find the best-matching empty slot by course name, not just the first by sort_order.
+        // A named slot (English 2, Algebra 1) only accepts a course that matches its name.
+        // A generic slot (Math 3, Science 2, Fine Arts / ...) accepts any subject-area course.
+        // If no compatible slot is found, the course goes to Needs Classification.
         const slots = emptySlotsByReq.get(sgrId);
-        if (slots && slots.length > 0) {
-          const slot = slots.shift()!; // consume — won't be reused
-          slotUpdates.push({ entryId: slot.id, courseRecordId: course.id, creditsEarned: course.credits_earned });
+        const bestSlot = slots ? findBestSlot(course.course_name, slots) : null;
+
+        if (bestSlot) {
+          // Consume the chosen slot so it won't be reused by a later course
+          const idx = slots!.findIndex(s => s.id === bestSlot.id);
+          if (idx !== -1) slots!.splice(idx, 1);
+          slotUpdates.push({ entryId: bestSlot.id, courseRecordId: course.id, creditsEarned: course.credits_earned });
+          linked++;
+        } else if (slots !== undefined) {
+          // Compatible slot exists in the right requirement but no slot name matches —
+          // send to Needs Classification instead of forcing a wrong slot.
+          newEntries.push({
+            organization_id: orgId,
+            plan_id: plan.id,
+            student_requirement_id: null,
+            course_record_id: course.id,
+            display_credits_planned: course.credits_earned,
+            entry_status: "completed",
+            sort_order: 999,
+            created_by: user.id,
+          });
+          unclassified++;
         } else {
-          // No empty slot — add a new entry for this requirement
+          // No slots at all for this requirement — add a new linked entry
           newEntries.push({
             organization_id: orgId,
             plan_id: plan.id,
@@ -1135,8 +1242,8 @@ export async function syncAcademicHistoryToPlan(
             sort_order: 999,
             created_by: user.id,
           });
+          linked++;
         }
-        linked++;
       } else {
         // Unmapped — goes to Needs Classification
         newEntries.push({
