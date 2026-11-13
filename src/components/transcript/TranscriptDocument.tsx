@@ -32,6 +32,8 @@ const SUBJECT_LABEL: Record<string, string> = {
   music:           "Music",
   world_language:  "Foreign Language",
   foreign_language:"Foreign Language",
+  spanish:         "Spanish",
+  geography:       "Geography",
   career_technical:"Career & Technical Education",
   personal_finance:"Personal Financial Literacy",
   elective:        "Elective",

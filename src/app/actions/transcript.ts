@@ -230,6 +230,7 @@ function calculateGpa(records: any[]): number | null {
 // These match the values documented in migration 00071 comments.
 
 const DEPT_LABEL: Record<string, string> = {
+  // Normalized AH subject_area values (from imported / AI-proposed records)
   english_ela:       "English / ELA",
   mathematics:       "Mathematics",
   science:           "Science",
@@ -245,6 +246,15 @@ const DEPT_LABEL: Record<string, string> = {
   bible:             "Bible",
   elective:          "Elective / Other",
   other:             "Elective / Other",
+  // Short-form course_sections.subject values (from SchoolCo-native finalization)
+  ela:               "English / ELA",
+  math:              "Mathematics",
+  history:           "History / Social Studies",
+  geography:         "History / Social Studies",
+  art:               "Fine Arts",
+  music:             "Fine Arts",
+  pe:                "Physical Education / Health",
+  spanish:           "Foreign Language",
 };
 
 function buildDepartmentCredits(

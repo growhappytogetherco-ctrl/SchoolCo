@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Check, Search, Users, Plus, Trash2 } from "l
 import type { StaffOption, StudentForSetup } from "@/app/actions/courses";
 import { createCourseSection, getStudentsForCourseSetup } from "@/app/actions/courses";
 import type { AssignmentCategory } from "@/lib/grading/types";
+import { COURSE_SUBJECTS } from "@/lib/courseSubjects";
 
 const CATEGORY_OPTIONS: { value: AssignmentCategory; label: string }[] = [
   { value: "homework",      label: "Homework" },
@@ -26,25 +27,6 @@ const DEFAULT_WEIGHTED_ROWS: Array<{ category: AssignmentCategory; weight: numbe
   { category: "project",   weight: 10 },
 ];
 
-// Application-level subject list — the source of truth for valid subjects.
-// No DB constraint enforces this enum, so new subjects can be added here without migrations.
-const SUBJECTS = [
-  { value: "art",               label: "Art" },
-  { value: "bible",             label: "Bible" },
-  { value: "ela",               label: "ELA (English Language Arts)" },
-  { value: "elective",          label: "Elective" },
-  { value: "entrepreneurship",  label: "Entrepreneurship" },
-  { value: "geography",         label: "Geography" },
-  { value: "history",           label: "History" },
-  { value: "leadership",        label: "Leadership" },
-  { value: "math",              label: "Math" },
-  { value: "music",             label: "Music" },
-  { value: "pe",                label: "PE (Physical Education)" },
-  { value: "science",           label: "Science" },
-  { value: "spanish",           label: "Spanish" },
-  { value: "stem",              label: "STEM" },
-  { value: "other",             label: "Other" },
-];
 
 interface Props {
   staff: StaffOption[];
@@ -260,7 +242,7 @@ export function CreateCourseForm({ staff, schoolYearId, schoolYearLabel }: Props
               className="w-full rounded-lg border border-sc-gray-200 px-3 py-2.5 text-body-md text-sc-navy bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30 focus:border-sc-teal"
             >
               <option value="">Select a subject…</option>
-              {SUBJECTS.map(s => (
+              {COURSE_SUBJECTS.map(s => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>

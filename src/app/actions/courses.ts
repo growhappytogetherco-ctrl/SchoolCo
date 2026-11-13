@@ -101,7 +101,16 @@ async function assertStaff(orgId: string) {
   if (!data || !staffRoles.includes((data as any).role)) {
     throw new Error("Insufficient permissions");
   }
-  return { supabase, user };
+  return { supabase, user, role: (data as any).role as string };
+}
+
+async function assertAdmin(orgId: string) {
+  const ctx = await assertStaff(orgId);
+  const adminRoles = ["admin","full_admin","platform_admin"];
+  if (!adminRoles.includes(ctx.role)) {
+    throw new Error("Admin role required");
+  }
+  return ctx;
 }
 
 // ── Queries ──────────────────────────────────────────────────────────────────
@@ -444,12 +453,16 @@ export async function updateCourseSection(
     courseName?: string;
     staffRosterId?: string | null;   // staff_roster.id
     teacherName?: string | null;
+    subject?: string;                // admin-only
   }
 ): Promise<ActionResult<void>> {
   try {
     const orgId = await getActiveOrgId();
     if (!orgId) return { success: false, error: "No active org" };
-    const { supabase } = await assertStaff(orgId);
+    // Subject changes require admin role; all other fields require staff.
+    const { supabase } = payload.subject !== undefined
+      ? await assertAdmin(orgId)
+      : await assertStaff(orgId);
 
     const updates: Record<string, unknown> = {};
     if (payload.courseName !== undefined) updates.course_name = payload.courseName.trim();
@@ -468,6 +481,7 @@ export async function updateCourseSection(
       updates.teacher_id = resolvedTeacherId;
     }
     if (payload.teacherName !== undefined) updates.teacher_name = payload.teacherName;
+    if (payload.subject !== undefined) updates.subject = payload.subject;
 
     const { error } = await supabase
       .from("course_sections")

@@ -1121,6 +1121,8 @@ const SUBJECT_AREA_TO_CATEGORY: Record<string, string> = {
   entrepreneurship: "elective",
   leadership: "elective",
   stem: "elective",
+  spanish: "elective",
+  geography: "social_studies",
 };
 
 export async function syncAcademicHistoryToPlan(

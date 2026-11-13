@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ChevronLeft, BookOpen, Settings } from "lucide-react";
 import { getUser, getActiveOrgId } from "@/lib/supabase/server";
 import { requireStaff } from "@/lib/roleGuard";
-import { isFinalizationRole } from "@/lib/constants";
+import { isFinalizationRole, isAdminRole } from "@/lib/constants";
 import { getCourseDetail, getStaffForTeacherSelect } from "@/app/actions/courses";
 import { getSectionFinalizationRoster } from "@/app/actions/courseFinalization";
 import { getSectionGradingPeriods } from "@/app/actions/enrollmentCredit";
@@ -50,6 +50,7 @@ export default async function CourseDetailPage({
   const { id } = await params;
   const currentRole = await getActiveRole();
   const canFinalize = isFinalizationRole(currentRole);
+  const canEditSubject = isAdminRole(currentRole ?? "");
 
   const [detailResult, staffResult, periodsResult] = await Promise.all([
     getCourseDetail(id),
@@ -116,6 +117,7 @@ export default async function CourseDetailPage({
         teacherName={section.teacher_name}
         roster={roster}
         staff={staff}
+        canEditSubject={canEditSubject}
       />
 
       {/* Grading settings */}

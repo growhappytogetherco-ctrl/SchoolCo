@@ -9,6 +9,7 @@ import {
   getStudentsForCourseSetup,
   updateCourseSection,
 } from "@/app/actions/courses";
+import { COURSE_SUBJECTS } from "@/lib/courseSubjects";
 
 interface Props {
   sectionId: string;
@@ -18,16 +19,18 @@ interface Props {
   teacherName: string | null;
   roster: CourseStudent[];
   staff: StaffOption[];
+  canEditSubject: boolean;
 }
 
 export function CourseRoster({
   sectionId,
-  subject,
+  subject: initialSubject,
   courseName,
   staffRosterId: initialStaffRosterId,
   teacherName: initialTeacherName,
   roster: initialRoster,
   staff,
+  canEditSubject,
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [roster, setRoster] = useState(initialRoster);
@@ -40,6 +43,11 @@ export function CourseRoster({
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(courseName);
 
+  // Subject editing (admin only)
+  const [currentSubject, setCurrentSubject] = useState(initialSubject);
+  const [editingSubject, setEditingSubject] = useState(false);
+  const [subjectInput, setSubjectInput] = useState(initialSubject);
+
   // Add student panel
   const [showAdd, setShowAdd] = useState(false);
   const [addStudents, setAddStudents] = useState<StudentForSetup[]>([]);
@@ -49,7 +57,7 @@ export function CourseRoster({
   async function openAddPanel() {
     setShowAdd(true);
     setLoadingAdd(true);
-    const result = await getStudentsForCourseSetup(subject);
+    const result = await getStudentsForCourseSetup(currentSubject);
     setLoadingAdd(false);
     if (result.success) {
       // Filter out students already in the roster
@@ -77,7 +85,7 @@ export function CourseRoster({
         sectionId,
         studentId: student.student_id,
         enrollmentId: student.enrollment_id,
-        subject,
+        subject: currentSubject,
         courseName,
       });
       if (result.success) {
@@ -108,6 +116,21 @@ export function CourseRoster({
         flash("Course name updated.");
       } else {
         setError(result.error ?? "Failed to update course name.");
+      }
+    });
+  }
+
+  function handleSaveSubject() {
+    if (!subjectInput) { setError("Subject cannot be blank."); return; }
+    if (subjectInput === currentSubject) { setEditingSubject(false); return; }
+    startTransition(async () => {
+      const result = await updateCourseSection(sectionId, { subject: subjectInput });
+      if (result.success) {
+        setCurrentSubject(subjectInput);
+        setEditingSubject(false);
+        flash("Subject updated. Future finalizations will use the new subject.");
+      } else {
+        setError(result.error ?? "Failed to update subject.");
       }
     });
   }
@@ -190,6 +213,63 @@ export function CourseRoster({
           </div>
         ) : (
           <p className="text-body-md text-sc-navy">{currentCourseName}</p>
+        )}
+      </div>
+
+      {/* Subject (admin-only editing) */}
+      <div className="rounded-2xl bg-white border border-sc-gray-100 shadow-card p-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="font-medium text-sc-navy">Subject</h2>
+            {canEditSubject && !editingSubject && (
+              <p className="text-label-sm text-sc-gray mt-0.5">
+                Affects future finalizations only. Existing Academic History records are unchanged.
+              </p>
+            )}
+          </div>
+          {canEditSubject && !editingSubject && (
+            <button
+              onClick={() => { setSubjectInput(currentSubject); setEditingSubject(true); }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sc-gray-200 px-3 py-1.5 text-label-sm text-sc-gray hover:text-sc-navy hover:border-sc-gray-400 transition-colors"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </button>
+          )}
+        </div>
+        {editingSubject ? (
+          <div className="flex items-center gap-2">
+            <select
+              value={subjectInput}
+              onChange={e => setSubjectInput(e.target.value)}
+              autoFocus
+              className="flex-1 rounded-lg border border-sc-teal px-3 py-2 text-body-md text-sc-navy bg-white focus:outline-none focus:ring-2 focus:ring-sc-teal/30"
+            >
+              <option value="">Select a subject…</option>
+              {COURSE_SUBJECTS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleSaveSubject}
+              disabled={isPending}
+              className="inline-flex items-center gap-1 rounded-lg bg-sc-teal px-3 py-2 text-white text-label-sm font-medium hover:bg-sc-teal-700 disabled:opacity-50 transition-colors"
+            >
+              <Check className="h-4 w-4" />
+              Save
+            </button>
+            <button
+              onClick={() => setEditingSubject(false)}
+              disabled={isPending}
+              className="p-2 rounded-lg text-sc-gray-400 hover:text-sc-navy hover:bg-sc-gray-100 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <p className="text-body-md text-sc-navy">
+            {COURSE_SUBJECTS.find(s => s.value === currentSubject)?.label ?? currentSubject}
+          </p>
         )}
       </div>
 
@@ -290,7 +370,7 @@ export function CourseRoster({
                   <div className="flex-1 min-w-0">
                     <p className="text-body-md text-sc-navy truncate">{s.student_name}</p>
                     {s.already_in_another_section && (
-                      <p className="text-label-sm text-sc-gold-700">Currently in another {subject} class</p>
+                      <p className="text-label-sm text-sc-gold-700">Currently in another {currentSubject} class</p>
                     )}
                     {s.curriculum_name && !s.already_in_another_section && (
                       <p className="text-label-sm text-sc-gray truncate">{s.curriculum_name}</p>
