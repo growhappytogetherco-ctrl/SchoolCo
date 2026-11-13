@@ -226,13 +226,46 @@ function calculateGpa(records: any[]): number | null {
 }
 
 // ── Department credits ─────────────────────────────────────────────────────────
-// Maps subject_area enum values → display department label for transcript summary.
-// These match the values documented in migration 00071 comments.
+// Step 1: normalize any subject_area value to a canonical department key.
+// Both imported long-form values (english_ela, mathematics, pe_health) and
+// SchoolCo-native short-form values (ela, math, pe) map to the same key,
+// so mixed records for the same student combine into one department row.
+const SUBJECT_TO_DEPT: Record<string, string> = {
+  // ELA
+  english_ela: "ela", english: "ela", ela: "ela",
+  reading: "ela", writing: "ela",
+  // Math
+  mathematics: "math", math: "math",
+  // Science
+  science: "science",
+  // Social Studies / History
+  social_studies: "social_studies", history: "social_studies",
+  geography: "social_studies",
+  // Personal Finance
+  personal_finance: "personal_finance", pfl: "personal_finance",
+  // World Language / Foreign Language
+  world_language: "world_language", spanish: "world_language",
+  foreign_language: "world_language",
+  // Fine Arts
+  fine_arts: "fine_arts", art: "fine_arts", music: "fine_arts",
+  // PE / Health
+  pe_health: "pe_health", pe: "pe_health",
+  physical_education: "pe_health", health: "pe_health",
+  // Career & Technical Education
+  career_technical: "career_technical",
+  // Named elective departments (shown individually)
+  leadership: "leadership",
+  entrepreneurship: "entrepreneurship",
+  stem: "stem",
+  bible: "bible",
+  // Generic elective / other
+  elective: "elective", other: "elective",
+};
 
+// Step 2: canonical department key → display label for the summary table.
 const DEPT_LABEL: Record<string, string> = {
-  // Normalized AH subject_area values (from imported / AI-proposed records)
-  english_ela:       "English / ELA",
-  mathematics:       "Mathematics",
+  ela:               "English / ELA",
+  math:              "Mathematics",
   science:           "Science",
   social_studies:    "History / Social Studies",
   personal_finance:  "Personal Financial Literacy",
@@ -245,16 +278,6 @@ const DEPT_LABEL: Record<string, string> = {
   stem:              "STEM",
   bible:             "Bible",
   elective:          "Elective / Other",
-  other:             "Elective / Other",
-  // Short-form course_sections.subject values (from SchoolCo-native finalization)
-  ela:               "English / ELA",
-  math:              "Mathematics",
-  history:           "History / Social Studies",
-  geography:         "History / Social Studies",
-  art:               "Fine Arts",
-  music:             "Fine Arts",
-  pe:                "Physical Education / Health",
-  spanish:           "Foreign Language",
 };
 
 function buildDepartmentCredits(
@@ -270,19 +293,19 @@ function buildDepartmentCredits(
     if (earned <= 0) continue;
 
     const area = (r.subject_area ?? "").trim().toLowerCase();
-    const label = DEPT_LABEL[area];
-    if (!label) {
+    const deptKey = SUBJECT_TO_DEPT[area];
+    if (!deptKey) {
       unclassified = Math.round((unclassified + earned) * 100) / 100;
       continue;
     }
-    map.set(label, Math.round(((map.get(label) ?? 0) + earned) * 100) / 100);
+    map.set(deptKey, Math.round(((map.get(deptKey) ?? 0) + earned) * 100) / 100);
   }
 
   const departments: DepartmentCredit[] = [];
-  for (const [dept, credits] of Array.from(map.entries())) {
-    departments.push({ department: dept, credits });
+  for (const [key, credits] of Array.from(map.entries())) {
+    const department = DEPT_LABEL[key] ?? key;
+    departments.push({ department, credits });
   }
-  // Sort by dept name alphabetically for consistent display
   departments.sort((a, b) => a.department.localeCompare(b.department));
   return { departments, unclassified };
 }
