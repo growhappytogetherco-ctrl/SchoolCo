@@ -159,8 +159,13 @@ export function SlotEntryRow({ entry, planId, onUpdate, isSlot = false }: Props)
   }
 
   const courseName = entry.display_name ?? entry.course_record?.course_name ?? null;
-  const credits = entry.display_credits_planned ?? entry.course_record?.credits_earned ?? 0;
   const status = inferStatus(entry);
+  // For verified/completed entries with an AH record, show actual earned credits.
+  // For planned/in-progress entries, show the planned slot size.
+  const isEarned = (status === "Verified" || status === "Completed") && entry.course_record?.credits_earned != null;
+  const credits = isEarned
+    ? entry.course_record!.credits_earned!
+    : (entry.display_credits_planned ?? 0);
   const hasManualCredits = entry.manual_credits.length > 0;
   const isLinked = !!entry.course_record_id || !!entry.enrollment_id;
 

@@ -94,7 +94,7 @@ export function RequirementRow({ requirement, entries, earnedCredits, pct, planI
           <div className="hidden sm:flex items-center gap-2 mb-1 px-3">
             <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-36 shrink-0">Slot / Course</span>
             <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide flex-1">Actual Course Taken</span>
-            <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-10 text-right shrink-0">Cr</span>
+            <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-10 text-right shrink-0" title="Earned credits for verified/completed courses; planned credits for all others">Cr</span>
             <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-20 shrink-0">Status</span>
             <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-12 shrink-0">Inst</span>
             <span className="text-[10px] text-sc-gray-400 uppercase tracking-wide w-16 shrink-0">Grade</span>
