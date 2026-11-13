@@ -234,6 +234,7 @@ const DEPT_LABEL: Record<string, string> = {
   mathematics:       "Mathematics",
   science:           "Science",
   social_studies:    "History / Social Studies",
+  personal_finance:  "Personal Financial Literacy",
   world_language:    "Foreign Language",
   fine_arts:         "Fine Arts",
   pe_health:         "Physical Education / Health",

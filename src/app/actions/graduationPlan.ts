@@ -1111,6 +1111,16 @@ const SUBJECT_AREA_TO_CATEGORY: Record<string, string> = {
   pe_health: "pe_health",
   physical_education: "pe_health",
   health: "pe_health",
+  // Elective-class subjects — route to Electives rather than Needs Classification.
+  // career_technical is intentionally omitted: some CTE courses qualify for the
+  // Fine Arts/Speech/CTE requirement; admins must classify each course explicitly
+  // via the subject_area dropdown on the Academic History record.
+  elective: "elective",
+  world_language: "elective",
+  bible: "elective",
+  entrepreneurship: "elective",
+  leadership: "elective",
+  stem: "elective",
 };
 
 export async function syncAcademicHistoryToPlan(

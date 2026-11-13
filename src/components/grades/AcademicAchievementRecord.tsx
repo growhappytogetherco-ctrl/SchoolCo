@@ -70,6 +70,7 @@ const SUBJECT_AREA_OPTIONS = [
   { value: "entrepreneurship",  label: "Entrepreneurship" },
   { value: "elective",          label: "Elective" },
   { value: "bible",             label: "Bible" },
+  { value: "personal_finance",  label: "Personal Financial Literacy" },
   { value: "other",             label: "Other" },
 ];
 
